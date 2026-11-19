@@ -1,0 +1,17 @@
+# Build output
+build/
+app/build/
+.gradle/
+.cxx/
+.externalNativeBuild/
+local.properties
+*.apk
+*.aab
+
+# IDEs
+.idea/
+*.iml
+.vscode/
+
+# Test runs
+riscv-tests/
