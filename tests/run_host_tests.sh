@@ -12,8 +12,11 @@ echo "== exception model"
 "$build/exc_test" "$build/exc_test.bin"
 
 echo "== instruction set against Unicorn"
-if python3 -c "import unicorn" 2>/dev/null; then
+if python3 -I -c "import unicorn" 2>/dev/null; then
     python3 -I "$root/tests/cpu/diff_test.py" "$build/libcmtest.so" --cases 5000 --seed "${SEED:-1}"
+elif [ -n "$REQUIRE_UNICORN" ]; then
+    echo "python3 module 'unicorn' not installed" >&2
+    exit 1
 else
     echo "skipped: python3 module 'unicorn' not installed"
 fi

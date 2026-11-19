@@ -14,11 +14,15 @@ jobs:
     steps:
       - uses: actions/checkout@v5
 
+      - uses: actions/setup-python@v6
+        with:
+          python-version: "3.12"
+
       - name: Install tools
         run: |
           sudo apt-get update
           sudo apt-get install -y gcc-arm-none-eabi binutils-arm-none-eabi cmake ninja-build clang
-          pip install unicorn==2.1.4
+          python -m pip install unicorn==2.1.4
 
       - name: Generated chip data is up to date
         run: |
@@ -28,6 +32,7 @@ jobs:
       - name: Exception model, instruction set against Unicorn, Stellaris transcripts
         env:
           CC: clang
+          REQUIRE_UNICORN: 1
         run: tests/run_host_tests.sh build/host
 
   android:
