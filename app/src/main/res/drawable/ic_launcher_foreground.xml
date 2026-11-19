@@ -1,18 +1,44 @@
 <?xml version="1.0" encoding="utf-8"?>
-<!-- Breadboard holes as a 5x7 dot matrix; the lit ones spell S. -->
+<!-- A lit LED with its legs in a breadboard: the first circuit. -->
 <vector xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:aapt="http://schemas.android.com/aapt"
     android:width="108dp"
     android:height="108dp"
     android:viewportWidth="108"
     android:viewportHeight="108">
+    <path android:pathData="M54,42m-30,0a30,30 0 1,0 60,0a30,30 0 1,0 -60,0">
+        <aapt:attr name="android:fillColor">
+            <gradient
+                android:type="radial"
+                android:centerX="54"
+                android:centerY="42"
+                android:gradientRadius="30"
+                android:startColor="#8CFFB454"
+                android:centerColor="#40FFB454"
+                android:endColor="#00FFB454" />
+        </aapt:attr>
+    </path>
     <path
         android:fillColor="@color/icon_hole"
-        android:pathData="M36.80,31.20a2,2 0 1,0 4,0a2,2 0 1,0 -4,0zM67.20,31.20a2,2 0 1,0 4,0a2,2 0 1,0 -4,0zM44.40,38.80a2,2 0 1,0 4,0a2,2 0 1,0 -4,0zM52.00,38.80a2,2 0 1,0 4,0a2,2 0 1,0 -4,0zM59.60,38.80a2,2 0 1,0 4,0a2,2 0 1,0 -4,0zM44.40,46.40a2,2 0 1,0 4,0a2,2 0 1,0 -4,0zM52.00,46.40a2,2 0 1,0 4,0a2,2 0 1,0 -4,0zM59.60,46.40a2,2 0 1,0 4,0a2,2 0 1,0 -4,0zM67.20,46.40a2,2 0 1,0 4,0a2,2 0 1,0 -4,0zM36.80,54.00a2,2 0 1,0 4,0a2,2 0 1,0 -4,0zM67.20,54.00a2,2 0 1,0 4,0a2,2 0 1,0 -4,0zM36.80,61.60a2,2 0 1,0 4,0a2,2 0 1,0 -4,0zM44.40,61.60a2,2 0 1,0 4,0a2,2 0 1,0 -4,0zM52.00,61.60a2,2 0 1,0 4,0a2,2 0 1,0 -4,0zM59.60,61.60a2,2 0 1,0 4,0a2,2 0 1,0 -4,0zM44.40,69.20a2,2 0 1,0 4,0a2,2 0 1,0 -4,0zM52.00,69.20a2,2 0 1,0 4,0a2,2 0 1,0 -4,0zM59.60,69.20a2,2 0 1,0 4,0a2,2 0 1,0 -4,0zM36.80,76.80a2,2 0 1,0 4,0a2,2 0 1,0 -4,0zM67.20,76.80a2,2 0 1,0 4,0a2,2 0 1,0 -4,0z" />
+        android:pathData="M37.6,79a2.4,2.4 0 1,0 4.8,0a2.4,2.4 0 1,0 -4.8,0zM46.6,79a2.4,2.4 0 1,0 4.8,0a2.4,2.4 0 1,0 -4.8,0zM55.6,79a2.4,2.4 0 1,0 4.8,0a2.4,2.4 0 1,0 -4.8,0zM64.6,79a2.4,2.4 0 1,0 4.8,0a2.4,2.4 0 1,0 -4.8,0z" />
     <path
-        android:fillColor="@color/icon_foreground"
-        android:fillAlpha="0.25"
-        android:pathData="M42.00,31.20a4.4,4.4 0 1,0 8.8,0a4.4,4.4 0 1,0 -8.8,0zM49.60,31.20a4.4,4.4 0 1,0 8.8,0a4.4,4.4 0 1,0 -8.8,0zM57.20,31.20a4.4,4.4 0 1,0 8.8,0a4.4,4.4 0 1,0 -8.8,0zM34.40,38.80a4.4,4.4 0 1,0 8.8,0a4.4,4.4 0 1,0 -8.8,0zM64.80,38.80a4.4,4.4 0 1,0 8.8,0a4.4,4.4 0 1,0 -8.8,0zM34.40,46.40a4.4,4.4 0 1,0 8.8,0a4.4,4.4 0 1,0 -8.8,0zM42.00,54.00a4.4,4.4 0 1,0 8.8,0a4.4,4.4 0 1,0 -8.8,0zM49.60,54.00a4.4,4.4 0 1,0 8.8,0a4.4,4.4 0 1,0 -8.8,0zM57.20,54.00a4.4,4.4 0 1,0 8.8,0a4.4,4.4 0 1,0 -8.8,0zM64.80,61.60a4.4,4.4 0 1,0 8.8,0a4.4,4.4 0 1,0 -8.8,0zM34.40,69.20a4.4,4.4 0 1,0 8.8,0a4.4,4.4 0 1,0 -8.8,0zM64.80,69.20a4.4,4.4 0 1,0 8.8,0a4.4,4.4 0 1,0 -8.8,0zM42.00,76.80a4.4,4.4 0 1,0 8.8,0a4.4,4.4 0 1,0 -8.8,0zM49.60,76.80a4.4,4.4 0 1,0 8.8,0a4.4,4.4 0 1,0 -8.8,0zM57.20,76.80a4.4,4.4 0 1,0 8.8,0a4.4,4.4 0 1,0 -8.8,0z" />
+        android:fillColor="#00000000"
+        android:pathData="M49,57 V79 M59,57 V63 L67,71 V79"
+        android:strokeColor="@color/icon_lead"
+        android:strokeWidth="2.6"
+        android:strokeLineCap="round"
+        android:strokeLineJoin="round" />
     <path
-        android:fillColor="@color/icon_foreground"
-        android:pathData="M43.50,31.20a2.9,2.9 0 1,0 5.8,0a2.9,2.9 0 1,0 -5.8,0zM51.10,31.20a2.9,2.9 0 1,0 5.8,0a2.9,2.9 0 1,0 -5.8,0zM58.70,31.20a2.9,2.9 0 1,0 5.8,0a2.9,2.9 0 1,0 -5.8,0zM35.90,38.80a2.9,2.9 0 1,0 5.8,0a2.9,2.9 0 1,0 -5.8,0zM66.30,38.80a2.9,2.9 0 1,0 5.8,0a2.9,2.9 0 1,0 -5.8,0zM35.90,46.40a2.9,2.9 0 1,0 5.8,0a2.9,2.9 0 1,0 -5.8,0zM43.50,54.00a2.9,2.9 0 1,0 5.8,0a2.9,2.9 0 1,0 -5.8,0zM51.10,54.00a2.9,2.9 0 1,0 5.8,0a2.9,2.9 0 1,0 -5.8,0zM58.70,54.00a2.9,2.9 0 1,0 5.8,0a2.9,2.9 0 1,0 -5.8,0zM66.30,61.60a2.9,2.9 0 1,0 5.8,0a2.9,2.9 0 1,0 -5.8,0zM35.90,69.20a2.9,2.9 0 1,0 5.8,0a2.9,2.9 0 1,0 -5.8,0zM66.30,69.20a2.9,2.9 0 1,0 5.8,0a2.9,2.9 0 1,0 -5.8,0zM43.50,76.80a2.9,2.9 0 1,0 5.8,0a2.9,2.9 0 1,0 -5.8,0zM51.10,76.80a2.9,2.9 0 1,0 5.8,0a2.9,2.9 0 1,0 -5.8,0zM58.70,76.80a2.9,2.9 0 1,0 5.8,0a2.9,2.9 0 1,0 -5.8,0z" />
+        android:fillColor="@color/icon_led"
+        android:pathData="M42,55 V39 A12,12 0 0 1 66,39 V55 Z" />
+    <path
+        android:fillColor="@color/icon_led"
+        android:pathData="M40.5,52.5 h27 a1.2,1.2 0 0 1 1.2,1.2 v3.6 a1.2,1.2 0 0 1 -1.2,1.2 h-27 a1.2,1.2 0 0 1 -1.2,-1.2 v-3.6 a1.2,1.2 0 0 1 1.2,-1.2 z" />
+    <path
+        android:fillColor="#00000000"
+        android:pathData="M47.5,46 V40 A6.5,6.5 0 0 1 51.8,33.9"
+        android:strokeColor="@color/icon_led_highlight"
+        android:strokeWidth="2.4"
+        android:strokeLineCap="round"
+        android:strokeLineJoin="round" />
 </vector>
