@@ -31,6 +31,12 @@ data class Board(val parts: List<Part> = emptyList()) {
     // ------------------------------------------------------------------
     // What the emulator needs: one attachment per terminal (sl_attach)
 
+    /** (part id, role, kind) of each attachment, in the order [attachments] lists them */
+    fun attachmentOrder(chip: ChipPins): List<Triple<Int, Int, Int>> {
+        val a = attachments(chip)
+        return (0 until a.size / 8).map { Triple(a[8 * it], a[8 * it + 1], a[8 * it + 3]) }
+    }
+
     fun attachments(chip: ChipPins): IntArray {
         val out = ArrayList<Int>()
         fun att(part: Int, role: Int, pin: String, kind: Int, toVcc: Boolean, r: Int, vf: Int, bounce: Int) {

@@ -114,6 +114,34 @@
                 android:text="@string/keep_screen_on_hint"
                 android:textColor="@color/label"
                 android:textSize="13sp" />
+
+            <TextView
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="24dp"
+                android:text="@string/header_order"
+                android:textColor="@color/bar_text"
+                android:textSize="16sp" />
+
+            <RadioGroup
+                android:id="@+id/headerOrder"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content">
+
+                <RadioButton
+                    android:id="@+id/headerAdapter"
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:text="@string/header_order_adapter"
+                    android:textColor="@color/console_text" />
+
+                <RadioButton
+                    android:id="@+id/headerPort"
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:text="@string/header_order_port"
+                    android:textColor="@color/console_text" />
+            </RadioGroup>
         </LinearLayout>
     </ScrollView>
 </LinearLayout>

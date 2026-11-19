@@ -25,7 +25,14 @@ class Settings(context: Context) {
         get() = prefs.getBoolean(KEEP_SCREEN_ON, false)
         set(v) = prefs.edit().putBoolean(KEEP_SCREEN_ON, v).apply()
 
+    /** Order of the chip's pins along the Board tab's edges */
+    var headerOrder: io.github.leukoplast1980.solderless.board.HeaderOrder
+        get() = runCatching { io.github.leukoplast1980.solderless.board.HeaderOrder.valueOf(prefs.getString(HEADER_ORDER, "")!!) }
+            .getOrDefault(io.github.leukoplast1980.solderless.board.HeaderOrder.ADAPTER)
+        set(v) = prefs.edit().putString(HEADER_ORDER, v.name).apply()
+
     companion object {
+        private const val HEADER_ORDER = "headerOrder"
         const val MIN_TEXT_SIZE = 10
         const val MAX_TEXT_SIZE = 24
         const val DEFAULT_TEXT_SIZE = 14
