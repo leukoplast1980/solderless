@@ -675,3 +675,42 @@ void sl_run(sl_vm *vm)
     pthread_cond_broadcast(&vm->host_cv);
     pthread_mutex_unlock(&vm->lock);
 }
+
+/* ---- The breadboard ---------------------------------------------------- */
+
+struct board_set_io { const sl_attach *att; int n; };
+static void board_set_fn(sl_vm *vm, void *arg)
+{
+    struct board_set_io *io = arg;
+    board_set(vm->soc, io->att, io->n);
+}
+
+void sl_board_set(sl_vm *vm, const sl_attach *att, int n)
+{
+    struct board_set_io io = { att, n };
+    run_on_vm(vm, board_set_fn, &io);
+    atomic_store(&vm->input_new, 1);
+    wake_vm(vm);
+}
+
+struct board_input_io { int part, value; };
+static void board_input_fn(sl_vm *vm, void *arg)
+{
+    struct board_input_io *io = arg;
+    board_input(vm->soc, io->part, io->value);
+}
+
+void sl_board_input(sl_vm *vm, int part, int value)
+{
+    struct board_input_io io = { part, value };
+    run_on_vm(vm, board_input_fn, &io);
+    atomic_store(&vm->input_new, 1);
+    wake_vm(vm);
+}
+
+static void board_read_fn(sl_vm *vm, void *arg) { board_read(vm->soc, arg); }
+
+void sl_board_read(sl_vm *vm, sl_board_state *out)
+{
+    run_on_vm(vm, board_read_fn, out);
+}

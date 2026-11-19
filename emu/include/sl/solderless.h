@@ -97,6 +97,60 @@ uint32_t sl_peek32(sl_vm *vm, uint32_t addr);
  * lines into buf, each ending in '\n'. Returns bytes copied. */
 size_t sl_log_read(sl_vm *vm, char *buf, size_t len);
 
+/* ---- The breadboard ---------------------------------------------------
+ *
+ * The app works out the circuit (parts, pins, passives) and hands the
+ * emulator one attachment per part terminal on a chip pin. Pins are given
+ * as port * 16 + bit: PA0 = 0, PC13 = 45, PD2 = 50. */
+
+#define SL_PIN_SLOTS    112     /* GPIOA..GPIOG x 16 */
+#define SL_MAX_ATTACH   64
+
+enum {
+    SL_ATT_LED = 1,     /* r_ohm in series, then an LED (vf_mv) to GND, or from 3V3 if to_vcc */
+    SL_ATT_SWITCH,      /* push button from the pin to GND, or to 3V3 if to_vcc; bounces for bounce_us */
+    SL_ATT_PULL,        /* resistor r_ohm to 3V3 (to_vcc) or GND */
+    SL_ATT_POT,         /* wiper of a potentiometer of r_ohm between 3V3 and GND */
+    SL_ATT_AUDIO,       /* piezo or speaker stage: listens, does not load the pin */
+};
+
+typedef struct {
+    int part;           /* the app's part number; inputs address parts by it */
+    int role;           /* which terminal of the part (RGB: 0 red, 1 green, 2 blue) */
+    int pin;            /* port * 16 + bit */
+    int kind;           /* SL_ATT_* */
+    int to_vcc;
+    int r_ohm;
+    int vf_mv;
+    int bounce_us;
+} sl_attach;
+
+/* Replaces the whole board. */
+void sl_board_set(sl_vm *vm, const sl_attach *att, int n);
+
+/* User input: a switch part's pressed state (0/1), or a pot's wiper
+ * position in per mille (0 = at GND, 1000 = at 3V3). */
+void sl_board_input(sl_vm *vm, int part, int value);
+
+enum {
+    SL_PIN_HIGH = 1, SL_PIN_FLOATING = 2, SL_PIN_SHORT = 4, SL_PIN_PWM = 8,
+    SL_PIN_UNDEFINED = 16, SL_PIN_CHIP_DRIVES = 32, SL_PIN_USED = 64,
+};
+enum { SL_MODE_INPUT, SL_MODE_OUTPUT, SL_MODE_AF, SL_MODE_ANALOG };
+
+typedef struct {
+    int16_t mv[SL_PIN_SLOTS];           /* net voltage, -1 when floating */
+    uint8_t flags[SL_PIN_SLOTS];        /* SL_PIN_* */
+    uint8_t mode[SL_PIN_SLOTS];         /* SL_MODE_*, from MODER */
+    uint16_t duty[SL_PIN_SLOTS];        /* time high since the last read, per mille */
+    uint32_t freq_mhz[SL_PIN_SLOTS];    /* PWM frequency in mHz */
+    int32_t current_ua[SL_MAX_ATTACH];  /* average current through each attachment */
+    uint64_t time_ns;
+} sl_board_state;
+
+/* Reads the board and starts a new averaging window. */
+void sl_board_read(sl_vm *vm, sl_board_state *out);
+
 #ifdef __cplusplus
 }
 #endif

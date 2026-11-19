@@ -2,9 +2,8 @@
  * Solderless - general-purpose I/O ports (RM0440 chapter 9).
  * Copyright (C) 2026 The Solderless authors. GPL-3.0-or-later.
  *
- * Pin levels come from the port's own drivers and from whatever the board
- * connects to the pin. For now the board is only the serial adapter on
- * PA2/PA3; milestone 2 replaces that with the breadboard's nets.
+ * Pin levels come from the breadboard (emu/board), which combines the
+ * port's own drivers with whatever the board connects to each pin.
  */
 #include "soc.h"
 
@@ -31,24 +30,9 @@ void gpio_reset(struct sl_soc *s)
 
 uint32_t gpio_idr(struct sl_soc *s, int port)
 {
-    uint32_t *r = port_regs(s, port);
-    uint32_t moder = r[MODER / 4], otyper = r[OTYPER / 4], pupdr = r[PUPDR / 4], odr = r[ODR / 4];
-    uint32_t ext = s->pin_ext_drive[port], lvl = s->pin_ext_level[port], idr = 0;
-    for (int p = 0; p < 16; p++) {
-        uint32_t mode = (moder >> (2 * p)) & 3u, pull = (pupdr >> (2 * p)) & 3u;
-        uint32_t bit = 1u << p, v;
-        uint32_t idle = (ext & bit) ? (lvl & bit) : (pull == 1 ? bit : 0);
-        switch (mode) {
-        case 0: v = idle; break;                                   /* input */
-        case 1:                                                     /* output */
-            if (!(otyper & bit)) v = odr & bit;
-            else v = (odr & bit) ? idle : 0;                       /* open drain */
-            break;
-        case 2: v = (ext & bit) ? (lvl & bit) : (pull == 2 ? 0 : bit); break;   /* alternate function */
-        default: v = 0; break;                                      /* analog */
-        }
-        idr |= v;
-    }
+    uint32_t moder = port_regs(s, port)[MODER / 4], idr = 0;
+    for (int p = 0; p < 16; p++)
+        if (((moder >> (2 * p)) & 3u) != 3u && board_pin_level(s, port, p)) idr |= 1u << p;   /* analog: reads 0 */
     return idr;
 }
 
@@ -56,7 +40,7 @@ uint32_t gpio_read(struct sl_soc *s, int port, uint32_t off)
 {
     uint32_t *r = port_regs(s, port);
     switch (off) {
-    case IDR: return gpio_idr(s, port);
+    case IDR: board_idr_read(s, port); return gpio_idr(s, port);
     case BSRR: case BRR: return 0;                                  /* write-only */
     case LCKR: return (lock_step[port] == 4 ? 1u << 16 : 0) | lock_bits[port];
     default: return r[off / 4];
@@ -79,16 +63,23 @@ void gpio_write(struct sl_soc *s, int port, uint32_t off, uint32_t v, uint32_t m
     uint32_t keep;
     switch (off) {
     case BSRR: {
-        uint32_t w = v & mask;
+        uint32_t w = v & mask, was = r[ODR / 4];
         r[ODR / 4] = (r[ODR / 4] & ~(w >> 16)) | (w & 0xFFFFu);    /* set wins over reset */
+        if (r[ODR / 4] != was) board_port_changed(s, port, r[ODR / 4] ^ was);
         return;
     }
-    case BRR:
+    case BRR: {
+        uint32_t was = r[ODR / 4];
         r[ODR / 4] &= ~(v & mask & 0xFFFFu);
+        if (r[ODR / 4] != was) board_port_changed(s, port, r[ODR / 4] ^ was);
         return;
-    case ODR:
+    }
+    case ODR: {
+        uint32_t was = r[ODR / 4];
         r[ODR / 4] = (r[ODR / 4] & ~(mask & 0xFFFFu)) | (v & mask & 0xFFFFu);
+        if (r[ODR / 4] != was) board_port_changed(s, port, r[ODR / 4] ^ was);
         return;
+    }
     case IDR:
         return;
     case LCKR: {
@@ -109,7 +100,19 @@ void gpio_write(struct sl_soc *s, int port, uint32_t off, uint32_t v, uint32_t m
     default: keep = 0; break;
     }
     uint32_t wm = s->wmask[s->pi_gpio[port]][off / 4] & mask & ~keep;
+    uint32_t was = r[off / 4];
     r[off / 4] = (r[off / 4] & ~wm) | (v & wm);
+    uint32_t diff = was ^ r[off / 4], pins = 0;
+    if (!diff) return;
+    /* Which pins' configuration changed: 1, 2 or 4 bits per pin */
+    for (int p = 0; p < 16; p++) {
+        uint32_t m = off == OTYPER ? 1u << p
+                   : off == AFRL ? (p < 8 ? 15u << (4 * p) : 0)
+                   : off == AFRH ? (p >= 8 ? 15u << (4 * (p - 8)) : 0)
+                   : 3u << (2 * p);
+        if (diff & m) pins |= 1u << p;
+    }
+    board_port_changed(s, port, pins);
 }
 
 int gpio_pin_af(struct sl_soc *s, int port, int pin)

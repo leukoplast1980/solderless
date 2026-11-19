@@ -1,0 +1,95 @@
+\ The breadboard: an LED, a button, a pot, EXTI, ADC, PWM, DAC.  ok.
+: wait ( n -- ) 0 do loop ;  ok.
+$40021000 constant RCC  ok.
+RCC $4C + constant AHB2ENR  ok.
+RCC $58 + constant APB1ENR1  ok.
+RCC $60 + constant APB2ENR  ok.
+$48000800 constant GPIOC  ok.
+$48000C00 constant GPIOD  ok.
+#!attach 1 led PD2 r=270 vf=1900
+#!attach 2 switch PC13
+#!attach 3 pot PC0
+#!pins
+PC0 analog    1650 mV high
+PC13 analog    floating
+PD2 analog    floating  LED 1: 0.000 mA
+\ LED on PD2: output, high  ok.
+%1000 AHB2ENR bis!  ok.
+%11 4 lshift GPIOD bic!  %01 4 lshift GPIOD bis!  ok.
+%100 GPIOD $18 + !  ok.
+#!pins
+PC0 analog    1650 mV high
+PC13 analog    floating
+PD2 output    3300 mV high  LED 1: 0.122 mA
+\ Button on PC13 to GND, no pull-up yet: floating  ok.
+%100 AHB2ENR bis!  ok.
+%11 26 lshift GPIOC bic!  ok.
+GPIOC $10 + @ drop  ok.
+
+[chip] PC13 floats: nothing drives it and its pull-up is off (GPIOC_PUPDR), so it reads at random (PC 0x000017E0)
+#!pins
+PC0 analog    1650 mV high
+PC13 input     floating
+PD2 output    3300 mV high  LED 1: 4.516 mA
+\ Pull-up on, then press and release  ok.
+%01 26 lshift GPIOC $0C + bis!  ok.
+GPIOC $10 + @ 13 rshift 1 and . 1  ok.
+#!input 2 1
+GPIOC $10 + @ 13 rshift 1 and . 0  ok.
+\ EXTI line 13 on port C, falling edge: the press sets PR1  ok.
+1 APB2ENR bis!  ok.
+$20 $40010014 bis!  ok.
+1 13 lshift $4001040C bis!  ok.
+1 13 lshift $40010400 bis!  ok.
+#!input 2 0
+$40010414 @ 13 rshift 1 and . 0  ok.
+#!input 2 1
+$40010414 @ 13 rshift 1 and . 1  ok.
+1 13 lshift $40010414 !  $40010414 @ . 0  ok.
+\ ADC1 channel 6 on PC0, clock HCLK/1  ok.
+#!input 3 620
+1 13 lshift AHB2ENR bis!  ok.
+1 16 lshift $50000308 bis!  ok.
+$50000008 constant ADC1_CR  ok.
+1 29 lshift ADC1_CR bic!  ok.
+1 28 lshift ADC1_CR bis!  ok.
+100 wait  ok.
+1 31 lshift ADC1_CR bis!  ok.
+: until-clear ( mask addr -- ) begin 2dup @ and 0= until 2drop ;  ok.
+1 31 lshift ADC1_CR until-clear  ok.
+1 ADC1_CR bis!  ok.
+: until-set ( mask addr -- ) begin 2dup @ and until 2drop ;  ok.
+1 $50000000 until-set  ok.
+6 6 lshift $50000030 !  ok.
+%100 ADC1_CR bis!  ok.
+%100 $50000000 until-set  ok.
+$50000040 @ . 2539  ok.
+\ TIM3 CH1 on PC6: 1 kHz, 25 % PWM  ok.
+%10 APB1ENR1 bis!  ok.
+%11 12 lshift GPIOC bic!  %10 12 lshift GPIOC bis!  ok.
+2 24 lshift GPIOC $20 + bis!  ok.
+$40000400 constant TIM3  ok.
+15 TIM3 $28 + !  999 TIM3 $2C + !  250 TIM3 $34 + !  ok.
+$68 TIM3 $18 + !  1 TIM3 $20 + !  1 TIM3 $14 + !  1 TIM3 !  ok.
+#!attach 4 led PC6 r=270 vf=1900
+#!pins
+PC0 analog    2046 mV high
+PC6 alternate PWM 1000.000 Hz duty 12/1000  LED 4: 0.054 mA
+PC13 input     0 mV low
+PD2 output    3300 mV high  LED 1: 4.516 mA
+\ DAC1 OUT1 on PA4 at half scale  ok.
+#!attach 5 audio PA4
+1 16 lshift AHB2ENR bis!  ok.
+1 $50000800 bis!  ok.
+2048 $50000808 !  ok.
+#!pins
+PA4 analog    1650 mV high
+PC0 analog    2046 mV high
+PC6 alternate PWM 1000.000 Hz duty 250/1000  LED 4: 1.129 mA
+PC13 input     0 mV low
+PD2 output    3300 mV high  LED 1: 4.516 mA
+\ TIM6: wait for one update a second from now, by polling UIF  ok.
+1 4 lshift APB1ENR1 bis!  ok.
+$40001000 constant TIM6  ok.
+15999 TIM6 $28 + !  999 TIM6 $2C + !  1 TIM6 $14 + !  0 TIM6 $10 + !  1 TIM6 !  ok.
+1 TIM6 $10 + until-set  TIM6 $24 + @ 10 < . -1  ok.

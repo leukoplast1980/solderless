@@ -11,6 +11,7 @@
 
 #include "../core/armv7m.h"
 #include "../gen/g431_data.h"
+#include "../board/board.h"
 
 #include <stdint.h>
 
@@ -32,6 +33,8 @@
 #define SL_NUM_IRQ        102
 #define SL_NUM_PORTS      7             /* GPIOA..GPIOG */
 #define SL_NUM_USART      5             /* USART1, USART2, USART3, UART4, LPUART1 */
+#define SL_NUM_TIM        10            /* TIM1-4, TIM6-8, TIM15-17 */
+#define SL_NUM_ADC        2
 
 /* Scheduled events */
 enum {
@@ -39,6 +42,9 @@ enum {
     EV_FLASH,
     EV_USART_TX0, EV_USART_TX_LAST = EV_USART_TX0 + SL_NUM_USART - 1,
     EV_TERM_RX,
+    EV_BOARD,
+    EV_TIM0, EV_TIM_LAST = EV_TIM0 + SL_NUM_TIM - 1,
+    EV_ADC0, EV_ADC_LAST = EV_ADC0 + SL_NUM_ADC - 1,
     EV_COUNT
 };
 
@@ -54,6 +60,31 @@ struct sl_usart {
     int shifting;               /* shift register busy */
     uint32_t shift;
     uint32_t shift_baud;        /* baud rate the byte in the shift register uses */
+};
+
+/* What a timer channel puts on a pin */
+struct sl_tim_out {
+    uint32_t duty_q16, freq_mhz;
+    int level;
+};
+
+struct sl_tim {
+    const char *name;
+    int pi, adv, bits32, apb2, nch;
+    int irq_up, irq_cc;
+    int running, polled;
+    uint64_t t0, t_seen;        /* counter was at position pos0 at t0; flags known up to t_seen */
+    uint64_t pos0, tick;        /* tick: ps per count */
+    uint32_t psc, arr, rcr, rep, ccr[4];   /* active (shadow) values */
+};
+
+struct sl_adc {
+    const char *name;
+    int idx, pi;
+    int converting, k, polled, ovr_logged;
+    uint64_t t_next;            /* start of the conversion in progress */
+    uint64_t reg_on_at, cal_until, rdy_at;
+    uint32_t dr;
 };
 
 struct sl_idle {
@@ -81,6 +112,10 @@ struct sl_soc {
     uint8_t clk_on[96];
     int np;
     int pi_rcc, pi_pwr, pi_flash, pi_syscfg, pi_dbgmcu, pi_gpio[SL_NUM_PORTS];
+    int pi_exti, pi_dac1, pi_adc_common;
+
+    /* Interrupt lines with several sources (TIM1_UP and TIM16, ...): one bit per source */
+    uint64_t irq_src[SL_NUM_IRQ];
 
     /* Time: t_ps is the virtual time at cpu.cycles == t_cyc */
     uint64_t t_ps, t_cyc, t_rem;
@@ -112,6 +147,14 @@ struct sl_soc {
     uint32_t term_baud;
     int term_rx_busy;           /* a byte from the terminal is on the wire */
     uint8_t term_rx_byte;
+
+    /* Timers, ADC, DAC */
+    struct sl_tim tim[SL_NUM_TIM];
+    struct sl_adc adc[SL_NUM_ADC];
+    uint32_t dac_dhr[2], dac_dor[2];
+
+    /* The breadboard */
+    struct sl_board board;
 
     /* Idle detection */
     struct sl_idle idle;
@@ -158,6 +201,9 @@ void soc_apply_resets(struct sl_soc *s, uint32_t rcc_off, uint32_t bits);
 /* Debug: side-effect-free register read */
 uint32_t soc_peek32(struct sl_soc *s, uint32_t addr);
 
+/* Interrupt line shared by several sources: the line is high while any source is. */
+void soc_irq(struct sl_soc *s, int irq, int src, int level);
+
 /* Log with deduplication by key */
 void soc_log(struct sl_soc *s, int key, const char *fmt, ...);
 
@@ -192,11 +238,41 @@ void usart_term_rx_event(struct sl_soc *s);
 int usart_tx_busy(struct sl_soc *s, int idx);
 int usart_index_of_periph(struct sl_soc *s, int pi);
 
+void exti_reset(struct sl_soc *s);
+uint32_t exti_read(struct sl_soc *s, uint32_t off);
+void exti_write(struct sl_soc *s, uint32_t off, uint32_t v, uint32_t mask);
+void exti_gpio(struct sl_soc *s, int port, int pin, int level);
+
+void tim_init(struct sl_soc *s);
+void tim_reset(struct sl_soc *s, int idx);
+int tim_index_of_periph(struct sl_soc *s, int pi);
+uint32_t tim_read(struct sl_soc *s, int idx, uint32_t off, int effects);
+void tim_write(struct sl_soc *s, int idx, uint32_t off, uint32_t v, uint32_t mask);
+void tim_event(struct sl_soc *s, int idx);
+void tim_poll_hint(struct sl_soc *s, int idx);
+void tim_clocks_changed(struct sl_soc *s);
+int tim_output(struct sl_soc *s, int pi, int ch, int neg, struct sl_tim_out *o);
+void tim_input_edge(struct sl_soc *s, int pi, int ch, int level);
+
+void adc_init(struct sl_soc *s);
+void adc_reset(struct sl_soc *s, int idx);
+int adc_index_of_periph(struct sl_soc *s, int pi);
+uint32_t adc_read(struct sl_soc *s, int idx, uint32_t off, int effects);
+void adc_write(struct sl_soc *s, int idx, uint32_t off, uint32_t v, uint32_t mask);
+void adc_event(struct sl_soc *s, int idx);
+void adc_poll_hint(struct sl_soc *s, int idx);
+
+void dac_reset(struct sl_soc *s);
+uint32_t dac_read(struct sl_soc *s, uint32_t off);
+void dac_write(struct sl_soc *s, uint32_t off, uint32_t v, uint32_t mask);
+int dac_pin_out(struct sl_soc *s, int port, int pin, int *mv, int *g_us);
+
 /* Log keys (deduplication) */
 enum {
     LOG_CLOCK_OFF = 1, LOG_FLASH_WS, LOG_BOOST, LOG_VCO, LOG_FLASH_SEQ, LOG_FLASH_PROG,
     LOG_FLASH_KEY, LOG_BAUD, LOG_OVERRUN, LOG_LOCKUP, LOG_HSE, LOG_LSE, LOG_BDCR,
     LOG_USART_LOST, LOG_PLL_SRC, LOG_BUS_ERROR,
+    LOG_FLOATING, LOG_UNDEFINED, LOG_SHORT, LOG_PIN_CURRENT, LOG_TIMER, LOG_ADC, LOG_ADC_PIN,
 };
 
 #endif

@@ -14,6 +14,11 @@ set(SL_SOURCES
   soc/flash.c
   soc/gpio.c
   soc/usart.c
+  soc/exti.c
+  soc/tim.c
+  soc/adc.c
+  soc/dac.c
+  board/board.c
   soc/vm.c
   gen/g431_data.c
 )
