@@ -25,5 +25,5 @@
     <color name="current_line">#FF171D22</color>
     <color name="icon_background">#FF1C2328</color>
     <color name="icon_foreground">#FF8FD18F</color>
-    <color name="icon_wire">#FFFFB454</color>
+    <color name="icon_hole">#FF2E3740</color>
 </resources>
