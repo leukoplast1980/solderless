@@ -261,11 +261,39 @@ reported), SPI parts by their own chip-select pins.
 
 ### 4.6 On screen
 
-Not a literal grid of holes: on a phone that is too fiddly. The Breadboard tab
-is drawn like a schematic: the chip with its real pin names along its sides,
-parts around it, wires routed automatically, passives in their wires. Pinch to
-zoom. Tap a part to use it; long-press for its settings (variant, address
-strap, colour, module options). A mock-up comes before milestone 2.
+Settled with the mock-up (Solderless – Breadboard tab mock-up, 19 November
+2026):
+
+- **No chip drawn.** The chip's pins run as two pin headers down the long
+  edges of the Board tab, all 64 with name and pin number; the parts sit in
+  the space between, with short straight wires from their pins.
+- **Header order is a setting**: *adapter order* (pins 1–32 down the left,
+  64–33 down the right, as on an LQFP64-to-DIP adapter, so the screen
+  matches a real chip on a breadboard) or *by port* (PA, PB on the left;
+  PC, PD, PF, NRST and the supply pins on the right). Adapter order is the
+  default. Tapping a pin lists its functions.
+- **Live state.** Wires show their level: high, low, PWM, analog with its
+  voltage, and checks in amber on the wire they concern (a floating input,
+  say). LEDs glow with their average brightness, the RGB LED shows the
+  mixed colour, the piezo its frequency.
+- **Use and settings.** Tap a part to use it (hold the button, drag the
+  pot); long-press for its settings sheet (colour, size, current, pin,
+  active level, remove). Resistor values come with their calculation.
+- **Adding a part** opens a sheet with the parts; the recommender's choice
+  is drawn dashed on the board with the reason, the resistor, the other
+  valid pins (scarce or taken ones marked) and the `wiring.fs` lines. A
+  pin that is taken leads to the re-wire sheet with the moves and the
+  `wiring.fs` diff.
+- **Support circuit** (decoupling, VDDA filter, NRST capacitor, BOOT0
+  pull-down, VBAT) sits behind a button, with the wiring and parts list
+  exports.
+- **Pinned parts.** A part can be pinned so it floats over the Console and
+  Editor tabs (an LED, a button you can press, a display at its real pixel
+  size), so you see the circuit react while you type.
+- **Displays** (milestone 3) are drawn as their modules with the screen
+  content pixel for pixel; tapping one opens a close-up with a pixel grid
+  and the controller's state (on/off, contrast, charge pump, addressing,
+  orientation, last write), and saves it as PNG.
 
 ## 5. Pin recommender
 
@@ -417,7 +445,7 @@ docs/
    firmware loading, projects.
 2. **Breadboard.** Nets, simple parts (button, LED, RGB LED, potentiometer,
    speaker, piezo), recommender, passives, `wiring.fs`, export. Needs EXTI,
-   timers, ADC, DAC. A mock-up of the Breadboard tab first.
+   timers, ADC, DAC. Pinned parts.
 3. **Bus parts.** I2C, SPI, the pin-level decoders, BMP280, SCD41, SSD1306,
    ST7789, MAX7219, W25Q, encoder mode. FPU and DSP instructions.
 4. **Learning views.** Registers from the SVD, access log, clock tree, pins,
@@ -432,7 +460,7 @@ Each milestone ends with a release that is useful on its own.
 1. ~~**SVD and pin data licensing.**~~ Settled: ST's SVD is Apache-2.0 and
    the stm32-data chip file is MIT OR Apache-2.0; both are bundled in
    `data/` with their licences.
-2. **Breadboard look.** Settled with the mock-up before milestone 2.
+2. ~~**Breadboard look.**~~ Settled with the mock-up (section 4.6).
 3. ~~**Stellaris dictionary reader.**~~ Settled: read from memory (section 3.5).
 4. ~~**Idle detection limits.**~~ Settled in milestone 1: register poll
    loops and busy loops whose state repeats are skipped to the next event;
