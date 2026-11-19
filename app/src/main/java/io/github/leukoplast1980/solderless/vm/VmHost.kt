@@ -5,6 +5,11 @@
  */
 package io.github.leukoplast1980.solderless.vm
 
+import io.github.leukoplast1980.solderless.board.Board as Breadboard
+import io.github.leukoplast1980.solderless.board.ChipPins
+import io.github.leukoplast1980.solderless.board.Recommender
+import io.github.leukoplast1980.solderless.board.Wiring
+import java.io.File
 import android.content.Context
 import android.util.Log
 import io.github.leukoplast1980.solderless.files.Projects
@@ -56,6 +61,13 @@ class VmHost private constructor(context: Context) {
     private var foreground = false
     private var userPaused = false
 
+    /** The chip's pins and functions, for the Board tab and the recommender */
+    val chip: ChipPins
+
+    /** The breadboard of the current project */
+    @Volatile var board: Breadboard = Breadboard()
+        private set
+
     init {
         val assets = context.assets
         stellaris = Stellaris(
@@ -63,6 +75,7 @@ class VmHost private constructor(context: Context) {
             assets.open("firmware/stellaris.json").use { JSONObject(it.reader().readText()) },
         )
         handle = NativeVm.create(false, 0, false)
+        chip = ChipPins(assets.open("chip/g431rb-pins.json").use { it.reader().readText() })
 
         val name = projects.current ?: projects.list().firstOrNull()
         project = name?.let { projects.load(it) } ?: projects.create(
@@ -70,6 +83,7 @@ class VmHost private constructor(context: Context) {
         )
         projects.current = project.name
         loadProjectFlash()
+        loadBoard()
 
         Thread({ NativeVm.run(handle) }, "chip").apply {
             isDaemon = true
@@ -159,6 +173,7 @@ class VmHost private constructor(context: Context) {
         projects.current = project.name
         unsaved = null
         loadProjectFlash()
+        loadBoard()
     }
 
     fun openProject(name: String) = restart {
@@ -167,6 +182,7 @@ class VmHost private constructor(context: Context) {
         projects.current = p.name
         unsaved = null
         loadProjectFlash()
+        loadBoard()
     }
 
     /** Deletes another project (not the current one). */
@@ -187,6 +203,40 @@ class VmHost private constructor(context: Context) {
     }
 
     val isUserPaused: Boolean @Synchronized get() = userPaused
+
+    // ------------------------------------------------------------------
+    // The breadboard
+
+    private fun boardFile() = File(projects.dir(project.name), "board.json")
+
+    /** wiring.fs of the current project: rewritten whenever the board changes */
+    fun wiringFile() = File(projects.dir(project.name), "wiring.fs")
+
+    fun recommender() = Recommender(chip, project.board.hseHz != 0, project.board.lse)
+
+    private fun loadBoard() {
+        board = runCatching { Breadboard.fromJson(boardFile().readText()) }.getOrDefault(Breadboard())
+        NativeVm.boardSet(handle, board.attachments(chip))
+        if (!wiringFile().isFile && board.parts.isNotEmpty()) writeWiring()
+    }
+
+    private fun writeWiring() {
+        runCatching { wiringFile().writeText(Wiring.wiringFs(board, chip, project.name)) }
+            .onFailure { Log.w(TAG, "cannot write wiring.fs", it) }
+    }
+
+    /** Replaces the board: saved with the project, wiring.fs rewritten, the chip sees it at once. */
+    @Synchronized fun setBoard(b: Breadboard) {
+        board = b
+        runCatching { boardFile().writeText(b.toJson()) }.onFailure { Log.w(TAG, "cannot save the board", it) }
+        writeWiring()
+        NativeVm.boardSet(handle, b.attachments(chip))
+    }
+
+    /** A button pressed (1) or released (0), or a pot's wiper in per mille */
+    fun boardInput(partId: Int, value: Int) = NativeVm.boardInput(handle, partId, value)
+
+    fun readBoard(into: BoardState) = NativeVm.boardRead(handle, into.raw)
 
     fun step() = NativeVm.step(handle)
     fun reset() = NativeVm.reset(handle)
