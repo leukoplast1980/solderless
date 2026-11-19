@@ -193,6 +193,18 @@ class VmHost private constructor(context: Context) {
     fun setForeground(visible: Boolean) {
         foreground = visible
         NativeVm.pause(handle, !foreground || userPaused)
+        updateAudio()
+    }
+
+    private val audio by lazy { AudioOut(handle) }
+
+    /** Sound plays while the app is in front and the board has a piezo or speaker. */
+    private fun updateAudio() {
+        val wanted = foreground && board.parts.any {
+            it.type == io.github.leukoplast1980.solderless.board.PartType.PIEZO ||
+                it.type == io.github.leukoplast1980.solderless.board.PartType.SPEAKER
+        }
+        if (wanted) audio.start() else audio.stop()
     }
 
     /** Pause button of the Registers view. */
@@ -218,6 +230,7 @@ class VmHost private constructor(context: Context) {
         board = runCatching { Breadboard.fromJson(boardFile().readText()) }.getOrDefault(Breadboard())
         NativeVm.boardSet(handle, board.attachments(chip))
         if (!wiringFile().isFile && board.parts.isNotEmpty()) writeWiring()
+        updateAudio()
     }
 
     private fun writeWiring() {
@@ -231,6 +244,7 @@ class VmHost private constructor(context: Context) {
         runCatching { boardFile().writeText(b.toJson()) }.onFailure { Log.w(TAG, "cannot save the board", it) }
         writeWiring()
         NativeVm.boardSet(handle, b.attachments(chip))
+        updateAudio()
     }
 
     /** A button pressed (1) or released (0), or a pot's wiper in per mille */

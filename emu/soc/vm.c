@@ -714,3 +714,19 @@ void sl_board_read(sl_vm *vm, sl_board_state *out)
 {
     run_on_vm(vm, board_read_fn, out);
 }
+
+struct audio_io { sl_audio_event *out; size_t max, n; uint64_t now; };
+static void audio_fn(sl_vm *vm, void *arg)
+{
+    struct audio_io *io = arg;
+    io->n = board_audio_read(vm->soc, io->out, io->max);
+    io->now = soc_now_ps(vm->soc) / 1000u;
+}
+
+size_t sl_audio_read(sl_vm *vm, sl_audio_event *out, size_t max, uint64_t *now_ns)
+{
+    struct audio_io io = { out, max, 0, 0 };
+    run_on_vm(vm, audio_fn, &io);
+    if (now_ns) *now_ns = io.now;
+    return io.n;
+}

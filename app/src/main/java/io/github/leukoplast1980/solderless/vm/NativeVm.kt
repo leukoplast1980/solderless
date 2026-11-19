@@ -54,4 +54,6 @@ object NativeVm {
     @JvmStatic external fun boardInput(handle: Long, part: Int, value: Int)
     /** Fills [out] (at least [BoardState.SIZE] ints); starts a new averaging window. */
     @JvmStatic external fun boardRead(handle: Long, out: IntArray)
+    /** Sound events of piezo and speaker pins; see jni.c audioRead for the layout. */
+    @JvmStatic external fun audioRead(handle: Long, out: IntArray): Int
 }

@@ -96,6 +96,19 @@ static int directive(const char *line)
     if (n < 1) return 1;
     if (!strcmp(cmd, "clear")) { nboard = 0; sl_board_set(vm, board, 0); return 0; }
     if (!strcmp(cmd, "pins")) { print_pins(); return 0; }
+    if (!strcmp(cmd, "audio")) {
+        sl_audio_event ev[64];
+        uint64_t now;
+        size_t m = sl_audio_read(vm, ev, 64, &now);
+        for (size_t i = 0; i < m; i++) {
+            int slot = ev[i].kind >> 8;
+            printf("P%c%d ", 'A' + slot / 16, slot % 16);
+            if ((ev[i].kind & 255) == SL_AUDIO_PWM) printf("PWM %u Hz duty %u/1000\n", ev[i].a / 1000, (ev[i].b * 1000 + 0x8000) >> 16);
+            else printf("level %u mV\n", ev[i].a);
+        }
+        fflush(stdout);
+        return 0;
+    }
     if (!strcmp(cmd, "input") && n >= 3) { sl_board_input(vm, atoi(a1), atoi(a2)); return 0; }
     if (!strcmp(cmd, "attach") && n >= 4 && nboard < SL_MAX_ATTACH) {
         sl_attach *a = &board[nboard];

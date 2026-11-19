@@ -152,6 +152,20 @@ typedef struct {
 /* Reads the board and starts a new averaging window. */
 void sl_board_read(sl_vm *vm, sl_board_state *out);
 
+/* Sound: every change on a pin with an SL_ATT_AUDIO part, timestamped in
+ * emulated time. A level (mV) for edges and DAC samples, or a PWM setting
+ * the player turns into a square wave. */
+enum { SL_AUDIO_LEVEL = 0, SL_AUDIO_PWM = 1 };
+typedef struct {
+    uint64_t time_ns;
+    int32_t kind;           /* SL_AUDIO_*; bits 8-15: pin slot */
+    uint32_t a;             /* level: mV; PWM: frequency in mHz */
+    uint32_t b;             /* PWM: duty, 0x10000 = 100 % */
+} sl_audio_event;
+
+/* Drains up to max events; *now_ns gets the emulated time now. */
+size_t sl_audio_read(sl_vm *vm, sl_audio_event *out, size_t max, uint64_t *now_ns);
+
 #ifdef __cplusplus
 }
 #endif

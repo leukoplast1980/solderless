@@ -159,6 +159,22 @@ static void resolve(struct sl_soc *s, int slot, int edges)
     uint64_t now = soc_now_ps(s);
     integrate(p, now);
     p->duty_q16 = p->pwm ? p->pwm_duty_q16 : (!p->floating && p->level ? 0x10000u : 0);
+    if (p->audio) {
+        uint32_t f = p->pwm ? p->pwm_freq_mhz : 0, du = p->pwm ? p->pwm_duty_q16 : 0;
+        int mv = p->floating ? 0 : p->mv;
+        if (mv != p->last_mv || f != p->last_freq || du != p->last_duty) {
+            p->last_mv = mv; p->last_freq = f; p->last_duty = du;
+            uint32_t next = (B->audio_head + 1) % SL_AUDIO_RING;
+            if (next != B->audio_tail) {
+                sl_audio_event *e = &B->audio[B->audio_head];
+                e->time_ns = now / 1000u;
+                e->kind = (p->pwm ? SL_AUDIO_PWM : SL_AUDIO_LEVEL) | (slot << 8);
+                e->a = p->pwm ? f : (uint32_t)mv;
+                e->b = du;
+                B->audio_head = next;
+            }
+        }
+    }
 
     if (p->shorted && p->used) {
         char n[6]; pin_name(slot, n);
@@ -328,9 +344,12 @@ void board_set(struct sl_soc *s, const sl_attach *att, int n)
             }
     }
     B->natt = n;
-    for (int slot = 0; slot < SL_PIN_SLOTS; slot++) B->pin[slot].used = 0;
+    for (int slot = 0; slot < SL_PIN_SLOTS; slot++) { B->pin[slot].used = 0; B->pin[slot].audio = 0; B->pin[slot].last_mv = -2; }
     for (int i = 0; i < n; i++)
-        if (att[i].pin >= 0 && att[i].pin < SL_PIN_SLOTS) B->pin[att[i].pin].used = 1;
+        if (att[i].pin >= 0 && att[i].pin < SL_PIN_SLOTS) {
+            B->pin[att[i].pin].used = 1;
+            if (att[i].kind == SL_ATT_AUDIO) B->pin[att[i].pin].audio = 1;
+        }
     resolve_all(s, 1);
     schedule_next(s);
 }
@@ -394,6 +413,16 @@ void board_read(struct sl_soc *s, sl_board_state *out)
                     "A larger resistor is needed", n, (int)(ua / 1000.0));
         }
     }
+}
+
+size_t board_audio_read(struct sl_soc *s, sl_audio_event *out, size_t max)
+{
+    size_t n = 0;
+    while (n < max && B->audio_tail != B->audio_head) {
+        out[n++] = B->audio[B->audio_tail];
+        B->audio_tail = (B->audio_tail + 1) % SL_AUDIO_RING;
+    }
+    return n;
 }
 
 void board_init(struct sl_soc *s)

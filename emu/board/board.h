@@ -46,14 +46,22 @@ struct sl_pin_state {
     /* Average of the high time since the last read */
     uint32_t duty_q16;          /* fraction of time high right now (0 or 1, or the PWM duty) */
     uint64_t t_last, high_acc, win_start;
+    int audio;                  /* a piezo or speaker listens */
+    int last_mv; uint32_t last_freq, last_duty;
 };
+
+#define SL_AUDIO_RING 8192
 
 struct sl_board {
     struct sl_att_state att[SL_MAX_ATTACH];
     int natt;
     struct sl_pin_state pin[SL_PIN_SLOTS];
     uint64_t rng;
+    sl_audio_event audio[SL_AUDIO_RING];
+    uint32_t audio_head, audio_tail;
 };
+
+size_t board_audio_read(struct sl_soc *s, sl_audio_event *out, size_t max);
 
 void board_init(struct sl_soc *s);
 void board_reset(struct sl_soc *s);              /* chip reset: pins re-resolve, parts keep their state */

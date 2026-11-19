@@ -232,8 +232,12 @@ static void schedule(struct sl_soc *s, struct sl_tim *t)
     int ev = EV_TIM0 + (int)(t - s->tim);
     uint64_t now = soc_now_ps(s), at = SL_NEVER;
     if (t->running) {
-        uint32_t dier = R(s, t)[DIER / 4];
-        int want_upd = (dier & 1u) || (R(s, t)[CR1 / 4] & OPM) || t->polled;
+        uint32_t *r = R(s, t), dier = r[DIER / 4];
+        /* A preloaded value waits for the next update: the outputs change then. */
+        int pending = (r[ARR / 4] & mask_bits(t)) != t->arr || (r[PSC / 4] & 0xFFFFu) != t->psc;
+        for (int ch = 0; ch < t->nch; ch++)
+            if ((r[(CCR1 + 4u * (uint32_t)ch) / 4] & mask_bits(t)) != t->ccr[ch]) pending = 1;
+        int want_upd = (dier & 1u) || (r[CR1 / 4] & OPM) || t->polled || pending;
         if (want_upd) {
             uint64_t len = cycle_counts(s, t);
             if (len) {

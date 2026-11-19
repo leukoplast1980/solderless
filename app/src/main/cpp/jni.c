@@ -287,3 +287,25 @@ JNIEXPORT void JNICALL FN(boardRead)(JNIEnv *env, jclass cls, jlong h, jintArray
     v[BOARD_INTS - 1] = (jint)(uint32_t)(st.time_ns >> 32);
     (*env)->SetIntArrayRegion(env, out, 0, BOARD_INTS, v);
 }
+
+/* out[0..1]: emulated time now (ns); then 5 ints per event: time lo, time hi,
+ * kind, a, b. Returns the number of events. */
+JNIEXPORT jint JNICALL FN(audioRead)(JNIEnv *env, jclass cls, jlong h, jintArray out)
+{
+    (void)cls;
+    jsize len = (*env)->GetArrayLength(env, out);
+    size_t max = len > 2 ? (size_t)(len - 2) / 5 : 0;
+    if (max > 1024) max = 1024;
+    sl_audio_event ev[1024];
+    uint64_t now = 0;
+    size_t n = sl_audio_read(VM(h), ev, max, &now);
+    jint v[2 + 5 * 1024];
+    v[0] = (jint)(uint32_t)now; v[1] = (jint)(uint32_t)(now >> 32);
+    for (size_t i = 0; i < n; i++) {
+        jint *x = v + 2 + 5 * i;
+        x[0] = (jint)(uint32_t)ev[i].time_ns; x[1] = (jint)(uint32_t)(ev[i].time_ns >> 32);
+        x[2] = ev[i].kind; x[3] = (jint)ev[i].a; x[4] = (jint)ev[i].b;
+    }
+    (*env)->SetIntArrayRegion(env, out, 0, (jsize)(2 + 5 * n), v);
+    return (jint)n;
+}
