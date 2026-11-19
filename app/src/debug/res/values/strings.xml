@@ -1,0 +1,5 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- The debug build installs next to the release build; tell them apart. -->
+    <string name="app_name">Solderless debug</string>
+</resources>

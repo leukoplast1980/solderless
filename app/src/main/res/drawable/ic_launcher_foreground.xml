@@ -1,0 +1,29 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- A chip on a breadboard: rows of holes above and below, a jumper wire. -->
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="108dp"
+    android:height="108dp"
+    android:viewportWidth="108"
+    android:viewportHeight="108">
+    <path
+        android:fillColor="@color/icon_foreground"
+        android:fillAlpha="0.55"
+        android:pathData="M34.4,30 a1.6,1.6 0 1,0 3.2,0 a1.6,1.6 0 1,0 -3.2,0 z M40.4,30 a1.6,1.6 0 1,0 3.2,0 a1.6,1.6 0 1,0 -3.2,0 z M46.4,30 a1.6,1.6 0 1,0 3.2,0 a1.6,1.6 0 1,0 -3.2,0 z M52.4,30 a1.6,1.6 0 1,0 3.2,0 a1.6,1.6 0 1,0 -3.2,0 z M58.4,30 a1.6,1.6 0 1,0 3.2,0 a1.6,1.6 0 1,0 -3.2,0 z M64.4,30 a1.6,1.6 0 1,0 3.2,0 a1.6,1.6 0 1,0 -3.2,0 z M70.4,30 a1.6,1.6 0 1,0 3.2,0 a1.6,1.6 0 1,0 -3.2,0 z M40.4,35.5 a1.6,1.6 0 1,0 3.2,0 a1.6,1.6 0 1,0 -3.2,0 z M46.4,35.5 a1.6,1.6 0 1,0 3.2,0 a1.6,1.6 0 1,0 -3.2,0 z M52.4,35.5 a1.6,1.6 0 1,0 3.2,0 a1.6,1.6 0 1,0 -3.2,0 z M58.4,35.5 a1.6,1.6 0 1,0 3.2,0 a1.6,1.6 0 1,0 -3.2,0 z M64.4,35.5 a1.6,1.6 0 1,0 3.2,0 a1.6,1.6 0 1,0 -3.2,0 z M70.4,35.5 a1.6,1.6 0 1,0 3.2,0 a1.6,1.6 0 1,0 -3.2,0 z M34.4,72.5 a1.6,1.6 0 1,0 3.2,0 a1.6,1.6 0 1,0 -3.2,0 z M40.4,72.5 a1.6,1.6 0 1,0 3.2,0 a1.6,1.6 0 1,0 -3.2,0 z M46.4,72.5 a1.6,1.6 0 1,0 3.2,0 a1.6,1.6 0 1,0 -3.2,0 z M52.4,72.5 a1.6,1.6 0 1,0 3.2,0 a1.6,1.6 0 1,0 -3.2,0 z M58.4,72.5 a1.6,1.6 0 1,0 3.2,0 a1.6,1.6 0 1,0 -3.2,0 z M64.4,72.5 a1.6,1.6 0 1,0 3.2,0 a1.6,1.6 0 1,0 -3.2,0 z M70.4,72.5 a1.6,1.6 0 1,0 3.2,0 a1.6,1.6 0 1,0 -3.2,0 z M34.4,78 a1.6,1.6 0 1,0 3.2,0 a1.6,1.6 0 1,0 -3.2,0 z M40.4,78 a1.6,1.6 0 1,0 3.2,0 a1.6,1.6 0 1,0 -3.2,0 z M46.4,78 a1.6,1.6 0 1,0 3.2,0 a1.6,1.6 0 1,0 -3.2,0 z M52.4,78 a1.6,1.6 0 1,0 3.2,0 a1.6,1.6 0 1,0 -3.2,0 z M58.4,78 a1.6,1.6 0 1,0 3.2,0 a1.6,1.6 0 1,0 -3.2,0 z M64.4,78 a1.6,1.6 0 1,0 3.2,0 a1.6,1.6 0 1,0 -3.2,0 z M70.4,78 a1.6,1.6 0 1,0 3.2,0 a1.6,1.6 0 1,0 -3.2,0 z" />
+    <path
+        android:fillColor="#00000000"
+        android:pathData="M36,35.5 C29,41 29,52 38,55.6"
+        android:strokeWidth="2.6"
+        android:strokeColor="@color/icon_wire"
+        android:strokeLineCap="round" />
+    <path
+        android:fillColor="#00000000"
+        android:pathData="M45,43 h18 a2,2 0 0 1 2,2 v18 a2,2 0 0 1 -2,2 h-18 a2,2 0 0 1 -2,-2 v-18 a2,2 0 0 1 2,-2 z"
+        android:strokeWidth="3"
+        android:strokeColor="@color/icon_foreground" />
+    <path
+        android:fillColor="@color/icon_foreground"
+        android:pathData="M44.8,38h2.4v5h-2.4z M44.8,65h2.4v5h-2.4z M38,44.8h5v2.4h-5z M65,44.8h5v2.4h-5z M50.199999999999996,38h2.4v5h-2.4z M50.199999999999996,65h2.4v5h-2.4z M38,50.199999999999996h5v2.4h-5z M65,50.199999999999996h5v2.4h-5z M55.599999999999994,38h2.4v5h-2.4z M55.599999999999994,65h2.4v5h-2.4z M38,55.599999999999994h5v2.4h-5z M65,55.599999999999994h5v2.4h-5z M61.0,38h2.4v5h-2.4z M61.0,65h2.4v5h-2.4z M38,61.0h5v2.4h-5z M65,61.0h5v2.4h-5z" />
+    <path
+        android:fillColor="@color/icon_foreground"
+        android:pathData="M46.9,48.5 a1.6,1.6 0 1,0 3.2,0 a1.6,1.6 0 1,0 -3.2,0 z" />
+</vector>

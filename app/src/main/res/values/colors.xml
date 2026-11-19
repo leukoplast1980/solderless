@@ -1,0 +1,29 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <color name="console_background">#FF101418</color>
+    <color name="console_text">#FFD8E0D0</color>
+    <color name="console_hint">#FF6A7468</color>
+    <color name="bar_background">#FF1C2328</color>
+    <color name="bar_text">#FFE8EEE4</color>
+    <color name="accent">#FF8FD18F</color>
+    <color name="accent_dim">#558FD18F</color>
+    <color name="chip_background">#FF263038</color>
+    <color name="changed">#FFFFC966</color>
+    <color name="label">#FF8A9690</color>
+    <color name="divider">#FF2C353C</color>
+    <color name="syntax_comment">#FF6E7A72</color>
+    <color name="syntax_string">#FFE6B673</color>
+    <color name="syntax_number">#FFC49BE0</color>
+    <color name="syntax_defining">#FF7FB8FF</color>
+    <color name="syntax_name">#FFFFD866</color>
+    <color name="syntax_control">#FFFF9E8A</color>
+    <color name="syntax_special">#FF80DEEA</color>
+    <color name="syntax_unknown">#FFFF6B6B</color>
+    <color name="danger">#FFFF6B6B</color>
+    <color name="chip_message">#FFFFB454</color>
+    <color name="error_line">#55FF5050</color>
+    <color name="current_line">#FF171D22</color>
+    <color name="icon_background">#FF1C2328</color>
+    <color name="icon_foreground">#FF8FD18F</color>
+    <color name="icon_wire">#FFFFB454</color>
+</resources>

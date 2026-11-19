@@ -1,0 +1,8 @@
+\ Polling SysTick's COUNTFLAG with the interrupt off: the emulator must  ok.
+\ treat the countdown as an event even without TICKINT.  ok.
+$E000E010 constant STK_CTRL  ok.
+$E000E014 constant STK_LOAD  ok.
+$E000E018 constant STK_VAL  ok.
+: wait-1s 16000000 1- STK_LOAD ! 0 STK_VAL ! %101 STK_CTRL ! begin STK_CTRL @ 65536 and until 0 STK_CTRL ! ;  ok.
+: seconds 0 ?do i . wait-1s loop ." done" ;  ok.
+3 seconds 0 1 2 done ok.

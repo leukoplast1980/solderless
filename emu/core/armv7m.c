@@ -705,9 +705,11 @@ void cm_idle_cycles(struct cm_cpu *c, uint64_t cycles)
     counters_advance(c, cycles);
 }
 
+/* Cycles until SysTick next counts down to zero. That is an event whether
+ * or not it raises the interrupt: software may be polling COUNTFLAG. */
 uint64_t cm_cycles_to_systick(struct cm_cpu *c)
 {
-    if ((c->syst_csr & (SYST_ENABLE | SYST_TICKINT)) != (SYST_ENABLE | SYST_TICKINT))
+    if (!(c->syst_csr & SYST_ENABLE))
         return UINT64_MAX;
     uint64_t ticks = c->syst_cvr ? c->syst_cvr : (c->syst_rvr ? (uint64_t)c->syst_rvr + 1u : 0);
     if (!ticks) return UINT64_MAX;

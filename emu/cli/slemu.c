@@ -11,6 +11,7 @@
  *     -k            keep going after a line that does not answer " ok."
  *     -t MS         per-line timeout (default 10000)
  *     -q            quiet: do not echo the boot banner
+ *     -x ADDR,LEN   at exit, dump LEN bytes of memory from ADDR (hex) to stderr
  *
  * Without -s or -e it is an interactive terminal on stdin/stdout.
  */
@@ -78,7 +79,8 @@ int main(int argc, char **argv)
     sl_config cfg = { 0 };
     const char *flash_file = NULL, *script = NULL, *lines[64];
     int nlines = 0, keep_going = 0, timeout = 10000, quiet = 0, opt;
-    while ((opt = getopt(argc, argv, "df:s:e:kt:q")) != -1) {
+    unsigned long dump_addr = 0, dump_len = 0;
+    while ((opt = getopt(argc, argv, "df:s:e:kt:qx:")) != -1) {
         switch (opt) {
         case 'd': cfg.deterministic = 1; break;
         case 'f': flash_file = optarg; break;
@@ -87,6 +89,7 @@ int main(int argc, char **argv)
         case 'k': keep_going = 1; break;
         case 't': timeout = atoi(optarg); break;
         case 'q': quiet = 1; break;
+        case 'x': sscanf(optarg, "%lx,%lx", &dump_addr, &dump_len); break;
         default:
             fprintf(stderr, "usage: %s [-d] [-f flash] [-s script] [-e line]... [-k] [-t ms] [-q] firmware.bin\n", argv[0]);
             return 2;
@@ -157,6 +160,18 @@ int main(int argc, char **argv)
         done = 1;
         pthread_join(rd, NULL);
         drain();
+    }
+
+    if (dump_len) {
+        uint8_t *m = malloc(dump_len);
+        sl_read_memory(vm, (uint32_t)dump_addr, m, dump_len);
+        for (unsigned long i = 0; i < dump_len; i += 16) {
+            fprintf(stderr, "%08lx:", dump_addr + i);
+            for (unsigned long j = i; j < i + 16 && j < dump_len; j += 4)
+                fprintf(stderr, " %08x", (unsigned)(m[j] | m[j + 1] << 8 | m[j + 2] << 16 | (unsigned)m[j + 3] << 24));
+            fputc('\n', stderr);
+        }
+        free(m);
     }
 
     sl_snapshot snap;

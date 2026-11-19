@@ -1,0 +1,240 @@
+/*
+ * Solderless - JNI bridge between NativeVm.kt and the emulator (emu/).
+ * Copyright (C) 2026 The Solderless authors. GPL-3.0-or-later.
+ *
+ * Handles are sl_vm pointers stored in a Java long.
+ */
+#include <jni.h>
+#include <stdlib.h>
+#include <string.h>
+
+#include "sl/solderless.h"
+
+#define FN(name) Java_io_github_leukoplast1980_solderless_vm_NativeVm_##name
+
+static sl_vm *VM(jlong h) { return (sl_vm *)(intptr_t)h; }
+
+JNIEXPORT jlong JNICALL FN(create)(JNIEnv *env, jclass cls, jboolean deterministic, jint hse_hz, jboolean lse)
+{
+    (void)env; (void)cls;
+    sl_config cfg = { 0 };
+    cfg.deterministic = deterministic ? 1 : 0;
+    cfg.hse_hz = (uint32_t)hse_hz;
+    cfg.lse_fitted = lse ? 1 : 0;
+    return (jlong)(intptr_t)sl_create(&cfg);
+}
+
+JNIEXPORT void JNICALL FN(loadFlash)(JNIEnv *env, jclass cls, jlong h, jbyteArray image)
+{
+    (void)cls;
+    jsize len = (*env)->GetArrayLength(env, image);
+    jbyte *data = (*env)->GetByteArrayElements(env, image, NULL);
+    if (!data) return;
+    sl_load_flash(VM(h), (const uint8_t *)data, (size_t)len);
+    (*env)->ReleaseByteArrayElements(env, image, data, JNI_ABORT);
+}
+
+/* Returns the flash image if it changed since the last call, else null. */
+JNIEXPORT jbyteArray JNICALL FN(copyFlashIfDirty)(JNIEnv *env, jclass cls, jlong h)
+{
+    (void)cls;
+    if (!sl_flash_dirty(VM(h))) return NULL;
+    uint8_t *buf = malloc(SL_FLASH_BYTES);
+    if (!buf) return NULL;
+    sl_copy_flash(VM(h), buf);
+    jbyteArray out = (*env)->NewByteArray(env, SL_FLASH_BYTES);
+    if (out) (*env)->SetByteArrayRegion(env, out, 0, SL_FLASH_BYTES, (const jbyte *)buf);
+    free(buf);
+    return out;
+}
+
+/* The whole flash, changed or not. */
+JNIEXPORT jbyteArray JNICALL FN(copyFlash)(JNIEnv *env, jclass cls, jlong h)
+{
+    (void)cls;
+    uint8_t *buf = malloc(SL_FLASH_BYTES);
+    if (!buf) return NULL;
+    sl_copy_flash(VM(h), buf);
+    jbyteArray out = (*env)->NewByteArray(env, SL_FLASH_BYTES);
+    if (out) (*env)->SetByteArrayRegion(env, out, 0, SL_FLASH_BYTES, (const jbyte *)buf);
+    free(buf);
+    return out;
+}
+
+/* Blocks: runs guest code on the calling thread until shutdown(). */
+JNIEXPORT void JNICALL FN(run)(JNIEnv *env, jclass cls, jlong h) { (void)env; (void)cls; sl_run(VM(h)); }
+JNIEXPORT void JNICALL FN(shutdown)(JNIEnv *env, jclass cls, jlong h) { (void)env; (void)cls; sl_shutdown(VM(h)); }
+JNIEXPORT void JNICALL FN(pause)(JNIEnv *env, jclass cls, jlong h, jboolean p) { (void)env; (void)cls; sl_pause(VM(h), p ? 1 : 0); }
+JNIEXPORT void JNICALL FN(step)(JNIEnv *env, jclass cls, jlong h) { (void)env; (void)cls; sl_step(VM(h)); }
+JNIEXPORT void JNICALL FN(reset)(JNIEnv *env, jclass cls, jlong h) { (void)env; (void)cls; sl_reset(VM(h)); }
+JNIEXPORT void JNICALL FN(powerCycle)(JNIEnv *env, jclass cls, jlong h) { (void)env; (void)cls; sl_power_cycle(VM(h)); }
+
+JNIEXPORT jint JNICALL FN(uartWrite)(JNIEnv *env, jclass cls, jlong h, jbyteArray data, jint off, jint len)
+{
+    (void)cls;
+    jbyte *p = (*env)->GetByteArrayElements(env, data, NULL);
+    if (!p) return 0;
+    size_t n = sl_uart_write(VM(h), (const uint8_t *)p + off, (size_t)len);
+    (*env)->ReleaseByteArrayElements(env, data, p, JNI_ABORT);
+    return (jint)n;
+}
+
+JNIEXPORT jint JNICALL FN(uartRead)(JNIEnv *env, jclass cls, jlong h, jbyteArray buffer)
+{
+    (void)cls;
+    jsize len = (*env)->GetArrayLength(env, buffer);
+    uint8_t tmp[4096];
+    size_t n = sl_uart_read(VM(h), tmp, (size_t)len < sizeof tmp ? (size_t)len : sizeof tmp);
+    if (n) (*env)->SetByteArrayRegion(env, buffer, 0, (jsize)n, (const jbyte *)tmp);
+    return (jint)n;
+}
+
+JNIEXPORT jboolean JNICALL FN(waitingForKey)(JNIEnv *env, jclass cls, jlong h)
+{
+    (void)env; (void)cls;
+    return sl_waiting_for_key(VM(h)) ? JNI_TRUE : JNI_FALSE;
+}
+
+JNIEXPORT jint JNICALL FN(sendLine)(JNIEnv *env, jclass cls, jlong h, jbyteArray line, jint timeout_ms)
+{
+    (void)cls;
+    jsize len = (*env)->GetArrayLength(env, line);
+    jbyte *p = (*env)->GetByteArrayElements(env, line, NULL);
+    if (!p) return SL_LINE_ERROR;
+    int r = sl_send_line(VM(h), (const char *)p, (size_t)len, timeout_ms);
+    (*env)->ReleaseByteArrayElements(env, line, p, JNI_ABORT);
+    return r;
+}
+
+/* Layout: see Snapshot.kt */
+#define SNAP_INTS 41
+
+JNIEXPORT jintArray JNICALL FN(snapshot)(JNIEnv *env, jclass cls, jlong h)
+{
+    (void)cls;
+    sl_snapshot s;
+    sl_snapshot_get(VM(h), &s);
+    jint v[SNAP_INTS];
+    for (int i = 0; i < 16; i++) v[i] = (jint)s.r[i];
+    v[16] = (jint)s.xpsr; v[17] = (jint)s.msp; v[18] = (jint)s.psp;
+    v[19] = (jint)s.primask; v[20] = (jint)s.basepri; v[21] = (jint)s.faultmask; v[22] = (jint)s.control;
+    v[23] = (jint)s.cfsr; v[24] = (jint)s.hfsr; v[25] = (jint)s.mmfar; v[26] = (jint)s.bfar; v[27] = (jint)s.fault_pc;
+    v[28] = (jint)(uint32_t)s.cycles; v[29] = (jint)(uint32_t)(s.cycles >> 32);
+    v[30] = (jint)(uint32_t)s.time_ns; v[31] = (jint)(uint32_t)(s.time_ns >> 32);
+    v[32] = (jint)s.hclk; v[33] = (jint)s.sysclk; v[34] = (jint)s.pclk1; v[35] = (jint)s.pclk2;
+    v[36] = s.lockup; v[37] = s.sleeping; v[38] = s.waiting_for_key; v[39] = s.paused; v[40] = s.speed_percent;
+    jintArray out = (*env)->NewIntArray(env, SNAP_INTS);
+    if (out) (*env)->SetIntArrayRegion(env, out, 0, SNAP_INTS, v);
+    return out;
+}
+
+JNIEXPORT jbyteArray JNICALL FN(readMemory)(JNIEnv *env, jclass cls, jlong h, jint addr, jint len)
+{
+    (void)cls;
+    if (len <= 0 || len > 1 << 20) return NULL;
+    uint8_t *buf = malloc((size_t)len);
+    if (!buf) return NULL;
+    sl_read_memory(VM(h), (uint32_t)addr, buf, (size_t)len);
+    jbyteArray out = (*env)->NewByteArray(env, len);
+    if (out) (*env)->SetByteArrayRegion(env, out, 0, len, (const jbyte *)buf);
+    free(buf);
+    return out;
+}
+
+JNIEXPORT jintArray JNICALL FN(peekWords)(JNIEnv *env, jclass cls, jlong h, jintArray addrs)
+{
+    (void)cls;
+    jsize n = (*env)->GetArrayLength(env, addrs);
+    jint *a = (*env)->GetIntArrayElements(env, addrs, NULL);
+    if (!a) return NULL;
+    jint *v = malloc(sizeof(jint) * (size_t)(n ? n : 1));
+    for (jsize i = 0; i < n; i++) v[i] = (jint)sl_peek32(VM(h), (uint32_t)a[i]);
+    (*env)->ReleaseIntArrayElements(env, addrs, a, JNI_ABORT);
+    jintArray out = (*env)->NewIntArray(env, n);
+    if (out) (*env)->SetIntArrayRegion(env, out, 0, n, v);
+    free(v);
+    return out;
+}
+
+/* Messages from the chip model, or null if there are none. */
+JNIEXPORT jstring JNICALL FN(readLog)(JNIEnv *env, jclass cls, jlong h)
+{
+    (void)cls;
+    char buf[4096];
+    size_t n = sl_log_read(VM(h), buf, sizeof buf - 1);
+    if (!n) return NULL;
+    buf[n] = 0;
+    return (*env)->NewStringUTF(env, buf);
+}
+
+/*
+ * Walks Mecrisp-Stellaris' dictionary in guest memory. Each entry is
+ *   link (4 bytes) | flags (2) | name length (1) | name | padding to even | code
+ * The chain starts at the word stored at root_ptr (the newest RAM word, or
+ * the start of the core dictionary), runs through the core into the flash
+ * dictionary, and ends at an erased link ($FFFFFFFF).
+ *
+ * Returns { names: ByteArray (concatenated), nameLengths: IntArray,
+ * headers: IntArray, codes: IntArray, flags: IntArray } in chain order.
+ */
+JNIEXPORT jobjectArray JNICALL FN(dictionary)(JNIEnv *env, jclass cls, jlong h, jint root_ptr)
+{
+    (void)cls;
+    enum { RAM = 0x20000000, RAM_SIZE = 0x8000, MAX = 3000 };
+    uint8_t *flash = malloc(SL_FLASH_BYTES), *ram = malloc(RAM_SIZE);
+    char *names = malloc(MAX * 64);
+    jint *lens = malloc(sizeof(jint) * MAX), *hdrs = malloc(sizeof(jint) * MAX);
+    jint *codes = malloc(sizeof(jint) * MAX), *flags = malloc(sizeof(jint) * MAX);
+    jobjectArray result = NULL;
+    if (!flash || !ram || !names || !lens || !hdrs || !codes || !flags) goto out;
+
+    sl_read_memory(VM(h), 0, flash, SL_FLASH_BYTES);
+    sl_read_memory(VM(h), RAM, ram, RAM_SIZE);
+
+#define AT(a) ((a) < SL_FLASH_BYTES ? flash + (a) : (a) >= RAM && (a) < RAM + RAM_SIZE ? ram + ((a) - RAM) : NULL)
+    uint32_t rp = (uint32_t)root_ptr, entry;
+    const uint8_t *p = AT(rp);
+    if (!p) goto out;
+    memcpy(&entry, p, 4);
+
+    int n = 0;
+    size_t names_len = 0;
+    while (entry != 0xFFFFFFFFu && n < MAX) {
+        const uint8_t *e = AT(entry);
+        if (!e || !AT(entry + 7)) break;
+        uint32_t link;
+        memcpy(&link, e, 4);
+        uint32_t fl = (uint32_t)e[4] | ((uint32_t)e[5] << 8);
+        uint32_t len = e[6];
+        if (!AT(entry + 7 + len)) break;
+        if (fl != 0xFFFFu && len > 0 && len < 64) {
+            memcpy(names + names_len, e + 7, len);
+            names_len += len;
+            lens[n] = (jint)len;
+            hdrs[n] = (jint)entry;
+            codes[n] = (jint)((entry + 7 + len + 1) & ~1u);
+            flags[n] = (jint)fl;
+            n++;
+        }
+        if (link == entry) break;
+        entry = link;
+    }
+#undef AT
+
+    jclass objc = (*env)->FindClass(env, "java/lang/Object");
+    result = (*env)->NewObjectArray(env, 5, objc, NULL);
+    if (!result) goto out;
+    jbyteArray jn = (*env)->NewByteArray(env, (jsize)names_len);
+    (*env)->SetByteArrayRegion(env, jn, 0, (jsize)names_len, (const jbyte *)names);
+    jintArray a[4];
+    jint *src[4] = { lens, hdrs, codes, flags };
+    (*env)->SetObjectArrayElement(env, result, 0, jn);
+    for (int i = 0; i < 4; i++) {
+        a[i] = (*env)->NewIntArray(env, n);
+        (*env)->SetIntArrayRegion(env, a[i], 0, n, src[i]);
+        (*env)->SetObjectArrayElement(env, result, i + 1, a[i]);
+    }
+out:
+    free(flash); free(ram); free(names); free(lens); free(hdrs); free(codes); free(flags);
+    return result;
+}

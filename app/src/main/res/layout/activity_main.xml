@@ -1,0 +1,316 @@
+<?xml version="1.0" encoding="utf-8"?>
+<LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:app="http://schemas.android.com/apk/res-auto"
+    android:id="@+id/root"
+    android:layout_width="match_parent"
+    android:layout_height="match_parent"
+    android:background="@color/console_background"
+    android:importantForAutofill="noExcludeDescendants"
+    android:orientation="vertical">
+
+    <!-- Top bar -->
+    <LinearLayout
+        android:layout_width="match_parent"
+        android:layout_height="48dp"
+        android:background="@color/bar_background"
+        android:gravity="center_vertical"
+        android:orientation="horizontal"
+        android:paddingStart="12dp">
+
+        <TextView
+            android:id="@+id/title"
+            android:layout_width="0dp"
+            android:layout_height="wrap_content"
+            android:layout_weight="1"
+            android:ellipsize="end"
+            android:maxLines="1"
+            android:text="@string/app_name"
+            android:textColor="@color/bar_text"
+            android:textSize="18sp" />
+
+
+        <Button
+            android:id="@+id/reset"
+            style="@style/Widget.Material3.Button.TextButton"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:text="@string/reset" />
+
+        <ImageButton
+            android:id="@+id/menu"
+            android:layout_width="44dp"
+            android:layout_height="48dp"
+            android:background="?attr/selectableItemBackgroundBorderless"
+            android:contentDescription="@string/more"
+            android:src="@drawable/ic_more"
+            app:tint="@color/bar_text" />
+    </LinearLayout>
+
+    <com.google.android.material.tabs.TabLayout
+        android:id="@+id/tabs"
+        android:layout_width="match_parent"
+        android:layout_height="40dp"
+        android:background="@color/bar_background"
+        app:tabIndicatorColor="@color/accent"
+        app:tabSelectedTextColor="@color/accent"
+        app:tabTextColor="@color/label" />
+
+    <LinearLayout
+        android:id="@+id/panes"
+        android:layout_width="match_parent"
+        android:layout_height="0dp"
+        android:layout_weight="1"
+        android:orientation="horizontal">
+
+        <!-- Editor pane: left on wide screens -->
+        <LinearLayout
+            android:id="@+id/editorPane"
+            android:layout_width="0dp"
+            android:layout_height="match_parent"
+            android:layout_weight="1"
+            android:orientation="vertical"
+            android:visibility="gone">
+
+            <HorizontalScrollView
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:background="@color/bar_background"
+                android:scrollbars="none">
+
+                <LinearLayout
+                    android:id="@+id/fileTabs"
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:orientation="horizontal" />
+            </HorizontalScrollView>
+
+            <io.github.leukoplast1980.solderless.ui.ForthEditor
+                android:id="@+id/editor"
+                android:layout_width="match_parent"
+                android:layout_height="0dp"
+                android:layout_weight="1"
+                android:background="@null"
+                android:importantForAutofill="no"
+                android:paddingTop="6dp"
+                android:paddingEnd="8dp"
+                android:scrollbars="vertical"
+                android:textColor="@color/console_text"
+                android:textSize="14sp" />
+
+            <HorizontalScrollView
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:background="@color/bar_background"
+                android:scrollbars="none">
+
+                <LinearLayout
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:orientation="horizontal">
+
+                    <TextView
+                        android:id="@+id/editorFiles"
+                        style="@style/EditorAction"
+                        android:text="@string/files" />
+
+                    <TextView
+                        android:id="@+id/editorSend"
+                        style="@style/EditorAction"
+                        android:text="@string/send" />
+
+                    <TextView
+                        android:id="@+id/editorUndo"
+                        style="@style/EditorAction"
+                        android:text="@string/undo" />
+
+                    <TextView
+                        android:id="@+id/editorRedo"
+                        style="@style/EditorAction"
+                        android:text="@string/redo" />
+
+                    <TextView
+                        android:id="@+id/editorFind"
+                        style="@style/EditorAction"
+                        android:text="@string/find" />
+
+                    <TextView
+                        android:id="@+id/editorSave"
+                        style="@style/EditorAction"
+                        android:text="@string/save" />
+                </LinearLayout>
+            </HorizontalScrollView>
+        </LinearLayout>
+
+        <View
+            android:id="@+id/paneDivider"
+            android:layout_width="1dp"
+            android:layout_height="match_parent"
+            android:background="@color/divider"
+            android:visibility="gone" />
+
+        <!-- Right pane on wide screens: REPL or Registers -->
+        <LinearLayout
+            android:id="@+id/rightPane"
+            android:layout_width="0dp"
+            android:layout_height="match_parent"
+            android:layout_weight="1"
+            android:orientation="vertical">
+
+            <!-- REPL -->
+            <LinearLayout
+                android:id="@+id/replPane"
+                android:layout_width="match_parent"
+                android:layout_height="match_parent"
+                android:orientation="vertical">
+
+                <ScrollView
+                    android:id="@+id/scroll"
+                    android:layout_width="match_parent"
+                    android:layout_height="0dp"
+                    android:layout_weight="1"
+                    android:fillViewport="true"
+                    android:padding="8dp">
+
+                    <TextView
+                        android:id="@+id/output"
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:fontFamily="monospace"
+                        android:textColor="@color/console_text"
+                        android:textIsSelectable="true"
+                        android:textSize="14sp" />
+                </ScrollView>
+
+                <LinearLayout
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:background="@color/bar_background"
+                    android:orientation="horizontal">
+
+                    <EditText
+                        android:id="@+id/input"
+                        android:layout_width="0dp"
+                        android:layout_height="wrap_content"
+                        android:layout_weight="1"
+                        android:fontFamily="monospace"
+                        android:hint="@string/input_hint"
+                        android:imeOptions="actionSend|flagNoExtractUi"
+                        android:importantForAutofill="no"
+                        android:inputType="text|textNoSuggestions"
+                        android:maxLines="1"
+                        android:textColor="@color/console_text"
+                        android:textColorHint="@color/console_hint"
+                        android:textSize="14sp" />
+
+                    <io.github.leukoplast1980.solderless.ui.RawInputView
+                        android:id="@+id/rawInput"
+                        android:layout_width="0dp"
+                        android:layout_height="48dp"
+                        android:layout_weight="1"
+                        android:gravity="center_vertical"
+                        android:paddingStart="8dp"
+                        android:text="@string/raw_hint"
+                        android:textColor="@color/console_hint"
+                        android:textSize="14sp"
+                        android:visibility="gone" />
+
+                    <Button
+                        android:id="@+id/send"
+                        style="@style/Widget.Material3.Button.TextButton"
+                        android:layout_width="wrap_content"
+                        android:layout_height="wrap_content"
+                        android:text="@string/send" />
+                </LinearLayout>
+            </LinearLayout>
+
+            <!-- Registers -->
+            <LinearLayout
+                android:id="@+id/registersPane"
+                android:layout_width="match_parent"
+                android:layout_height="match_parent"
+                android:orientation="vertical"
+                android:visibility="gone">
+
+                <LinearLayout
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:gravity="center_vertical"
+                    android:orientation="horizontal"
+                    android:paddingStart="8dp">
+
+                    <TextView
+                        android:id="@+id/runState"
+                        android:layout_width="0dp"
+                        android:layout_height="wrap_content"
+                        android:layout_weight="1"
+                        android:fontFamily="monospace"
+                        android:textColor="@color/label"
+                        android:textSize="13sp" />
+
+                    <Button
+                        android:id="@+id/pause"
+                        style="@style/Widget.Material3.Button.TextButton"
+                        android:layout_width="wrap_content"
+                        android:layout_height="wrap_content"
+                        android:text="@string/pause" />
+
+                    <Button
+                        android:id="@+id/step"
+                        style="@style/Widget.Material3.Button.TextButton"
+                        android:layout_width="wrap_content"
+                        android:layout_height="wrap_content"
+                        android:enabled="false"
+                        android:text="@string/step" />
+                </LinearLayout>
+
+                <ScrollView
+                    android:layout_width="match_parent"
+                    android:layout_height="0dp"
+                    android:layout_weight="1"
+                    android:padding="8dp">
+
+                    <TextView
+                        android:id="@+id/registers"
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:fontFamily="monospace"
+                        android:textColor="@color/console_text"
+                        android:textSize="13sp" />
+                </ScrollView>
+            </LinearLayout>
+
+        </LinearLayout>
+    </LinearLayout>
+
+    <!-- Shared by the REPL and the editor: suggestions and extra keys -->
+    <HorizontalScrollView
+        android:id="@+id/suggestionScroll"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:paddingStart="6dp"
+        android:paddingTop="4dp"
+        android:paddingBottom="4dp"
+        android:scrollbars="none"
+        android:visibility="gone">
+
+        <LinearLayout
+            android:id="@+id/suggestions"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:orientation="horizontal" />
+    </HorizontalScrollView>
+
+    <HorizontalScrollView
+        android:id="@+id/extraKeysScroll"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:background="@color/bar_background"
+        android:scrollbars="none">
+
+        <LinearLayout
+            android:id="@+id/extraKeys"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:orientation="horizontal" />
+    </HorizontalScrollView>
+</LinearLayout>

@@ -1,0 +1,48 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <style name="Theme.Solderless" parent="Theme.Material3.Dark.NoActionBar">
+        <item name="colorPrimary">@color/accent</item>
+        <item name="colorOnPrimary">@color/console_background</item>
+        <item name="colorSurface">@color/bar_background</item>
+        <item name="colorOnSurface">@color/bar_text</item>
+        <item name="android:colorBackground">@color/console_background</item>
+        <item name="android:windowBackground">@color/console_background</item>
+    </style>
+
+    <style name="ExtraKey">
+        <item name="android:layout_width">wrap_content</item>
+        <item name="android:layout_height">40dp</item>
+        <item name="android:minWidth">44dp</item>
+        <item name="android:gravity">center</item>
+        <item name="android:paddingStart">10dp</item>
+        <item name="android:paddingEnd">10dp</item>
+        <item name="android:fontFamily">monospace</item>
+        <item name="android:textSize">16sp</item>
+        <item name="android:textColor">@color/bar_text</item>
+        <item name="android:background">?attr/selectableItemBackground</item>
+    </style>
+
+    <style name="EditorAction">
+        <item name="android:layout_width">wrap_content</item>
+        <item name="android:layout_height">36dp</item>
+        <item name="android:gravity">center</item>
+        <item name="android:paddingStart">12dp</item>
+        <item name="android:paddingEnd">12dp</item>
+        <item name="android:textSize">14sp</item>
+        <item name="android:textColor">@color/bar_text</item>
+        <item name="android:background">?attr/selectableItemBackground</item>
+    </style>
+
+    <style name="Suggestion">
+        <item name="android:layout_width">wrap_content</item>
+        <item name="android:layout_height">32dp</item>
+        <item name="android:layout_marginEnd">6dp</item>
+        <item name="android:gravity">center</item>
+        <item name="android:paddingStart">10dp</item>
+        <item name="android:paddingEnd">10dp</item>
+        <item name="android:fontFamily">monospace</item>
+        <item name="android:textSize">14sp</item>
+        <item name="android:textColor">@color/console_text</item>
+        <item name="android:background">@drawable/suggestion_background</item>
+    </style>
+</resources>
