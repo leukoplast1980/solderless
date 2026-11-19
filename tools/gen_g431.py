@@ -187,6 +187,29 @@ def main():
     o.append(f"const int sl_g431_nanalog = {len(analog)};")
     with open(out_path, "w") as f:
         f.write("\n".join(o) + "\n")
+
+    # The same pin data for the app (recommender, Board tab): data/g431rb-pins.json
+    import os
+    pkg_pins = {}
+    for pp in pkg["pins"]:
+        pkg_pins[int(pp["position"])] = pp["signals"]
+    out = {"package": PACKAGE, "pins": []}
+    for pos in sorted(pkg_pins):
+        sigs = pkg_pins[pos]
+        name = sigs[0].split("-")[0]
+        if name.startswith("PG10"): name = "NRST"
+        entry = {"number": pos, "name": name}
+        if len(name) >= 3 and name[0] == "P" and name[1] in "ABCDEFG" and name[2:].isdigit():
+            entry["port"] = ord(name[1]) - ord("A")
+            entry["bit"] = int(name[2:])
+            entry["af"] = [{"af": af, "periph": pn, "signal": sg} for port, n, af, pidx, pn, sg in afs
+                           if port == entry["port"] and n == entry["bit"]]
+            entry["analog"] = [f"{pn}_{sg}" for port, n, pn, sg in analog if port == entry["port"] and n == entry["bit"]]
+        out["pins"].append(entry)
+    json_path = os.path.join(os.path.dirname(os.path.abspath(out_path)), "..", "..", "data", "g431rb-pins.json")
+    with open(json_path, "w") as f:
+        json.dump(out, f, indent=1)
+        f.write("\n")
     print(f"{len(periphs)} peripherals, {sum(len(p['regs']) for p in periphs)} registers, "
           f"{len(pins)} pins, {len(afs)} alternate functions, {len(analog)} analog functions")
 

@@ -74,6 +74,7 @@ dependencies {
     implementation("androidx.documentfile:documentfile:1.0.1")
     implementation("io.github.amrdeveloper:codeview:1.3.9")
     testImplementation("junit:junit:4.13.2")
+    testImplementation("org.json:json:20240303")
     androidTestImplementation("androidx.test:runner:1.6.2")
     androidTestImplementation("androidx.test:core:1.6.1")
     androidTestImplementation("androidx.test.ext:junit:1.2.1")
@@ -95,6 +96,10 @@ val bundleFirmware by tasks.registering(Copy::class) {
         include("lib_*.txt")
         rename { it.removeSuffix(".txt") + ".fs" }
         into("examples")
+    }
+    from(rootProject.file("data")) {
+        include("g431rb-pins.json")
+        into("chip")
     }
     into(layout.buildDirectory.dir("generated/firmwareAssets"))
 }
