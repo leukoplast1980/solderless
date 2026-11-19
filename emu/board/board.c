@@ -376,6 +376,7 @@ void board_read(struct sl_soc *s, sl_board_state *out)
         out->mv[slot] = (int16_t)p->mv;
         out->mode[slot] = (uint8_t)((s->regs[s->pi_gpio[port]][0] >> (2 * bit)) & 3u);
         out->freq_mhz[slot] = p->pwm ? p->pwm_freq_mhz : 0;
+        out->pwm_duty[slot] = p->pwm ? (uint16_t)((p->pwm_duty_q16 * 1000u + 0x8000u) >> 16) : 0;
         out->flags[slot] = (uint8_t)((p->level && !p->floating ? SL_PIN_HIGH : 0) | (p->floating ? SL_PIN_FLOATING : 0)
                                      | (p->shorted ? SL_PIN_SHORT : 0) | (p->pwm ? SL_PIN_PWM : 0)
                                      | (p->undefined ? SL_PIN_UNDEFINED : 0) | (p->chip_drives ? SL_PIN_CHIP_DRIVES : 0)

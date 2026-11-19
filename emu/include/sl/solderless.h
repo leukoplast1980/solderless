@@ -144,6 +144,7 @@ typedef struct {
     uint8_t mode[SL_PIN_SLOTS];         /* SL_MODE_*, from MODER */
     uint16_t duty[SL_PIN_SLOTS];        /* time high since the last read, per mille */
     uint32_t freq_mhz[SL_PIN_SLOTS];    /* PWM frequency in mHz */
+    uint16_t pwm_duty[SL_PIN_SLOTS];    /* PWM duty as set now, per mille */
     int32_t current_ua[SL_MAX_ATTACH];  /* average current through each attachment */
     uint64_t time_ns;
 } sl_board_state;

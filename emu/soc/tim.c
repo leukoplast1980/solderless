@@ -331,6 +331,9 @@ void tim_write(struct sl_soc *s, int idx, uint32_t off, uint32_t v, uint32_t mas
     struct sl_tim *t = &s->tim[idx];
     uint32_t *r = R(s, t);
     uint32_t wm = s->wmask[t->pi][off / 4] & mask;
+    /* The SVD gives TIM2's counter, auto-reload and compare registers 16
+     * bits; on the chip they are 32 bits wide. */
+    if (t->bits32 && (off == CNT || off == ARR || (off >= CCR1 && off < CCR1 + 16u))) wm = mask;
     advance(s, t);
     t->polled = 0;
     switch (off) {
@@ -379,6 +382,7 @@ void tim_write(struct sl_soc *s, int idx, uint32_t off, uint32_t v, uint32_t mas
             break;
         }
         r[off / 4] = (r[off / 4] & ~wm) | (v & wm);
+        if (off == BDTR && ((r[BDTR / 4] >> 15) & 1u)) t->moe_warned = 0;
         if (off == CCMR1 || off == CCMR2 || off == CCER || off == BDTR) board_af_outputs_changed(s);
         break;
     }
@@ -401,6 +405,8 @@ int tim_output(struct sl_soc *s, int pi, int ch, int neg, struct sl_tim_out *o)
     int pol = neg ? (ccer >> 3) & 1u : (ccer >> 1) & 1u;
     if (!en || !cc_is_output(s, t, c)) return 0;
     if (t->adv && !((r[BDTR / 4] >> 15) & 1u)) {
+        if (t->moe_warned) return 0;
+        t->moe_warned = 1;
         soc_log(s, LOG_TIMER, "%s CH%d%s is enabled, but MOE in %s_BDTR is 0: an advanced timer keeps its "
                 "outputs off until MOE is set", t->name, ch, neg ? "N" : "", t->name);
         return 0;
@@ -493,7 +499,7 @@ void tim_clocks_changed(struct sl_soc *s)
 void tim_reset(struct sl_soc *s, int idx)
 {
     struct sl_tim *t = &s->tim[idx];
-    t->running = 0; t->polled = 0;
+    t->running = 0; t->polled = 0; t->moe_warned = 0;
     t->t0 = t->t_seen = 0; t->pos0 = 0; t->rep = 0;
     load_shadows(s, t);
     if (t->irq_up >= 0) soc_irq(s, t->irq_up, t->pi, 0);

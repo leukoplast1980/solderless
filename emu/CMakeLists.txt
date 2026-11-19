@@ -56,4 +56,20 @@ if(NOT ANDROID)
       DEPENDS ${EXC_SRC})
     add_custom_target(exc_test_fw ALL DEPENDS exc_test.bin)
   endif()
+
+  # Peripheral and board tests: C firmware for the chip, and a host harness
+  add_executable(periph_test ../tests/periph/periph_test.c)
+  target_link_libraries(periph_test PRIVATE slemu)
+  find_program(ARM_GCC arm-none-eabi-gcc)
+  if(ARM_GCC AND ARM_OBJCOPY)
+    set(PERIPH_SRC ${CMAKE_CURRENT_SOURCE_DIR}/../tests/periph/periph_fw.c)
+    set(PERIPH_LD ${CMAKE_CURRENT_SOURCE_DIR}/../tests/periph/periph.ld)
+    add_custom_command(
+      OUTPUT periph_fw.bin
+      COMMAND ${ARM_GCC} -mcpu=cortex-m4 -mthumb -mfloat-abi=soft -O2 -ffreestanding -nostdlib
+              -Wall -Wextra -Wno-override-init -T ${PERIPH_LD} -o periph_fw.elf ${PERIPH_SRC}
+      COMMAND ${ARM_OBJCOPY} -O binary periph_fw.elf periph_fw.bin
+      DEPENDS ${PERIPH_SRC} ${PERIPH_LD})
+    add_custom_target(periph_fw ALL DEPENDS periph_fw.bin)
+  endif()
 endif()
