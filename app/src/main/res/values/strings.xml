@@ -20,6 +20,10 @@
     <string name="tab_scope">Scope</string>
     <string name="registers_copy">Copy</string>
     <string name="board_sample_code">Sample code</string>
+    <string name="pot_down">Turn down by 1 %</string>
+    <string name="pot_up">Turn up by 1 %</string>
+    <string name="pot_slider">Potentiometer position</string>
+    <string name="pot_open">%1$s: drag to turn, tap for the wide slider</string>
     <string name="board_other_pins_button">Other pins: %1$d</string>
     <string name="board_sample_title">%1$s: sample code</string>
     <string name="board_sample_hint">Ready to run: paste it into the console, or into a file loaded after wiring.fs. Then try the word on its last line.</string>
@@ -47,7 +51,7 @@
     <string name="board_rewire_note">Code that uses the constants in wiring.fs works unchanged after loading wiring.fs again.</string>
     <string name="board_remove">Remove</string>
     <string name="board_change_pin">Change pin</string>
-    <string name="board_pin_over_tabs">Show over the Console and Editor</string>
+    <string name="board_pin_over_tabs">Show over the other tabs</string>
     <string name="board_support_title">Support circuit</string>
     <string name="board_support_subtitle">What the STM32G431RB needs around it on a real board. Placed for you.</string>
     <string name="board_support_clock">No crystal: the chip runs on its internal HSI16.</string>

@@ -297,9 +297,12 @@ Settled with the mock-up (Solderless – Breadboard tab mock-up, 19 November
 - **Support circuit** (decoupling, VDDA filter, NRST capacitor, BOOT0
   pull-down, VBAT) sits behind a button, with the wiring and parts list
   exports.
-- **Pinned parts.** A part can be pinned so it floats over the Console and
-  Editor tabs (an LED, a button you can press, a display at its real pixel
-  size), so you see the circuit react while you type.
+- **Pinned parts.** A part can be pinned so it floats over the other tabs
+  (Console, Editor, Scope, Registers): an LED, a button you can press, a
+  display at its real pixel size. You see the circuit react while you type,
+  trace or step. A pot is a pill filled as far as it is turned: drag along
+  it to turn it, tap it for a full-width slider with - / + for 1 % steps.
+  The card and the slider stay above the Console's input line.
 - **Scope tab** (added in milestone 2, styled after Mecrisp Pocket's GPIO
   trace): one row per pin with a part, or added from its sheet; logic
   levels, voltages for analog pins, PWM as a square wave or a band, fast

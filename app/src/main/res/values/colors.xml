@@ -19,6 +19,8 @@
     <color name="syntax_control">#FFFF9E8A</color>
     <color name="syntax_special">#FF80DEEA</color>
     <color name="syntax_unknown">#FFFF6B6B</color>
+    <color name="analog">#FF80DEEA</color>
+    <color name="analog_dim">#FF1B2A2E</color>
     <color name="danger">#FFFF6B6B</color>
     <color name="chip_message">#FFFFB454</color>
     <color name="error_line">#55FF5050</color>
