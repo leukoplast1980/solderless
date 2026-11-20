@@ -303,12 +303,12 @@ class BoardView @JvmOverloads constructor(context: Context, attrs: AttributeSet?
     }
 
     /** Wire from a pin to a terminal at (tx, ty), via a jog just off the header. */
-    private fun feed(c: Canvas, pin: String, tx: Float, ty: Float, dashed: Boolean, colour: Int? = null) {
+    private fun feed(c: Canvas, pin: String, tx: Float, ty: Float, dashed: Boolean, colour: Int? = null, jog: Float = 9f) {
         val (x0, sg) = padX(pin)
         val y = pinY[pin] ?: return
         val col = colour ?: wireColour(pin)
         if (abs(y - ty) < 0.5f) wire(c, col, dashed, x0, y, tx, ty)
-        else wire(c, col, dashed, x0, y, x0 + sg * dp(9f), y, x0 + sg * dp(9f), ty, tx, ty)
+        else wire(c, col, dashed, x0, y, x0 + sg * dp(jog), y, x0 + sg * dp(jog), ty, tx, ty)
     }
 
     private fun drawPart(c: Canvas, p: Part, cy: Float, side: Int, isGhost: Boolean) {
@@ -412,10 +412,22 @@ class BoardView @JvmOverloads constructor(context: Context, attrs: AttributeSet?
                 val rows = listOf(cy - dp(30f), cy, cy + dp(30f))
                 val cols = listOf(0xFFFF6B6B.toInt(), 0xFF6FCF7F.toInt(), 0xFF7FB8FF.toInt())
                 var mixR = 0f; var mixG = 0f; var mixB = 0f
-                for (r in 0..2) {
-                    val pin = p.pins.getOrNull(r)?.pin ?: continue
-                    val ry = rows[r]
-                    feed(c, pin, x0 + sg * dp(22f), ry, dashed, gc)
+                // Rows follow the order of the pins on the header, so no two wires cross
+                val roles = (0..2).filter { p.pins.getOrNull(it) != null }
+                fun py(r: Int) = pinY[p.pins[r].pin] ?: cy
+                val rowOf = HashMap<Int, Float>()
+                roles.sortedBy { py(it) }.forEachIndexed { i, r -> rowOf[r] = rows[i] }
+                // Each wire turns in a column of its own: of the wires going down, the
+                // one starting highest turns farthest in; going up, the lowest one.
+                val jog = HashMap<Int, Float>()
+                roles.filter { rowOf[it]!! - py(it) > 0.5f }.sortedByDescending { py(it) }
+                    .forEachIndexed { k, r -> jog[r] = 6f + 5f * k }
+                roles.filter { rowOf[it]!! - py(it) < -0.5f }.sortedBy { py(it) }
+                    .forEachIndexed { k, r -> jog[r] = 6f + 5f * k }
+                for (r in roles) {
+                    val pin = p.pins[r].pin
+                    val ry = rowOf[r]!!
+                    feed(c, pin, x0 + sg * dp(22f), ry, dashed, gc, jog[r] ?: 9f)
                     resistorH(c, x0 + sg * dp(22f), x0 + sg * dp(46f), ry, Passives.format(Passives.ledResistor(p.vfMv(r), p.currentMa)), line, dashed)
                     wire(c, gc ?: wireColour(pin), dashed, x0 + sg * dp(46f), ry, x0 + sg * dp(56f), ry)
                     val lit = if (isGhost) 0f else brightness(p, r)

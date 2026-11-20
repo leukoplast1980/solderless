@@ -109,6 +109,21 @@ class BoardProbeTest {
         scenario.onActivity { a -> a.findViewById<View>(R.id.scopeW5s).performClick(); a.findViewById<View>(R.id.scopeHold).performClick() }
         Thread.sleep(500)
         screenshot("scope.png")
+
+        // An RGB LED on PA8, PA9, PA10 (TIM1 CH1-3): red's pin is the lowest on the
+        // right header, so its rows must follow the pins, wires not crossing
+        val rgb = Part(1, PartType.RGB_LED, listOf(
+            io.github.leukoplast1980.solderless.board.PinUse("PA8", io.github.leukoplast1980.solderless.board.Function.Timer("TIM1", 1, 6)),
+            io.github.leukoplast1980.solderless.board.PinUse("PA9", io.github.leukoplast1980.solderless.board.Function.Timer("TIM1", 2, 6)),
+            io.github.leukoplast1980.solderless.board.PinUse("PA10", io.github.leukoplast1980.solderless.board.Function.Timer("TIM1", 3, 6)),
+        ))
+        scenario.onActivity { vm.setBoard(Board(listOf(rgb))) }
+        scenario.onActivity { a ->
+            val tabs = a.findViewById<TabLayout>(R.id.tabs)
+            for (i in 0 until tabs.tabCount) if (tabs.getTabAt(i)!!.text == a.getString(R.string.tab_board)) tabs.getTabAt(i)!!.select()
+        }
+        Thread.sleep(1200)
+        screenshot("board-rgb.png")
         scenario.onActivity { vm.setBoard(Board()) }
     }
 
