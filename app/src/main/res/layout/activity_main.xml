@@ -461,7 +461,7 @@
         </LinearLayout>
     </LinearLayout>
 
-    <!-- Pinned parts float over the Console and the Editor -->
+    <!-- Pinned parts float over every tab but the Board -->
     <LinearLayout
         android:id="@+id/pinned"
         android:layout_width="wrap_content"

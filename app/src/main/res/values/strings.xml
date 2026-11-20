@@ -47,7 +47,7 @@
     <string name="board_rewire_note">Code that uses the constants in wiring.fs works unchanged after loading wiring.fs again.</string>
     <string name="board_remove">Remove</string>
     <string name="board_change_pin">Change pin</string>
-    <string name="board_pin_over_tabs">Show over the Console and Editor</string>
+    <string name="board_pin_over_tabs">Show over the other tabs</string>
     <string name="board_support_title">Support circuit</string>
     <string name="board_support_subtitle">What the STM32G431RB needs around it on a real board. Placed for you.</string>
     <string name="board_support_clock">No crystal: the chip runs on its internal HSI16.</string>

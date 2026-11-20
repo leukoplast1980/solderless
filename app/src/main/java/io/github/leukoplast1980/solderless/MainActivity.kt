@@ -119,7 +119,7 @@ class MainActivity : AppCompatActivity() {
 
     private val boardRefresh = object : Runnable {
         override fun run() {
-            boardCtl.refresh(screen == Screen.BOARD, screen == Screen.REPL || screen == Screen.EDITOR)
+            boardCtl.refresh(screen == Screen.BOARD, screen != Screen.BOARD)
             handler.postDelayed(this, BOARD_MS)
         }
     }
