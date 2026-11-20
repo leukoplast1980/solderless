@@ -54,6 +54,7 @@ class BoardController(
     private val d = activity.resources.displayMetrics.density
     private fun dp(v: Int) = (v * d).toInt()
     private var snapshotAge = 0
+    private val pinnedViews = HashMap<Int, View>()
 
     init {
         view.chip = vm.chip
@@ -411,8 +412,6 @@ class BoardController(
 
     // ------------------------------------------------------------------
     // Pinned parts over the other tabs
-
-    private val pinnedViews = HashMap<Int, View>()
 
     @SuppressLint("ClickableViewAccessibility")
     private fun rebuildPinned() {
