@@ -145,7 +145,7 @@ The console shows these in amber, at most three times each per run:
 - bus errors: access where there is no memory or peripheral
 - a floating input or one between the thresholds, read by the firmware
 - a short between the chip and a part; more than 20 mA through an LED
-- an advanced timer's output enabled without MOE
+- an advanced timer running with an output enabled but MOE clear
 - the ADC without a clock, started before its regulator is ready,
   calibrated while enabled, started before ADRDY; an ADC channel read on a
   pin that is not in analog mode; an ADC overrun

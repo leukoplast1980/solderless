@@ -15,6 +15,7 @@ import android.view.MotionEvent
 import android.view.View
 import android.view.ViewGroup
 import android.widget.Button
+import android.widget.HorizontalScrollView
 import android.widget.LinearLayout
 import android.widget.ScrollView
 import android.widget.SeekBar
@@ -34,6 +35,7 @@ import io.github.leukoplast1980.solderless.board.Part
 import io.github.leukoplast1980.solderless.board.PartType
 import io.github.leukoplast1980.solderless.board.Passives
 import io.github.leukoplast1980.solderless.board.Recommender
+import io.github.leukoplast1980.solderless.board.Samples
 import io.github.leukoplast1980.solderless.board.Wiring
 import io.github.leukoplast1980.solderless.settings.Settings
 import io.github.leukoplast1980.solderless.vm.BoardState
@@ -63,6 +65,7 @@ class BoardController(
         view.onPress = { p, down -> vm.boardInput(p.id, if (down) 1 else 0) }
         view.onPot = { p, v -> vm.boardInput(p.id, v) }
         view.onLongPress = { showSettings(it) }
+        view.onTap = { showSample(it) }
         view.onPinTap = { showPin(it) }
         activity.findViewById<View>(R.id.boardAdd).setOnClickListener { showAdd() }
         activity.findViewById<View>(R.id.boardSupport).setOnClickListener { showSupport() }
@@ -143,15 +146,32 @@ class BoardController(
 
     private fun color(id: Int) = ContextCompat.getColor(activity, id)
 
-    private fun code(parent: LinearLayout, lines: List<Pair<String, Int>>, copy: Boolean = false) {
-        val box = LinearLayout(activity).apply {
+    /** Forth source for code(): comments in the comment colour */
+    private fun forth(text: String): List<Pair<CharSequence, Int>> = text.trimEnd().lines().map { l ->
+        val at = when {
+            l.trimStart().startsWith("\\") -> l.indexOf('\\')
+            else -> l.indexOf(" \\ ").let { if (it < 0) -1 else it + 1 }
+        }
+        val sp = android.text.SpannableString(l)
+        if (at >= 0) sp.setSpan(android.text.style.ForegroundColorSpan(color(R.color.syntax_comment)), at, l.length, 0)
+        sp to color(R.color.console_text)
+    }
+
+    private fun code(parent: LinearLayout, lines: List<Pair<CharSequence, Int>>, copy: Boolean = false, label: String = "wiring.fs") {
+        val inner = LinearLayout(activity).apply {
             orientation = LinearLayout.VERTICAL
             setPadding(dp(12), dp(8), dp(12), dp(8))
-            background = GradientDrawable().apply { setColor(color(R.color.console_background)); cornerRadius = dp(10).toFloat() }
         }
-        for ((l, c) in lines) box.addView(TextView(activity).apply {
+        for ((l, c) in lines) inner.addView(TextView(activity).apply {
             text = l; typeface = Typeface.MONOSPACE; textSize = 11.5f; setTextColor(c)
+            setSingleLine(); setHorizontallyScrolling(true)
         })
+        // long lines scroll sideways rather than wrap, so the comments stay in their column
+        val box = HorizontalScrollView(activity).apply {
+            background = GradientDrawable().apply { setColor(color(R.color.console_background)); cornerRadius = dp(10).toFloat() }
+            isHorizontalScrollBarEnabled = false
+            addView(inner)
+        }
         if (!copy) { parent.addView(box, LinearLayout.LayoutParams(-1, -2).apply { topMargin = dp(10) }); return }
         val row = LinearLayout(activity).apply { orientation = LinearLayout.HORIZONTAL; gravity = Gravity.TOP }
         row.addView(box, LinearLayout.LayoutParams(0, -2, 1f))
@@ -160,7 +180,7 @@ class BoardController(
             contentDescription = activity.getString(R.string.copy_code)
             setOnClickListener {
                 val cm = activity.getSystemService(android.content.ClipboardManager::class.java)
-                cm.setPrimaryClip(android.content.ClipData.newPlainText("wiring.fs", lines.joinToString("\n") { it.first } + "\n"))
+                cm.setPrimaryClip(android.content.ClipData.newPlainText(label, lines.joinToString("\n") { it.first.toString() } + "\n"))
                 android.widget.Toast.makeText(activity, R.string.code_copied, android.widget.Toast.LENGTH_SHORT).show()
             }
         }, LinearLayout.LayoutParams(dp(48), dp(48)).apply { marginStart = dp(4) })
@@ -242,10 +262,11 @@ class BoardController(
                 col.addView(body(pr.why[r]))
             }
             for (x in Passives.forPart(pr.part)) col.addView(body("${x.value}: ${x.reason}"))
-            section(col, activity.getString(R.string.board_other_pins))
+            // The other pins stay behind a button: the list would push the rest off the screen
+            val opts = rec.options(board.parts, pr.part.copy(pins = emptyList()), role).filter { o -> pr.part.pins.none { it.pin == o.pin } }
+            val others = LinearLayout(activity).apply { orientation = LinearLayout.VERTICAL; visibility = View.GONE }
             val g = ChipGroup(activity)
-            for (o in rec.options(board.parts, pr.part.copy(pins = emptyList()), role).take(14)) {
-                if (pr.part.pins.any { it.pin == o.pin }) continue
+            for (o in opts) {
                 g.addView(Chip(activity).apply {
                     text = if (o.note.isEmpty()) o.pin else "${o.pin} · ${o.note}"
                     typeface = Typeface.MONOSPACE
@@ -258,21 +279,42 @@ class BoardController(
                     setOnClickListener { dlg.dismiss(); propose(part, o.pin, role) }
                 })
             }
-            col.addView(g)
-            col.addView(body(activity.getString(R.string.board_other_pins_legend), R.color.syntax_comment))
-            val mine = linesFor(board.with(pr.part), pr.part)
-            code(col, mine.map { it to if (it.startsWith("\\")) color(R.color.syntax_comment) else color(R.color.console_text) }, copy = true)
+            others.addView(g)
+            others.addView(body(activity.getString(R.string.board_other_pins_legend), R.color.syntax_comment))
+            if (opts.isNotEmpty()) {
+                val rn = pr.part.type.roles[role]
+                val label = activity.getString(R.string.board_other_pins_button, opts.size) + if (rn.isEmpty()) "" else " ($rn)"
+                col.addView(MaterialButton(activity, null, com.google.android.material.R.attr.borderlessButtonStyle).apply {
+                    text = "$label  ▾"
+                    isAllCaps = false
+                    setPadding(0, paddingTop, paddingRight, paddingBottom)
+                    setOnClickListener {
+                        val open = others.visibility != View.VISIBLE
+                        others.visibility = if (open) View.VISIBLE else View.GONE
+                        text = "$label  " + if (open) "▴" else "▾"
+                    }
+                }, LinearLayout.LayoutParams(-2, -2).apply { topMargin = dp(6) })
+                col.addView(others)
+            }
             buttons(col, activity.getString(android.R.string.cancel) to { dlg.dismiss() },
                 activity.getString(R.string.board_add) to { dlg.dismiss(); setBoard(board.apply(pr)) })
+            section(col, activity.getString(R.string.board_sample_code))
+            col.addView(body(activity.getString(R.string.board_sample_hint), R.color.label))
+            val after = board.with(pr.part)
+            code(col, forth(Samples.forPart(after, vm.chip, pr.part)), copy = true, label = after.nameOf(pr.part) + " sample")
         }
         dlg.setOnDismissListener { if (view.ghost === pr.part) { view.ghost = null; view.highlightPins = emptySet() } }
     }
 
-    /** The part's block of wiring.fs (one block per part, separated by blank lines) */
-    private fun linesFor(b: Board, p: Part): List<String> {
-        val name = b.nameOf(p)
-        return Wiring.wiringFs(b, vm.chip, vm.project.name).split("\n\n")
-            .firstOrNull { it.contains(" constant $name-") }?.trim()?.lines() ?: emptyList()
+    /** A part's sample code, from a tap on the part or its sheet */
+    private fun showSample(p: Part): BottomSheetDialog = sheet { col, dlg ->
+        val b = vm.board
+        val n = b.nameOf(p)
+        title(col, activity.getString(R.string.board_sample_title, p.type.title),
+            "$n · " + p.pins.joinToString(" · ") { it.pin } + " · " + describe(p))
+        col.addView(body(activity.getString(R.string.board_sample_hint), R.color.label))
+        code(col, forth(Samples.forPart(b, vm.chip, p)), copy = true, label = "$n sample")
+        buttons(col, activity.getString(R.string.board_part_settings) to { dlg.dismiss(); showSettings(p) })
     }
 
     private fun describe(p: Part): String = when (p.type) {
@@ -332,7 +374,7 @@ class BoardController(
         }
         when (p.type) {
             PartType.LED -> {
-                choice(col, "Colour", LedColour.entries.map { "${it.title} ${"%.1f".format(it.vfMv / 1000.0)} V" }, p.colour.ordinal) { update(p.copy(colour = LedColour.entries[it])) }
+                choice(col, "Colour", LedColour.entries.map { "${it.title} ${"%.1f".format(java.util.Locale.ROOT, it.vfMv / 1000.0)} V" }, p.colour.ordinal) { update(p.copy(colour = LedColour.entries[it])) }
                 choice(col, "Size", listOf("3 mm", "5 mm"), if (p.sizeMm == 3) 0 else 1) { update(p.copy(sizeMm = if (it == 0) 3 else 5)) }
                 choice(col, "Current", listOf("2 mA", "5 mA", "10 mA"), listOf(2, 5, 10).indexOf(p.currentMa)) { update(p.copy(currentMa = listOf(2, 5, 10)[it])) }
                 choice(col, "Lights when the pin is", listOf("high", "low"), if (p.activeHigh) 0 else 1) { update(p.copy(activeHigh = it == 0)) }
@@ -355,6 +397,7 @@ class BoardController(
         }
         for (x in Passives.forPart(p)) col.addView(body("${x.value}: ${x.reason}"))
         switch(col, activity.getString(R.string.board_pin_over_tabs), p.pinnedOverTabs) { update(p.copy(pinnedOverTabs = it)) }
+        buttons(col, activity.getString(R.string.board_sample_code) to { dlg.dismiss(); showSample(p) })
         buttons(col, activity.getString(R.string.board_change_pin) to { dlg.dismiss(); changePin(p) },
             activity.getString(R.string.board_remove) to { dlg.dismiss(); setBoard(vm.board.without(p.id)) }, primaryLast = false)
     }

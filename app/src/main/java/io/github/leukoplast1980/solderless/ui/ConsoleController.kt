@@ -6,6 +6,7 @@
  */
 package io.github.leukoplast1980.solderless.ui
 
+import android.annotation.SuppressLint
 import android.app.Activity
 import android.content.ClipData
 import android.content.ClipboardManager
@@ -92,6 +93,7 @@ class ConsoleController(
         (output as? AppCompatTextView)?.setEmojiCompatEnabled(false)
         // Plain line breaking: the default (high quality) weighs whole
         // paragraphs, which gets slow on long output lines.
+        @SuppressLint("WrongConstant")   // the same value as LineBreaker's, which needs API 29
         output.breakStrategy = Layout.BREAK_STRATEGY_SIMPLE
         output.hyphenationFrequency = Layout.HYPHENATION_FREQUENCY_NONE
 

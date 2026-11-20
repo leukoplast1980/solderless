@@ -63,7 +63,7 @@ $68 TIM3 $18 + !  1 TIM3 $20 + !  1 TIM3 $14 + !  1 TIM3 !
 #!attach 4 led PC6 r=270 vf=1900
 #!attach 6 audio PC6
 #!audio
-499 TIM3 $34 + !
+499 TIM3 $34 + !  10000 wait
 #!audio
 #!pins
 \ DAC1 OUT1 on PA4 at half scale

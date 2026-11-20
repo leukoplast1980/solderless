@@ -1,0 +1,242 @@
+\ The sample code the Board tab gives for RGB LEDs, as generated (SamplesTest  ok.
+\ checks that it still matches): TIM1 (needs MOE), TIM3 inverted, and GPIO.  ok.
+#!attach 1 led PA8 r=270 vf=1900
+#!attach 2 led PA9 r=56 vf=3000
+#!attach 3 led PA10 r=56 vf=3000
+#!attach 4 led PC6 r=270 vf=1900 vcc
+#!attach 5 led PC7 r=56 vf=3000 vcc
+#!attach 6 led PC8 r=56 vf=3000 vcc
+#!attach 7 led PB10 r=270 vf=1900
+#!attach 8 led PB11 r=56 vf=3000
+#!attach 9 led PB12 r=56 vf=3000
+  ok.
+\ rgb: RGB LED, common cathode: red on PA8, green on PA9, blue on PA10  ok.
+\ Paste all of it into the console, or put it in a file after wiring.fs.  ok.
+  ok.
+\ PA8 (pin 42) → 270 Ω → red LED → GND  ok.
+$48000000 constant rgb-red-port  \ GPIOA  ok.
+8 constant rgb-red-pin  ok.
+$40012C00 constant rgb-timer  \ TIM1  ok.
+1 constant rgb-red-ch  ok.
+6 constant rgb-red-af  ok.
+\ PA9 (pin 43) → 56 Ω → green LED → GND  ok.
+$48000000 constant rgb-green-port  \ GPIOA  ok.
+9 constant rgb-green-pin  ok.
+2 constant rgb-green-ch  ok.
+6 constant rgb-green-af  ok.
+\ PA10 (pin 44) → 56 Ω → blue LED → GND  ok.
+$48000000 constant rgb-blue-port  \ GPIOA  ok.
+10 constant rgb-blue-pin  ok.
+3 constant rgb-blue-ch  ok.
+6 constant rgb-blue-af  ok.
+  ok.
+\ ms: wait n milliseconds, counted by SysTick at 16 MHz  ok.
+\ (lib_systick uses SysTick too: with it loaded, use its delay-ms)  ok.
+: ms ( n -- )  ok.
+  15999 $E000E014 !  0 $E000E018 !  5 $E000E010 ! \ SysTick: wrap every 16000 cycles  ok.
+  0 ?do begin $E000E010 @ $10000 and until loop   \ count the wraps  ok.
+  0 $E000E010 ! ;                                 \ SysTick off again  ok.
+  ok.
+: rgb-init ( -- )  ok.
+  1 0 lshift $4002104C bis!                       \ RCC AHB2ENR: clock for GPIOA  ok.
+  %11 rgb-red-pin 2* lshift rgb-red-port bic!     \ MODER: clear the two bits  ok.
+  %10 rgb-red-pin 2* lshift rgb-red-port bis!     \ MODER: 10 = alternate function  ok.
+  $F rgb-red-pin 8 - 4 * lshift rgb-red-port $24 + bic! \ AFRH: clear the four bits  ok.
+  rgb-red-af rgb-red-pin 8 - 4 * lshift rgb-red-port $24 + bis! \ AFRH: AF6 = TIM1 CH1  ok.
+  %11 rgb-green-pin 2* lshift rgb-green-port bic! \ MODER: clear the two bits  ok.
+  %10 rgb-green-pin 2* lshift rgb-green-port bis! \ MODER: 10 = alternate function  ok.
+  $F rgb-green-pin 8 - 4 * lshift rgb-green-port $24 + bic! \ AFRH: clear the four bits  ok.
+  rgb-green-af rgb-green-pin 8 - 4 * lshift rgb-green-port $24 + bis! \ AFRH: AF6 = TIM1 CH2  ok.
+  %11 rgb-blue-pin 2* lshift rgb-blue-port bic!   \ MODER: clear the two bits  ok.
+  %10 rgb-blue-pin 2* lshift rgb-blue-port bis!   \ MODER: 10 = alternate function  ok.
+  $F rgb-blue-pin 8 - 4 * lshift rgb-blue-port $24 + bic! \ AFRH: clear the four bits  ok.
+  rgb-blue-af rgb-blue-pin 8 - 4 * lshift rgb-blue-port $24 + bis! \ AFRH: AF6 = TIM1 CH3  ok.
+  1 11 lshift $40021060 bis!                      \ RCC APB2ENR: clock for TIM1  ok.
+  15 rgb-timer $28 + !                            \ PSC: 16 MHz / 16, a tick every microsecond  ok.
+  999 rgb-timer $2C + !                           \ ARR: 1000 ticks a period, 1 kHz  ok.
+  $FF rgb-timer $18 + bic!                        \ CCMR1: clear channel 1  ok.
+  $68 rgb-timer $18 + bis!                        \ CCMR1: channel 1 in PWM mode 1, CCR1 preloaded  ok.
+  $F rgb-timer $20 + bic!                         \ CCER: clear channel 1  ok.
+  $1 rgb-timer $20 + bis!                         \ CCER: CC1E, output on  ok.
+  0 rgb-timer $34 + !                             \ CCR1: red off  ok.
+  $FF00 rgb-timer $18 + bic!                      \ CCMR1: clear channel 2  ok.
+  $6800 rgb-timer $18 + bis!                      \ CCMR1: channel 2 in PWM mode 1, CCR2 preloaded  ok.
+  $F0 rgb-timer $20 + bic!                        \ CCER: clear channel 2  ok.
+  $10 rgb-timer $20 + bis!                        \ CCER: CC2E, output on  ok.
+  0 rgb-timer $38 + !                             \ CCR2: green off  ok.
+  $FF rgb-timer $1C + bic!                        \ CCMR2: clear channel 3  ok.
+  $68 rgb-timer $1C + bis!                        \ CCMR2: channel 3 in PWM mode 1, CCR3 preloaded  ok.
+  $F00 rgb-timer $20 + bic!                       \ CCER: clear channel 3  ok.
+  $100 rgb-timer $20 + bis!                       \ CCER: CC3E, output on  ok.
+  0 rgb-timer $3C + !                             \ CCR3: blue off  ok.
+  $8000 rgb-timer $44 + bis!                      \ BDTR: MOE, outputs on (TIM1 needs it)  ok.
+  1 rgb-timer $14 + !                             \ EGR: UG, load PSC and ARR now  ok.
+  $81 rgb-timer bis! ;                            \ CR1: ARPE and CEN, the timer runs  ok.
+: rgb-colour ( red green blue -- )                \ each 0..100 %  ok.
+  10 * rgb-timer $3C + !                          \ CCR3: blue  ok.
+  10 * rgb-timer $38 + !                          \ CCR2: green  ok.
+  10 * rgb-timer $34 + ! ;                        \ CCR1: red  ok.
+: rgb-off ( -- ) 0 0 0 rgb-colour ;  ok.
+  ok.
+\ Fade red, green, blue, red until a key is pressed  ok.
+: rgb-rainbow ( -- )  ok.
+  rgb-init  ok.
+  begin  ok.
+    100 0 do 100 i -  i  0  rgb-colour 20 ms loop \ red to green  ok.
+    100 0 do 0  100 i -  i  rgb-colour 20 ms loop \ green to blue  ok.
+    100 0 do i  0  100 i -  rgb-colour 20 ms loop \ blue to red  ok.
+  key? until rgb-off ;  ok.
+  ok.
+\ Try it: rgb-init 100 40 0 rgb-colour (orange)   or   rgb-rainbow (Enter stops it)  ok.
+  ok.
+\ rgb2: RGB LED, common anode: red on PC6, green on PC7, blue on PC8  ok.
+\ Paste all of it into the console, or put it in a file after wiring.fs.  ok.
+  ok.
+\ 3V3 → red LED → 270 Ω → PC6 (pin 38)  ok.
+$48000800 constant rgb2-red-port  \ GPIOC  ok.
+6 constant rgb2-red-pin  ok.
+$40000400 constant rgb2-timer  \ TIM3  ok.
+1 constant rgb2-red-ch  ok.
+2 constant rgb2-red-af  ok.
+\ 3V3 → green LED → 56 Ω → PC7 (pin 39)  ok.
+$48000800 constant rgb2-green-port  \ GPIOC  ok.
+7 constant rgb2-green-pin  ok.
+2 constant rgb2-green-ch  ok.
+2 constant rgb2-green-af  ok.
+\ 3V3 → blue LED → 56 Ω → PC8 (pin 40)  ok.
+$48000800 constant rgb2-blue-port  \ GPIOC  ok.
+8 constant rgb2-blue-pin  ok.
+3 constant rgb2-blue-ch  ok.
+2 constant rgb2-blue-af  ok.
+  ok.
+\ ms: wait n milliseconds, counted by SysTick at 16 MHz  ok.
+\ (lib_systick uses SysTick too: with it loaded, use its delay-ms)  ok.
+: ms ( n -- ) Redefine ms.  ok.
+  15999 $E000E014 !  0 $E000E018 !  5 $E000E010 ! \ SysTick: wrap every 16000 cycles  ok.
+  0 ?do begin $E000E010 @ $10000 and until loop   \ count the wraps  ok.
+  0 $E000E010 ! ;                                 \ SysTick off again  ok.
+  ok.
+: rgb2-init ( -- )  ok.
+  1 2 lshift $4002104C bis!                       \ RCC AHB2ENR: clock for GPIOC  ok.
+  %11 rgb2-red-pin 2* lshift rgb2-red-port bic!   \ MODER: clear the two bits  ok.
+  %10 rgb2-red-pin 2* lshift rgb2-red-port bis!   \ MODER: 10 = alternate function  ok.
+  $F rgb2-red-pin 4 * lshift rgb2-red-port $20 + bic! \ AFRL: clear the four bits  ok.
+  rgb2-red-af rgb2-red-pin 4 * lshift rgb2-red-port $20 + bis! \ AFRL: AF2 = TIM3 CH1  ok.
+  %11 rgb2-green-pin 2* lshift rgb2-green-port bic! \ MODER: clear the two bits  ok.
+  %10 rgb2-green-pin 2* lshift rgb2-green-port bis! \ MODER: 10 = alternate function  ok.
+  $F rgb2-green-pin 4 * lshift rgb2-green-port $20 + bic! \ AFRL: clear the four bits  ok.
+  rgb2-green-af rgb2-green-pin 4 * lshift rgb2-green-port $20 + bis! \ AFRL: AF2 = TIM3 CH2  ok.
+  %11 rgb2-blue-pin 2* lshift rgb2-blue-port bic! \ MODER: clear the two bits  ok.
+  %10 rgb2-blue-pin 2* lshift rgb2-blue-port bis! \ MODER: 10 = alternate function  ok.
+  $F rgb2-blue-pin 8 - 4 * lshift rgb2-blue-port $24 + bic! \ AFRH: clear the four bits  ok.
+  rgb2-blue-af rgb2-blue-pin 8 - 4 * lshift rgb2-blue-port $24 + bis! \ AFRH: AF2 = TIM3 CH3  ok.
+  1 1 lshift $40021058 bis!                       \ RCC APB1ENR1: clock for TIM3  ok.
+  15 rgb2-timer $28 + !                           \ PSC: 16 MHz / 16, a tick every microsecond  ok.
+  999 rgb2-timer $2C + !                          \ ARR: 1000 ticks a period, 1 kHz  ok.
+  $FF rgb2-timer $18 + bic!                       \ CCMR1: clear channel 1  ok.
+  $68 rgb2-timer $18 + bis!                       \ CCMR1: channel 1 in PWM mode 1, CCR1 preloaded  ok.
+  $F rgb2-timer $20 + bic!                        \ CCER: clear channel 1  ok.
+  $3 rgb2-timer $20 + bis!                        \ CCER: CC1E, output on; CC1P, inverted: common anode, a colour lights while its pin is low  ok.
+  0 rgb2-timer $34 + !                            \ CCR1: red off  ok.
+  $FF00 rgb2-timer $18 + bic!                     \ CCMR1: clear channel 2  ok.
+  $6800 rgb2-timer $18 + bis!                     \ CCMR1: channel 2 in PWM mode 1, CCR2 preloaded  ok.
+  $F0 rgb2-timer $20 + bic!                       \ CCER: clear channel 2  ok.
+  $30 rgb2-timer $20 + bis!                       \ CCER: CC2E, output on; CC2P, inverted  ok.
+  0 rgb2-timer $38 + !                            \ CCR2: green off  ok.
+  $FF rgb2-timer $1C + bic!                       \ CCMR2: clear channel 3  ok.
+  $68 rgb2-timer $1C + bis!                       \ CCMR2: channel 3 in PWM mode 1, CCR3 preloaded  ok.
+  $F00 rgb2-timer $20 + bic!                      \ CCER: clear channel 3  ok.
+  $300 rgb2-timer $20 + bis!                      \ CCER: CC3E, output on; CC3P, inverted  ok.
+  0 rgb2-timer $3C + !                            \ CCR3: blue off  ok.
+  1 rgb2-timer $14 + !                            \ EGR: UG, load PSC and ARR now  ok.
+  $81 rgb2-timer bis! ;                           \ CR1: ARPE and CEN, the timer runs  ok.
+: rgb2-colour ( red green blue -- )               \ each 0..100 %  ok.
+  10 * rgb2-timer $3C + !                         \ CCR3: blue  ok.
+  10 * rgb2-timer $38 + !                         \ CCR2: green  ok.
+  10 * rgb2-timer $34 + ! ;                       \ CCR1: red  ok.
+: rgb2-off ( -- ) 0 0 0 rgb2-colour ;  ok.
+  ok.
+\ Fade red, green, blue, red until a key is pressed  ok.
+: rgb2-rainbow ( -- )  ok.
+  rgb2-init  ok.
+  begin  ok.
+    100 0 do 100 i -  i  0  rgb2-colour 20 ms loop \ red to green  ok.
+    100 0 do 0  100 i -  i  rgb2-colour 20 ms loop \ green to blue  ok.
+    100 0 do i  0  100 i -  rgb2-colour 20 ms loop \ blue to red  ok.
+  key? until rgb2-off ;  ok.
+  ok.
+\ Try it: rgb2-init 100 40 0 rgb2-colour (orange)   or   rgb2-rainbow (Enter stops it)  ok.
+  ok.
+\ rgb3: RGB LED, common cathode: red on PB10, green on PB11, blue on PB12  ok.
+\ Paste all of it into the console, or put it in a file after wiring.fs.  ok.
+  ok.
+\ PB10 (pin 30) → 270 Ω → red LED → GND  ok.
+$48000400 constant rgb3-red-port  \ GPIOB  ok.
+10 constant rgb3-red-pin  ok.
+\ PB11 (pin 33) → 56 Ω → green LED → GND  ok.
+$48000400 constant rgb3-green-port  \ GPIOB  ok.
+11 constant rgb3-green-pin  ok.
+\ PB12 (pin 34) → 56 Ω → blue LED → GND  ok.
+$48000400 constant rgb3-blue-port  \ GPIOB  ok.
+12 constant rgb3-blue-pin  ok.
+  ok.
+\ ms: wait n milliseconds, counted by SysTick at 16 MHz  ok.
+\ (lib_systick uses SysTick too: with it loaded, use its delay-ms)  ok.
+: ms ( n -- ) Redefine ms.  ok.
+  15999 $E000E014 !  0 $E000E018 !  5 $E000E010 ! \ SysTick: wrap every 16000 cycles  ok.
+  0 ?do begin $E000E010 @ $10000 and until loop   \ count the wraps  ok.
+  0 $E000E010 ! ;                                 \ SysTick off again  ok.
+  ok.
+: rgb3-colour ( red green blue -- )               \ each: 0 = off, else on  ok.
+  0<> if 1 rgb3-blue-pin lshift else 1 rgb3-blue-pin lshift 16 lshift then \ BSRR: blue on or off  ok.
+  rgb3-blue-port $18 + !  ok.
+  0<> if 1 rgb3-green-pin lshift else 1 rgb3-green-pin lshift 16 lshift then \ BSRR: green on or off  ok.
+  rgb3-green-port $18 + !  ok.
+  0<> if 1 rgb3-red-pin lshift else 1 rgb3-red-pin lshift 16 lshift then \ BSRR: red on or off  ok.
+  rgb3-red-port $18 + ! ;  ok.
+: rgb3-off ( -- ) 0 0 0 rgb3-colour ;  ok.
+: rgb3-init ( -- )  ok.
+  1 1 lshift $4002104C bis!                       \ RCC AHB2ENR: clock for GPIOB  ok.
+  %11 rgb3-red-pin 2* lshift rgb3-red-port bic!   \ MODER: clear the two bits  ok.
+  %01 rgb3-red-pin 2* lshift rgb3-red-port bis!   \ MODER: 01 = output  ok.
+  %11 rgb3-green-pin 2* lshift rgb3-green-port bic! \ MODER: clear the two bits  ok.
+  %01 rgb3-green-pin 2* lshift rgb3-green-port bis! \ MODER: 01 = output  ok.
+  %11 rgb3-blue-pin 2* lshift rgb3-blue-port bic! \ MODER: clear the two bits  ok.
+  %01 rgb3-blue-pin 2* lshift rgb3-blue-port bis! \ MODER: 01 = output  ok.
+  rgb3-off ;  ok.
+  ok.
+\ Red, green, blue in turn until a key is pressed  ok.
+: rgb3-cycle ( -- )  ok.
+  rgb3-init  ok.
+  begin  ok.
+    1 0 0 rgb3-colour 300 ms  0 1 0 rgb3-colour 300 ms  0 0 1 rgb3-colour 300 ms  ok.
+  key? until rgb3-off ;  ok.
+  ok.
+\ Try it: rgb3-init 1 1 0 rgb3-colour (yellow)   or   rgb3-cycle (Enter stops it)  ok.
+  ok.
+rgb-init 100 40 0 rgb-colour  ok.
+rgb2-init 0 20 100 rgb2-colour  ok.
+rgb3-init 1 0 1 rgb3-colour  ok.
+10 ms  ok.
+#!pins
+PA8 alternate 3300 mV high  LED 1: 0.059 mA
+PA9 alternate PWM 1000.000 Hz duty 5/1000  LED 2: 0.016 mA
+PA10 alternate 0 mV low  LED 3: 0.000 mA
+PB10 output    3300 mV high  LED 7: 0.036 mA
+PB11 output    0 mV low  LED 8: 0.000 mA
+PB12 output    3300 mV high  LED 9: 0.025 mA
+PC6 alternate 3300 mV high  LED 4: 4.466 mA
+PC7 alternate PWM 1000.000 Hz duty 9/1000  LED 5: 3.097 mA
+PC8 alternate 0 mV low  LED 6: 3.122 mA
+rgb-off rgb2-off rgb3-off  ok.
+10 ms  ok.
+#!pins
+PA8 alternate 0 mV low  LED 1: 0.826 mA
+PA9 alternate 0 mV low  LED 2: 0.228 mA
+PA10 alternate 0 mV low  LED 3: 0.000 mA
+PB10 output    0 mV low  LED 7: 0.750 mA
+PB11 output    0 mV low  LED 8: 0.000 mA
+PB12 output    0 mV low  LED 9: 0.519 mA
+PC6 alternate 3300 mV high  LED 4: 0.000 mA
+PC7 alternate 3300 mV high  LED 5: 0.134 mA
+PC8 alternate 3300 mV high  LED 6: 0.659 mA

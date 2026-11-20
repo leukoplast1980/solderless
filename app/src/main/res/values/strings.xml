@@ -1,7 +1,6 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
     <string name="app_name">Solderless</string>
-    <string name="stop">Stop</string>
     <string name="reset">Reset</string>
     <string name="send">Send</string>
     <string name="more">More options</string>
@@ -19,6 +18,12 @@
     <string name="tab_registers">Registers</string>
     <string name="tab_board">Board</string>
     <string name="tab_scope">Scope</string>
+    <string name="registers_copy">Copy</string>
+    <string name="board_sample_code">Sample code</string>
+    <string name="board_other_pins_button">Other pins: %1$d</string>
+    <string name="board_sample_title">%1$s: sample code</string>
+    <string name="board_sample_hint">Ready to run: paste it into the console, or into a file loaded after wiring.fs. Then try the word on its last line.</string>
+    <string name="board_part_settings">Settings</string>
     <string name="scope_hold">Hold</string>
     <string name="scope_held">‖ Held</string>
     <string name="scope_trigger">Trigger</string>
@@ -30,15 +35,12 @@
     <string name="header_order_port">By port: PA and PB on the left; PC, PD, PF and the supply pins on the right</string>
     <string name="board_add_part">Part</string>
     <string name="board_support_button">Support circuit ›</string>
-    <string name="board_running">● Running · %1$s</string>
-    <string name="board_paused">‖ Paused</string>
     <string name="board_warnings">▲ %1$d</string>
     <string name="board_add_title">Add a part</string>
     <string name="board_add_subtitle">The app picks the pins and the resistors. You can change both.</string>
     <string name="board_add_next">Next milestone: rotary encoder, BMP280, SCD41, SSD1306, ST7789, MAX7219, W25Q flash.</string>
     <string name="board_add">Add</string>
     <string name="board_rewire">Re-wire</string>
-    <string name="board_other_pins">Other pins</string>
     <string name="board_other_pins_legend">Amber: uses up a scarce function. Dashed: taken, a part would move.</string>
     <string name="board_no_pin">No pin can take this part right now, even after moving others.</string>
     <string name="board_changes">Changes</string>
@@ -49,8 +51,6 @@
     <string name="board_support_title">Support circuit</string>
     <string name="board_support_subtitle">What the STM32G431RB needs around it on a real board. Placed for you.</string>
     <string name="board_support_clock">No crystal: the chip runs on its internal HSI16.</string>
-    <string name="board_wiring_list">Wiring list</string>
-    <string name="board_parts_list">Parts list</string>
     <string name="board_open_wiring">Open wiring.fs</string>
     <string name="board_export">Export</string>
     <string name="copy_code">Copy the code</string>

@@ -86,6 +86,15 @@ class BoardProbeTest {
         ui.findObject(androidx.test.uiautomator.UiSelector().textStartsWith("LED"))?.click()
         Thread.sleep(1500)
         screenshot("board-proposal.png")
+        // The other pins open behind their button
+        ui.findObject(androidx.test.uiautomator.UiSelector().textStartsWith("Other pins"))?.click()
+        Thread.sleep(800)
+        screenshot("board-proposal-pins.png")
+        ui.findObject(androidx.test.uiautomator.UiSelector().textStartsWith("Other pins"))?.click()
+        Thread.sleep(500)
+        // Further down the sheet: the sample code
+        repeat(2) { ui.swipe(ui.displayWidth / 2, ui.displayHeight * 85 / 100, ui.displayWidth / 2, ui.displayHeight * 25 / 100, 25); Thread.sleep(600) }
+        screenshot("board-proposal-code.png")
         InstrumentationRegistry.getInstrumentation().uiAutomation.performGlobalAction(android.accessibilityservice.AccessibilityService.GLOBAL_ACTION_BACK)
         Thread.sleep(800)
         scenario.onActivity { a -> a.findViewById<View>(R.id.boardSupport).performClick() }
@@ -109,6 +118,55 @@ class BoardProbeTest {
         scenario.onActivity { a -> a.findViewById<View>(R.id.scopeW5s).performClick(); a.findViewById<View>(R.id.scopeHold).performClick() }
         Thread.sleep(500)
         screenshot("scope.png")
+        Thread.sleep(7000)
+        screenshot("scope-held-7s-later.png")     // held: nothing may have gone
+
+        // An RGB LED on PA8, PA9, PA10 (TIM1 CH1-3): red's pin is the lowest on the
+        // right header, so its rows must follow the pins, wires not crossing
+        val rgb = Part(1, PartType.RGB_LED, listOf(
+            io.github.leukoplast1980.solderless.board.PinUse("PA8", io.github.leukoplast1980.solderless.board.Function.Timer("TIM1", 1, 6)),
+            io.github.leukoplast1980.solderless.board.PinUse("PA9", io.github.leukoplast1980.solderless.board.Function.Timer("TIM1", 2, 6)),
+            io.github.leukoplast1980.solderless.board.PinUse("PA10", io.github.leukoplast1980.solderless.board.Function.Timer("TIM1", 3, 6)),
+        ))
+        scenario.onActivity { vm.setBoard(Board(listOf(rgb))) }
+        scenario.onActivity { a ->
+            val tabs = a.findViewById<TabLayout>(R.id.tabs)
+            for (i in 0 until tabs.tabCount) if (tabs.getTabAt(i)!!.text == a.getString(R.string.tab_board)) tabs.getTabAt(i)!!.select()
+        }
+        Thread.sleep(1200)
+        screenshot("board-rgb.png")
+
+        // A tap on the RGB LED: its sample code
+        var at: android.graphics.RectF? = null
+        val loc = IntArray(2)
+        scenario.onActivity { a ->
+            val bv = a.findViewById<io.github.leukoplast1980.solderless.ui.BoardView>(R.id.boardView)
+            at = bv.partBounds(rgb.id); bv.getLocationOnScreen(loc)
+        }
+        assertTrue("RGB LED drawn", at != null)
+        ui.click(loc[0] + at!!.centerX().toInt(), loc[1] + at!!.centerY().toInt())
+        Thread.sleep(1500)
+        screenshot("board-sample.png")
+        InstrumentationRegistry.getInstrumentation().uiAutomation.performGlobalAction(android.accessibilityservice.AccessibilityService.GLOBAL_ACTION_BACK)
+        Thread.sleep(800)
+
+        // The sample runs as it is: send it line by line, then set a colour
+        val sample = io.github.leukoplast1980.solderless.board.Samples.forPart(Board(listOf(rgb)), vm.chip, rgb)
+        for (line in sample.lines().filter { it.isNotBlank() }) {
+            val r = vm.sendLineChecked(line, 5000)
+            if (r != io.github.leukoplast1980.solderless.forth.LineResult.OK) Log.i(TAG, "sample line $r: $line")
+            assertEquals(line, io.github.leukoplast1980.solderless.forth.LineResult.OK, r)
+        }
+        assertEquals(io.github.leukoplast1980.solderless.forth.LineResult.OK, vm.sendLineChecked("rgb-init 100 40 0 rgb-colour", 5000))
+        Thread.sleep(400)
+        vm.readBoard(st); Thread.sleep(300); vm.readBoard(st)
+        val pa8 = vm.chip.gpio("PA8")!!.slot; val pa9 = vm.chip.gpio("PA9")!!.slot; val pa10 = vm.chip.gpio("PA10")!!.slot
+        Log.i(TAG, "sample: PA8 high ${st.high(pa8)}, PA9 pwm ${st.pwm(pa9)} duty ${st.pwmDuty(pa9)} time-high ${st.duty(pa9)}, PA10 high ${st.high(pa10)}")
+        assertTrue("red full on", st.high(pa8) && !st.pwm(pa8))
+        assertTrue("green at 40 %, high ${st.duty(pa9)}/1000", st.pwm(pa9) && st.duty(pa9) in 370..430)
+        assertTrue("blue off", !st.high(pa10) && !st.pwm(pa10))
+        Thread.sleep(800)
+        screenshot("board-sample-running.png")
         scenario.onActivity { vm.setBoard(Board()) }
     }
 

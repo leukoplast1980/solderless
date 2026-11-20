@@ -566,8 +566,17 @@ static void idle_wait(sl_vm *vm, int key_wait)
     if (key_wait || (s->cpu.sleeping && next == SL_NEVER)) set_waiting(vm);
 
     if (vm->cfg.deterministic) {
-        if (next == SL_NEVER) {
+        /* Typing takes no time here: while the firmware waits for input and
+         * none is on its way, time stands still until the host sends some.
+         * Otherwise a running timer moved time on by however long the host
+         * took over its next line or directive. */
+        if (next == SL_NEVER || (vm->waiting && ring_count(&vm->rx) == 0)) {
             pthread_cond_wait(&vm->vm_cv, &vm->lock);
+            /* Woken for a request (reading the board, say), not by input: wait
+             * on without running the CPU, which would move time on a little
+             * for every request. */
+            if (key_wait && vm->waiting && ring_count(&vm->rx) == 0 && !atomic_load(&vm->input_new))
+                s->idle_poll = 1;
             return;
         }
         soc_skip_to(s, next);

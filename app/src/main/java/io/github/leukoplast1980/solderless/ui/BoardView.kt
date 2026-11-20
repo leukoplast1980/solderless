@@ -54,6 +54,8 @@ class BoardView @JvmOverloads constructor(context: Context, attrs: AttributeSet?
     var onPress: (Part, Boolean) -> Unit = { _, _ -> }
     var onPot: (Part, Int) -> Unit = { _, _ -> }
     var onLongPress: (Part) -> Unit = {}
+    /** A tap on a part that does not react to touch (not a button or a pot), or on a button's label */
+    var onTap: (Part) -> Unit = {}
     var onPinTap: (ChipPins.Pin) -> Unit = {}
     /** Last known pot positions (per mille), drawn and dragged */
     val potValue = HashMap<Int, Int>()
@@ -272,7 +274,7 @@ class BoardView @JvmOverloads constructor(context: Context, attrs: AttributeSet?
     }
 
     private fun ledSymbol(c: Canvas, x: Float, y: Float, sg: Int, colour: Int, brightness: Float, dashed: Boolean, ghostCol: Int?) {
-        val st = ghostCol ?: if (brightness > 0.02f) colour else cLine
+        val st = ghostCol ?: if (brightness > 0.02f) colour else blend(cLine, colour, 0.45f)
         if (brightness > 0.02f && ghostCol == null) {
             glow.shader = RadialGradient(x + sg * dp(7f), y, dp(16f), (colour and 0x00FFFFFF) or ((0xA0 * brightness).toInt() shl 24),
                 colour and 0x00FFFFFF, Shader.TileMode.CLAMP)
@@ -303,12 +305,12 @@ class BoardView @JvmOverloads constructor(context: Context, attrs: AttributeSet?
     }
 
     /** Wire from a pin to a terminal at (tx, ty), via a jog just off the header. */
-    private fun feed(c: Canvas, pin: String, tx: Float, ty: Float, dashed: Boolean, colour: Int? = null) {
+    private fun feed(c: Canvas, pin: String, tx: Float, ty: Float, dashed: Boolean, colour: Int? = null, jog: Float = 9f) {
         val (x0, sg) = padX(pin)
         val y = pinY[pin] ?: return
         val col = colour ?: wireColour(pin)
         if (abs(y - ty) < 0.5f) wire(c, col, dashed, x0, y, tx, ty)
-        else wire(c, col, dashed, x0, y, x0 + sg * dp(9f), y, x0 + sg * dp(9f), ty, tx, ty)
+        else wire(c, col, dashed, x0, y, x0 + sg * dp(jog), y, x0 + sg * dp(jog), ty, tx, ty)
     }
 
     private fun drawPart(c: Canvas, p: Part, cy: Float, side: Int, isGhost: Boolean) {
@@ -382,7 +384,7 @@ class BoardView @JvmOverloads constructor(context: Context, attrs: AttributeSet?
                 label(c, "Pot", px + sg * dp(12f), cy + dp(3.5f), 10f, labelCol, if (sg > 0) Paint.Align.LEFT else Paint.Align.RIGHT, true)
                 val st = state; val s = slot(pin0)
                 if (st != null && s >= 0 && !isGhost && st.mv(s) >= 0)
-                    label(c, "%.2f V".format(st.mv(s) / 1000f), (x0 + px) / 2 - sg * dp(2f), cy - dp(6f), 8.5f, cAnalog)
+                    label(c, "%.2f V".format(java.util.Locale.ROOT, st.mv(s) / 1000f), (x0 + px) / 2 - sg * dp(2f), cy - dp(6f), 8.5f, cAnalog)
                 box.set(x0, cy - dp(40f), px + sg * dp(40f), cy + dp(40f))
             }
             PartType.PIEZO, PartType.SPEAKER -> {
@@ -405,33 +407,48 @@ class BoardView @JvmOverloads constructor(context: Context, attrs: AttributeSet?
                 if (p.type == PartType.SPEAKER) label(c, "NPN stage", xl + dp(8f), cy + dp(30f), 7.5f, cLabel)
                 val st = state; val s = slot(pin0)
                 if (st != null && s >= 0 && st.pwm(s) && !isGhost)
-                    label(c, "%d Hz".format(st.freqMilliHz(s) / 1000), xl + dp(8f), cy + dp(21f), 8.5f, cPwm)
+                    label(c, "%d Hz".format(java.util.Locale.ROOT, st.freqMilliHz(s) / 1000), xl + dp(8f), cy + dp(21f), 8.5f, cPwm)
                 box.set(x0, cy - dp(26f), e + sg * dp(26f), cy + dp(34f))
             }
             PartType.RGB_LED -> {
                 val rows = listOf(cy - dp(30f), cy, cy + dp(30f))
                 val cols = listOf(0xFFFF6B6B.toInt(), 0xFF6FCF7F.toInt(), 0xFF7FB8FF.toInt())
                 var mixR = 0f; var mixG = 0f; var mixB = 0f
-                for (r in 0..2) {
-                    val pin = p.pins.getOrNull(r)?.pin ?: continue
-                    val ry = rows[r]
-                    feed(c, pin, x0 + sg * dp(22f), ry, dashed, gc)
+                // Rows follow the order of the pins on the header, so no two wires cross
+                val roles = (0..2).filter { p.pins.getOrNull(it) != null }
+                fun py(r: Int) = pinY[p.pins[r].pin] ?: cy
+                val rowOf = HashMap<Int, Float>()
+                roles.sortedBy { py(it) }.forEachIndexed { i, r -> rowOf[r] = rows[i] }
+                // Each wire turns in a column of its own: of the wires going down, the
+                // one starting highest turns farthest in; going up, the lowest one.
+                val jog = HashMap<Int, Float>()
+                roles.filter { rowOf[it]!! - py(it) > 0.5f }.sortedByDescending { py(it) }
+                    .forEachIndexed { k, r -> jog[r] = 6f + 5f * k }
+                roles.filter { rowOf[it]!! - py(it) < -0.5f }.sortedBy { py(it) }
+                    .forEachIndexed { k, r -> jog[r] = 6f + 5f * k }
+                for (r in roles) {
+                    val pin = p.pins[r].pin
+                    val ry = rowOf[r]!!
+                    feed(c, pin, x0 + sg * dp(22f), ry, dashed, gc, jog[r] ?: 9f)
                     resistorH(c, x0 + sg * dp(22f), x0 + sg * dp(46f), ry, Passives.format(Passives.ledResistor(p.vfMv(r), p.currentMa)), line, dashed)
                     wire(c, gc ?: wireColour(pin), dashed, x0 + sg * dp(46f), ry, x0 + sg * dp(56f), ry)
                     val lit = if (isGhost) 0f else brightness(p, r)
                     when (r) { 0 -> mixR = lit; 1 -> mixG = lit; else -> mixB = lit }
                     ledSymbol(c, x0 + sg * dp(56f), ry, sg, cols[r], lit, dashed, gc)
                     wire(c, gc ?: cLabel, dashed, x0 + sg * dp(70f), ry, x0 + sg * dp(82f), ry)
+                    // which colour this wire drives
+                    label(c, "RGB"[r].toString(), x0 + sg * dp(91f), ry + dp(4f), 11f, gc ?: cols[r],
+                        if (sg > 0) Paint.Align.LEFT else Paint.Align.RIGHT, true)
                 }
                 wire(c, gc ?: cLabel, dashed, x0 + sg * dp(82f), rows[0], x0 + sg * dp(82f), rows[2] + dp(10f))
                 gnd(c, x0 + sg * dp(82f), rows[2] + dp(10f), gc ?: cLabel, dashed)
                 label(c, "RGB LED", x0 + sg * dp(63f), rows[0] - dp(20f), 10f, labelCol, bold = true)
                 if (!isGhost && mixR + mixG + mixB > 0.05f) {
                     val col = (0xFF shl 24) or ((255 * mixR).toInt() shl 16) or ((255 * mixG).toInt() shl 8) or (255 * mixB).toInt()
-                    fill.color = col; c.drawCircle(x0 + sg * dp(104f), cy, dp(7f), fill)
-                    label(c, "mix", x0 + sg * dp(104f), cy + dp(20f), 8f, cLabel)
+                    fill.color = col; c.drawCircle(x0 + sg * dp(110f), cy, dp(7f), fill)
+                    label(c, "mix", x0 + sg * dp(110f), cy + dp(20f), 8f, cLabel)
                 }
-                box.set(x0, rows[0] - dp(30f), x0 + sg * dp(115f), rows[2] + dp(26f))
+                box.set(x0, rows[0] - dp(30f), x0 + sg * dp(120f), rows[2] + dp(26f))
             }
         }
         box.sort()
@@ -442,9 +459,9 @@ class BoardView @JvmOverloads constructor(context: Context, attrs: AttributeSet?
         val y2 = pinY["PA2"] ?: return
         val y3 = pinY["PA3"] ?: return
         val (x0, sg) = padX("PA2")
-        val bx = x0 + sg * dp(30f)
-        val bw = dp(76f)
-        val t = minOf(y2, y3) - dp(16f); val b = maxOf(y2, y3) + dp(30f)
+        val bx = x0 + sg * dp(26f)
+        val bw = dp(34f)
+        val t = minOf(y2, y3) - dp(12f); val b = maxOf(y2, y3) + dp(12f)
         if (pinSide["PA3"] == pinSide["PA2"]) {
             wire(c, wireColour("PA2"), false, x0, y2, bx, y2)
             wire(c, wireColour("PA3"), false, x0, y3, bx, y3)
@@ -453,10 +470,15 @@ class BoardView @JvmOverloads constructor(context: Context, attrs: AttributeSet?
         fill.color = cPanel; c.drawRoundRect(RectF(l, t, l + bw, b), dp(5f), dp(5f), fill)
         setStroke(cLine, false, 1.4f); c.drawRoundRect(RectF(l, t, l + bw, b), dp(5f), dp(5f), stroke)
         val al = if (sg > 0) Paint.Align.LEFT else Paint.Align.RIGHT
-        label(c, "RX", bx + sg * dp(6f), y2 + dp(3.5f), 8.5f, cLabel, al)
-        label(c, "TX", bx + sg * dp(6f), y3 + dp(3.5f), 8.5f, cLabel, al)
+        label(c, "RX", bx + sg * dp(3f), y2 + dp(3f), 7.5f, cLabel, al)
+        label(c, "TX", bx + sg * dp(3f), y3 + dp(3f), 7.5f, cLabel, al)
+        // the name, turned, along the far side of the box
         text.typeface = Typeface.DEFAULT
-        label(c, "USB-serial", l + bw / 2, b - dp(9f), 10f, cText, bold = true)
+        val tx = bx + sg * dp(25f)
+        c.save()
+        c.rotate(-90f, tx, (t + b) / 2)
+        label(c, "USB-serial", tx, (t + b) / 2 + dp(3.5f), 9.5f, cText, bold = true)
+        c.restore()
         text.typeface = Typeface.MONOSPACE
     }
 
@@ -478,10 +500,15 @@ class BoardView @JvmOverloads constructor(context: Context, attrs: AttributeSet?
             onLongPress(p)
         }
         override fun onSingleTapUp(e: MotionEvent): Boolean {
+            hitLabel.lastOrNull { it.first.contains(e.x, e.y) }?.let { onTap(it.second); return true }
+            partAt(e.x, e.y)?.let { p -> if (p.type != PartType.BUTTON && p.type != PartType.POT) onTap(p); return true }
             if (partAt(e.x, e.y) == null && hitLabel.none { it.first.contains(e.x, e.y) }) rowHit.firstOrNull { it.first.contains(e.x, e.y) }?.let { onPinTap(it.second) }
             return true
         }
     })
+
+    /** Where a part is drawn, in view coordinates (for the UI probe) */
+    fun partBounds(id: Int): RectF? = hit.lastOrNull { it.second.id == id }?.first?.let { RectF(it) }
 
     private fun partAt(x: Float, y: Float): Part? = hit.lastOrNull { it.first.contains(x, y) }?.second
 
