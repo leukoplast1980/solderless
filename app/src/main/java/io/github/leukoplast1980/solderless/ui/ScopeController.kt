@@ -35,6 +35,7 @@ class ScopeController(private val activity: AppCompatActivity, private val vm: V
     private var heldEnd = 0L
     private var trigSlot = -1
     private var trigRising = false
+    private var lastTrig: Long? = null
     private var board: Board? = null
     private var traced = IntArray(0)
 
@@ -55,7 +56,7 @@ class ScopeController(private val activity: AppCompatActivity, private val vm: V
 
     private fun setHeld(h: Boolean) {
         held = h
-        heldEnd = view.endNs
+        heldEnd = if (view.endNs > 0) view.endNs else now
         hold.text = activity.getString(if (h) R.string.scope_held else R.string.scope_hold)
         hold.isChecked = h
     }
@@ -102,19 +103,24 @@ class ScopeController(private val activity: AppCompatActivity, private val vm: V
             }
             if (n < 4096) break
         }
-        // keep the last seconds, and the event in force before them
-        for (list in events.values) {
-            val cut = list.indexOfFirst { it.t >= now - KEEP_NS }
-            if (cut > 1) list.subList(0, cut - 1).clear()
-        }
-        if (!visible) return
+        // Where the display is: held, or on the last trigger
+        val trig = if (trigSlot >= 0 && !held) lastTrigger() else null
+        if (trig != null) lastTrig = trig
         val end = when {
             held -> heldEnd
-            trigSlot >= 0 -> lastTrigger()?.let { it + view.windowNs * 3 / 4 } ?: now
+            trigSlot >= 0 -> lastTrig?.let { it + view.windowNs * 3 / 4 } ?: now
             else -> now
         }
+        // Keep the last seconds and whatever is on screen, and the event in force before them
+        val keepFrom = minOf(now - KEEP_NS, end - view.windowNs)
+        for (list in events.values) {
+            val cut = list.indexOfFirst { it.t >= keepFrom }
+            if (cut > 1) list.subList(0, cut - 1).clear()
+            if (list.size > MAX_EVENTS) list.subList(0, list.size - MAX_EVENTS).clear()
+        }
+        if (!visible) return
         view.endNs = end
-        view.triggerNs = if (trigSlot >= 0) lastTrigger(end) ?: -1 else -1
+        view.triggerNs = if (trigSlot >= 0) lastTrig ?: -1 else -1
         view.channels = chans.map { (slot, pin, lab) -> ScopeView.Channel(slot, pin, lab.first, lab.second, events[slot] ?: emptyList()) }
         view.invalidate()
         updateReadout()
@@ -137,6 +143,7 @@ class ScopeController(private val activity: AppCompatActivity, private val vm: V
             chans.flatMap { listOf("${it.second} ↑ ${it.third.first}", "${it.second} ↓ ${it.third.first}") }
         MaterialAlertDialogBuilder(activity).setTitle(R.string.scope_trigger)
             .setItems(items.toTypedArray()) { _, which ->
+                lastTrig = null
                 if (which == 0) { trigSlot = -1; trigger.text = activity.getString(R.string.scope_trigger) }
                 else {
                     val c = chans[(which - 1) / 2]
@@ -160,6 +167,8 @@ class ScopeController(private val activity: AppCompatActivity, private val vm: V
 
     companion object {
         const val KEEP_NS = 6_000_000_000L
+        /** Per pin: enough for 5 s of a pin toggling every 25 us */
+        const val MAX_EVENTS = 200_000
 
         private fun prefs(c: Context) = c.getSharedPreferences("scope", Context.MODE_PRIVATE)
 

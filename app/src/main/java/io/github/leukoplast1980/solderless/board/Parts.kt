@@ -86,7 +86,7 @@ object Passives {
         else -> "$ohms Ω"
     }
 
-    private fun trim(v: Double) = if (v == v.toLong().toDouble()) v.toLong().toString() else "%.1f".format(v)
+    private fun trim(v: Double) = if (v == v.toLong().toDouble()) v.toLong().toString() else "%.1f".format(java.util.Locale.ROOT, v)
 
     /** Series resistor of an LED on a 3.3 V pin. */
     fun ledResistor(vfMv: Int, currentMa: Int): Int = e12((3300 - vfMv).toDouble() / currentMa)

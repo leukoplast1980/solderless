@@ -160,7 +160,7 @@ class ScopeView @JvmOverloads constructor(context: Context, attrs: AttributeSet?
                     c.drawRect(x0, hi, x1, lo, fill)
                     line.color = cPwm; line.strokeWidth = dp(1.2f)
                     c.drawLine(x0, hi, x1, hi, line); c.drawLine(x0, lo, x1, lo, line)
-                    if (x1 - x0 > dp(110f)) label(c, "PWM %s · %d %%".format(hz(e.a), (duty * 100).toInt()), (x0 + x1) / 2, (hi + lo) / 2 + dp(4f), 10f, cText)
+                    if (x1 - x0 > dp(110f)) label(c, "PWM %s · %d %%".format(java.util.Locale.ROOT, hz(e.a), (duty * 100).toInt()), (x0 + x1) / 2, (hi + lo) / 2 + dp(4f), 10f, cText)
                 }
                 measure = "${hz(e.a)} · ${(duty * 100).toInt()} %"
                 prevY = Float.NaN
@@ -179,7 +179,7 @@ class ScopeView @JvmOverloads constructor(context: Context, attrs: AttributeSet?
                 line.color = if (ch.analog) cAnalog else if (mv >= 1650f) cHigh else cLow
                 c.drawLine(x0, yy, x1, yy, line)
                 prevY = yy
-                measure = if (ch.analog) "%.2f V".format(mv / 1000f) else ""
+                measure = if (ch.analog) "%.2f V".format(java.util.Locale.ROOT, mv / 1000f) else ""
             }
             i++
         }
@@ -212,7 +212,7 @@ class ScopeView @JvmOverloads constructor(context: Context, attrs: AttributeSet?
         }
         val period = (rises.last() - rises.first()).toDouble() / (rises.size - 1)
         val duty = (highNs.toDouble() / (rises.last() - rises.first())).coerceIn(0.0, 1.0)
-        return "%s · %d %%".format(hz((1e12 / period).toLong()), (duty * 100).toInt())
+        return "%s · %d %%".format(java.util.Locale.ROOT, hz((1e12 / period).toLong()), (duty * 100).toInt())
     }
 
     // ------------------------------------------------------------------
@@ -259,9 +259,9 @@ class ScopeView @JvmOverloads constructor(context: Context, attrs: AttributeSet?
 
     companion object {
         fun hz(mHz: Long): String = when {
-            mHz >= 1_000_000_000 -> "%.3g kHz".format(mHz / 1e6)
-            mHz >= 10_000 -> "%.4g Hz".format(mHz / 1e3)
-            else -> "%.2f Hz".format(mHz / 1e3)
+            mHz >= 1_000_000_000 -> "%.3g kHz".format(java.util.Locale.ROOT, mHz / 1e6)
+            mHz >= 10_000 -> "%.4g Hz".format(java.util.Locale.ROOT, mHz / 1e3)
+            else -> "%.2f Hz".format(java.util.Locale.ROOT, mHz / 1e3)
         }
 
         fun span(ns: Long): String {

@@ -19,6 +19,7 @@
     <string name="tab_registers">Registers</string>
     <string name="tab_board">Board</string>
     <string name="tab_scope">Scope</string>
+    <string name="registers_copy">Copy</string>
     <string name="scope_hold">Hold</string>
     <string name="scope_held">‖ Held</string>
     <string name="scope_trigger">Trigger</string>

@@ -332,7 +332,7 @@ class BoardController(
         }
         when (p.type) {
             PartType.LED -> {
-                choice(col, "Colour", LedColour.entries.map { "${it.title} ${"%.1f".format(it.vfMv / 1000.0)} V" }, p.colour.ordinal) { update(p.copy(colour = LedColour.entries[it])) }
+                choice(col, "Colour", LedColour.entries.map { "${it.title} ${"%.1f".format(java.util.Locale.ROOT, it.vfMv / 1000.0)} V" }, p.colour.ordinal) { update(p.copy(colour = LedColour.entries[it])) }
                 choice(col, "Size", listOf("3 mm", "5 mm"), if (p.sizeMm == 3) 0 else 1) { update(p.copy(sizeMm = if (it == 0) 3 else 5)) }
                 choice(col, "Current", listOf("2 mA", "5 mA", "10 mA"), listOf(2, 5, 10).indexOf(p.currentMa)) { update(p.copy(currentMa = listOf(2, 5, 10)[it])) }
                 choice(col, "Lights when the pin is", listOf("high", "low"), if (p.activeHigh) 0 else 1) { update(p.copy(activeHigh = it == 0)) }

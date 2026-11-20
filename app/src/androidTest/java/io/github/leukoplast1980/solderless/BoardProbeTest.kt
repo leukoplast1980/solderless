@@ -109,6 +109,8 @@ class BoardProbeTest {
         scenario.onActivity { a -> a.findViewById<View>(R.id.scopeW5s).performClick(); a.findViewById<View>(R.id.scopeHold).performClick() }
         Thread.sleep(500)
         screenshot("scope.png")
+        Thread.sleep(7000)
+        screenshot("scope-held-7s-later.png")     // held: nothing may have gone
 
         // An RGB LED on PA8, PA9, PA10 (TIM1 CH1-3): red's pin is the lowest on the
         // right header, so its rows must follow the pins, wires not crossing

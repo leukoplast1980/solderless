@@ -63,12 +63,12 @@ class RegistersController(private val activity: Activity, private val vm: VmHost
             text.postDelayed({ refresh() }, 20)
         }
         // Not selectable text: a focused selectable TextView scrolls its
-        // cursor back into view on every refresh. A long press copies instead.
-        text.setOnLongClickListener {
+        // cursor back into view on every refresh. A button copies instead (a
+        // long press fired while scrolling slowly).
+        activity.findViewById<Button>(R.id.registersCopy).setOnClickListener {
             activity.getSystemService(ClipboardManager::class.java)
                 ?.setPrimaryClip(ClipData.newPlainText("Solderless registers", text.text.toString()))
             Toast.makeText(activity, R.string.registers_copied, Toast.LENGTH_SHORT).show()
-            true
         }
         updateButtons()
     }
@@ -96,8 +96,8 @@ class RegistersController(private val activity: Activity, private val vm: VmHost
                     else -> "running"
                 }
             )
-            append("  ·  %s MHz".format(java.math.BigDecimal(s.sysclk / 1e6).setScale(3, java.math.RoundingMode.HALF_UP).stripTrailingZeros().toPlainString()))
-            append("  ·  %,d cycles  ·  %.3f s".format(s.cycles, s.timeNs / 1e9))
+            append("  ·  %s MHz".format(java.util.Locale.ROOT, java.math.BigDecimal(s.sysclk / 1e6).setScale(3, java.math.RoundingMode.HALF_UP).stripTrailingZeros().toPlainString()))
+            append("  ·  %,d cycles  ·  %.3f s".format(java.util.Locale.ROOT, s.cycles, s.timeNs / 1e9))
             if (!s.paused && s.speedPercent in 1..95) append("  ·  ${s.speedPercent} % speed")
         }
 
@@ -165,7 +165,7 @@ class RegistersController(private val activity: Activity, private val vm: VmHost
                         val bb = ByteBuffer.wrap(mem).order(ByteOrder.LITTLE_ENDIAN)
                         for (i in 1 until shown) {
                             val v = bb.getInt((i - 1) * 4)
-                            value(b, current, "ds$i", "  %-3d".format(i), v.toLong() and MASK, v.toString())
+                            value(b, current, "ds$i", "  %-3d".format(java.util.Locale.ROOT, i), v.toLong() and MASK, v.toString())
                         }
                     }
                 }
@@ -181,7 +181,7 @@ class RegistersController(private val activity: Activity, private val vm: VmHost
         if (s.lockup) b.append("  The core stopped: a fault happened where no fault handler could run.\n  Press Reset.\n")
         for (line in faultExplanation(s)) b.append("  ").append(line).append('\n')
         b.setSpan(ForegroundColorSpan(dangerColor), start, b.length, Spanned.SPAN_EXCLUSIVE_EXCLUSIVE)
-        b.append("  CFSR %08X  HFSR %08X  at pc %08X\n".format(s.cfsr, s.hfsr, s.faultPc))
+        b.append("  CFSR %08X  HFSR %08X  at pc %08X\n".format(java.util.Locale.ROOT, s.cfsr, s.hfsr, s.faultPc))
     }
 
     private fun faultExplanation(s: Snapshot): List<String> = buildList {
@@ -193,7 +193,7 @@ class RegistersController(private val activity: Activity, private val vm: VmHost
         if (c and (1 shl 0) != 0) add("Instruction fetch from a place that cannot hold code (peripheral or system area).")
         if (c and (1 shl 1) != 0) add("Data access not allowed by the MPU.")
         if (c and (1 shl 8) != 0) add("Instruction fetch from an address where nothing is mapped.")
-        if (c and (1 shl 9) != 0) add("Load or store at 0x%08X, where nothing is mapped (BFAR).".format(s.bfar))
+        if (c and (1 shl 9) != 0) add("Load or store at 0x%08X, where nothing is mapped (BFAR).".format(java.util.Locale.ROOT, s.bfar))
         if (c and (1 shl 12) != 0) add("Stacking the exception frame failed: the stack pointer is bad.")
         if (c and (1 shl 11) != 0) add("Unstacking on exception return failed: the stack pointer is bad.")
         if (c and (1 shl 16) != 0) add("Undefined instruction (or an FPU/DSP instruction this core does not run yet).")
@@ -230,7 +230,7 @@ class RegistersController(private val activity: Activity, private val vm: VmHost
     }.joinToString(", ")
 
     private fun clock(b: SpannableStringBuilder, current: MutableMap<String, Long>, name: String, hz: Long) {
-        value(b, current, name.trim(), name, hz, "%.3f MHz".format(hz / 1e6))
+        value(b, current, name.trim(), name, hz, "%.3f MHz".format(java.util.Locale.ROOT, hz / 1e6))
     }
 
     private fun heading(b: SpannableStringBuilder, title: String) {
@@ -259,7 +259,7 @@ class RegistersController(private val activity: Activity, private val vm: VmHost
             val lv = v.toLong() and MASK
             current[k] = lv
             val start = b.length
-            b.append("%-4s".format(k))
+            b.append("%-4s".format(java.util.Locale.ROOT, k))
             b.setSpan(ForegroundColorSpan(labelColor), start, b.length, Spanned.SPAN_EXCLUSIVE_EXCLUSIVE)
             hex(b, k, lv)
             b.append("   ")
@@ -269,7 +269,7 @@ class RegistersController(private val activity: Activity, private val vm: VmHost
 
     private fun hex(b: SpannableStringBuilder, key: String, v: Long) {
         val start = b.length
-        b.append("%08X".format(v))
+        b.append("%08X".format(java.util.Locale.ROOT, v))
         if (highlighted(key, v)) {
             b.setSpan(ForegroundColorSpan(changedColor), start, b.length, Spanned.SPAN_EXCLUSIVE_EXCLUSIVE)
         }
