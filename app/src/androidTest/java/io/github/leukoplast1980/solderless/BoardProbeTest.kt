@@ -76,12 +76,18 @@ class BoardProbeTest {
         val loc = IntArray(2)
         scenario.onActivity { a ->
             val bv = a.findViewById<io.github.leukoplast1980.solderless.ui.BoardView>(R.id.boardView)
+            bv.partBounds(oled.id)?.let { r -> bv.requestRectangleOnScreen(android.graphics.Rect(r.left.toInt(), r.top.toInt(), r.right.toInt(), r.bottom.toInt()), true) }
+        }
+        Thread.sleep(500)
+        scenario.onActivity { a ->
+            val bv = a.findViewById<io.github.leukoplast1980.solderless.ui.BoardView>(R.id.boardView)
             at = bv.partBounds(oled.id); bv.getLocationOnScreen(loc)
         }
         assertTrue("OLED drawn", at != null)
         ui().click(loc[0] + at!!.centerX().toInt(), loc[1] + at!!.centerY().toInt())
         Thread.sleep(1500)
         screenshot("oled-closeup.png")
+        assertTrue("close-up open", ui().hasObject(androidx.test.uiautomator.By.text("OLED display")))
         InstrumentationRegistry.getInstrumentation().uiAutomation.performGlobalAction(android.accessibilityservice.AccessibilityService.GLOBAL_ACTION_BACK)
         Thread.sleep(600)
 

@@ -109,7 +109,8 @@ class BoardView @JvmOverloads constructor(context: Context, attrs: AttributeSet?
             while (r < dp(56f)) {
                 computePins(r)
                 val placed = placeParts()
-                val worst = placed.maxOfOrNull { (p, cy, _) -> abs(cy - anchor(p)) } ?: 0f
+                val worst = placed.filter { it.first.id !in sidestepped }
+                    .maxOfOrNull { (p, cy, _) -> abs(cy - anchor(p)) } ?: 0f
                 val bottom = placed.maxOfOrNull { (p, cy, _) -> cy + extent(p).second } ?: 0f
                 if (worst <= r * 1.2f && bottom <= top + 32 * r + dp(8f)) break
                 r += dp(1f)
@@ -136,17 +137,25 @@ class BoardView @JvmOverloads constructor(context: Context, attrs: AttributeSet?
         PartType.PIEZO, PartType.SPEAKER -> dp(72f)
     }
 
+    /** Parts placement moved off their pins to keep clear of the other side or the
+     * USB-serial strip; a taller row would not bring them back, so spreading ignores them */
+    private val sidestepped = HashSet<Int>()
+
     /** Parts per side, each centred on its pins, pushed apart vertically. A part
-     * reaching far in also keeps clear of what the other side has at that height
-     * (and both sides of the USB-serial strip). */
+     * reaching far in also keeps clear of what the other side has at that height,
+     * and every part of the USB-serial strip at PA2/PA3: it goes above or below,
+     * whichever is nearer its pins. */
     private fun placeParts(): List<Triple<Part, Float, Int>> {
         if (boardW == 0f) boardW = width.toFloat()
+        sidestepped.clear()
         val placed = ArrayList<Triple<Part, Float, Int>>()
         val inner = boardW - 2 * headerW
         // (top, bottom, reach) of what is drawn, per side
         val taken = mapOf(1 to ArrayList<Triple<Float, Float, Float>>(), -1 to ArrayList())
         val y2 = pinY["PA2"]; val y3 = pinY["PA3"]
-        if (y2 != null && y3 != null) taken[pinSide["PA2"] ?: 1]!! += Triple(minOf(y2, y3) - dp(14f), maxOf(y2, y3) + dp(14f), dp(64f))
+        val strip = if (y2 != null && y3 != null)
+            Triple(minOf(y2, y3) - dp(14f), maxOf(y2, y3) + dp(14f), dp(62f)) else null
+        val stripSide = pinSide["PA2"] ?: 1
         for (side in listOf(1, -1)) {
             val parts = (board.parts + listOfNotNull(ghost)).filter { p -> sideOf(p) == side }
                 .map { it to anchor(it) }.sortedBy { it.second }
@@ -154,11 +163,17 @@ class BoardView @JvmOverloads constructor(context: Context, attrs: AttributeSet?
             for ((p, y) in parts) {
                 val (above, below) = extent(p)
                 val w = widthOf(p)
+                val blocks = taken[-side]!!.filter { it.third + w > inner - dp(6f) }.toMutableList()
+                if (strip != null && (side == stripSide || strip.third + w > inner - dp(6f))) blocks += strip
+                blocks.sortBy { it.first }
                 var cy = maxOf(y, floor + above)
-                val blocks = (taken[-side]!!.filter { it.third + w > inner - dp(6f) } +
-                    taken[side]!!.filter { it.third < dp(80f) && w > 0f }).sortedBy { it.first }
-                for (b in blocks)
-                    if (cy - above < b.second && cy + below > b.first) cy = b.second + above + dp(6f)
+                for (b in blocks) {
+                    if (cy - above >= b.second || cy + below <= b.first) continue
+                    val up = b.first - below - dp(6f)
+                    val down = b.second + above + dp(6f)
+                    cy = if (up - above >= floor && abs(up - y) < abs(down - y)) up else down
+                    sidestepped += p.id
+                }
                 placed += Triple(p, cy, side)
                 taken[side]!! += Triple(cy - above, cy + below, w)
                 floor = cy + below + dp(6f)
