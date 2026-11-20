@@ -101,6 +101,64 @@ class BoardProbeTest {
 
     private fun ui() = androidx.test.uiautomator.UiDevice.getInstance(InstrumentationRegistry.getInstrumentation())
 
+    /** An LED matrix and a colour display on SPI: their samples draw, the board and the close-ups show it */
+    @Test
+    fun displays() {
+        val ctx = InstrumentationRegistry.getInstrumentation().targetContext
+        val scenario = ActivityScenario.launch(MainActivity::class.java)
+        Thread.sleep(2500)
+        val vm = VmHost.get(ctx)
+        val rec = vm.recommender()
+        var b = Board()
+        for (t in listOf(PartType.MATRIX, PartType.TFT)) b = b.apply(rec.propose(b.parts, Part(b.nextId(), t, emptyList()))!!)
+        val matrix = b.parts.first { it.type == PartType.MATRIX }
+        val tft = b.parts.first { it.type == PartType.TFT }
+        Log.i(TAG, "matrix on ${matrix.pins}, display on ${tft.pins}")
+        scenario.onActivity { vm.setBoard(b) }
+        for (p in listOf(matrix, tft)) {
+            val sample = io.github.leukoplast1980.solderless.board.Samples.forPart(b, vm.chip, p)
+            for (line in sample.lines().filter { it.isNotBlank() })
+                assertEquals(line, io.github.leukoplast1980.solderless.forth.LineResult.OK, vm.sendLineChecked(line, 5000))
+        }
+        val m = b.nameOf(matrix); val t = b.nameOf(tft)
+        assertEquals(io.github.leukoplast1980.solderless.forth.LineResult.OK,
+            vm.sendLineChecked("$m-init 3 3 $m-pixel 10 4 $m-pixel 30 6 $m-pixel $m-show  $t-init $t-bars", 30000))
+        val px = ByteArray(240 * 320 * 2)
+        val text = vm.readDevice(tft.id, px)
+        Log.i(TAG, "display state: $text")
+        assertTrue("on: $text", text != null && "Display\ton" in text)
+        assertEquals("top-left: white", 0xFF.toByte(), px[1])
+        selectTab(scenario, R.string.tab_board)
+        Thread.sleep(800)
+        screenshot("displays-board.png")
+        for ((p, name) in listOf(matrix to "matrix-closeup.png", tft to "tft-closeup.png")) {
+            var at: android.graphics.RectF? = null
+            val loc = IntArray(2)
+            scenario.onActivity { a ->
+                val bv = a.findViewById<io.github.leukoplast1980.solderless.ui.BoardView>(R.id.boardView)
+                bv.partBounds(p.id)?.let { r -> bv.requestRectangleOnScreen(android.graphics.Rect(r.left.toInt(), r.top.toInt(), r.right.toInt(), r.bottom.toInt()), true) }
+            }
+            Thread.sleep(500)
+            scenario.onActivity { a ->
+                val bv = a.findViewById<io.github.leukoplast1980.solderless.ui.BoardView>(R.id.boardView)
+                at = bv.partBounds(p.id); bv.getLocationOnScreen(loc)
+            }
+            assertTrue("${p.type} drawn", at != null)
+            ui().click(loc[0] + at!!.centerX().toInt(), loc[1] + at!!.centerY().toInt())
+            Thread.sleep(1500)
+            screenshot(name)
+            assertTrue("close-up open", ui().hasObject(androidx.test.uiautomator.By.text(p.type.title)))
+            InstrumentationRegistry.getInstrumentation().uiAutomation.performGlobalAction(android.accessibilityservice.AccessibilityService.GLOBAL_ACTION_BACK)
+            Thread.sleep(800)
+        }
+        scenario.onActivity { vm.setBoard(Board(vm.board.parts.map { it.copy(pinnedOverTabs = true) })) }
+        selectTab(scenario, R.string.tab_repl)
+        Thread.sleep(1000)
+        screenshot("displays-pinned.png")
+        scenario.onActivity { vm.setBoard(Board()) }
+        scenario.close()
+    }
+
     /** A W25Q on SPI: its sample writes and reads back, the sheet shows it, the hex view edits a byte */
     @Test
     fun flash() {

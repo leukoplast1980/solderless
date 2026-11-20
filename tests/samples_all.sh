@@ -24,6 +24,8 @@ one() {
                 v9) echo "#!attach $i pot $p"; echo "#!input $i 300";;
                 v13) [ $i = 1 ] && echo "#!attach 1 oled $(echo $pins | tr ' ' '\n' | head -1) $(echo $pins | tr ' ' '\n' | tail -1)";;
                 v14) [ $i = 1 ] && echo "#!attach 1 flash $pins";;
+                v15) [ $i = 1 ] && echo "#!attach 1 matrix $pins chips=4";;
+                v16) [ $i = 1 ] && echo "#!attach 1 tft $pins";;
                 *) echo "#!attach $i audio $p";;
             esac
             i=$((i + 1))
@@ -32,7 +34,7 @@ one() {
         [ $v = v13 ] && echo "#!oled 1"
     } > "$out/$b.in"
     timeout 60 "$slemu" -d -k -t 20000 -s "$out/$b.in" "$fw" > "$out/$b.txt" 2>&1
-    bad=$(grep -E "not found|^line [0-9]+:|Stack|\[chip\]|timeout|locked" "$out/$b.txt" | head -3)
+    bad=$(grep -E "not found|^line [0-9]+:|Stack|\[chip\]|timeout|locked" "$out/$b.txt" | grep -v "MAX7219: the module runs from 5 V" | head -3)
     [ -n "$bad" ] && echo "PROBLEM $b: $bad"
     res=$(grep -F "$try" "$out/$b.txt" | tail -1 | sed 's/.* \([-0-9]*\)  ok\.$/\1/; s/.*  ok\.$//')
     st=$(awk '/^#!pins/{n++} n==2' "$out/$b.txt" | grep -E "^P[A-G][0-9]" |

@@ -277,8 +277,12 @@ class Recommender(private val chip: ChipPins, hseFitted: Boolean = false, lseFit
         val pin = chip.gpio(u.pin)!!
         val lost = cost(pin, u.function)
         when (val f = u.function) {
-            is Function.Gpio -> if (p.needs()[r] == Need.CS) "${u.pin} is the chip select: any output pin works, the " +
+            is Function.Gpio -> if (p.needs()[r] == Need.CS && p.type == PartType.TFT && r == 4) "${u.pin} drives RES: low resets " +
+                "the display. Not PB8: a pull-up on RES would hold BOOT0 high at reset."
+                else if (p.needs()[r] == Need.CS) "${u.pin} is the chip select: any output pin works, the " +
                 "code drives it low around each command. Not PB8: a pull-up on CS would hold BOOT0 high at reset."
+                else if (p.type == PartType.TFT) "${u.pin} drives DC: low while a command byte goes out, high for its " +
+                "parameters and the pixels."
                 else if (lost == 0.0) "Any ${if (p.needs()[r] == Need.OUTPUT) "output" else "input"} pin works. " +
                 "${u.pin} has no ADC input, DAC output or timer channel that a later part might need."
                 else "${u.pin}: the free pin that gives up the least: only ${scarcityNote(pin)}, which a later part might want."

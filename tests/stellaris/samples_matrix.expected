@@ -1,0 +1,208 @@
+\ The sample code the Board tab gives for LED matrices, as generated  ok.
+\ (SamplesTest checks that it still matches): a 4-in-1 on SPI3, an 8 x 8 on SPI1.  ok.
+#!attach 1 matrix PC9 PC10 PC12 chips=4
+#!attach 2 matrix PB10 PB3 PB5 chips=1
+  ok.
+\ matrix: LED matrix, 4 × MAX7219, 32 × 8, on SPI3: CS PC9, CLK PC10, DIN PC12  ok.
+\ Paste all of it into the console, or put it in a file after wiring.fs.  ok.
+  ok.
+\ PC9 (pin 41) → MAX7219 CS (LOAD); VCC → 5 V, GND → GND  ok.
+$48000800 constant matrix-cs-port  \ GPIOC  ok.
+9 constant matrix-cs-pin  ok.
+\ PC10 (pin 52) → MAX7219 CLK  ok.
+$48000800 constant matrix-clk-port  \ GPIOC  ok.
+10 constant matrix-clk-pin  ok.
+$40003C00 constant matrix-spi  \ SPI3  ok.
+6 constant matrix-clk-af  ok.
+\ PC12 (pin 54) → MAX7219 DIN, on the module's input end  ok.
+$48000800 constant matrix-din-port  \ GPIOC  ok.
+12 constant matrix-din-pin  ok.
+6 constant matrix-din-af  ok.
+  ok.
+\ ms: wait n milliseconds, counted by SysTick at 16 MHz  ok.
+\ (lib_systick uses SysTick too: with it loaded, use its delay-ms)  ok.
+: ms ( n -- )  ok.
+  15999 $E000E014 !  0 $E000E018 !  5 $E000E010 ! \ SysTick: wrap every 16000 cycles  ok.
+  0 ?do begin $E000E010 @ $10000 and until loop   \ count the wraps  ok.
+  0 $E000E010 ! ;                                 \ SysTick off again  ok.
+  ok.
+: matrix-sr ( -- u ) matrix-spi 8 + @ ;           \ SPI3 SR  ok.
+: >matrix ( b -- )                                \ one byte out  ok.
+  begin matrix-sr 2 and until  matrix-spi $C + c! ; \ wait for TXE; c! writes one frame  ok.
+: matrix-idle ( -- ) begin matrix-sr $80 and 0= until ; \ until BSY clears: the last byte is out  ok.
+: matrix-select ( -- ) 1 matrix-cs-pin lshift 16 lshift matrix-cs-port $18 + ! ; \ CS (LOAD) low  ok.
+: matrix-load ( -- ) matrix-idle 1 matrix-cs-pin lshift matrix-cs-port $18 + ! ; \ CS high: each chip takes its 16 bits  ok.
+: matrix-all ( reg v -- )                         \ the same register in every chip  ok.
+  matrix-select  4 0 do over >matrix dup >matrix loop 2drop matrix-load ;  ok.
+  ok.
+32 buffer: matrix-buf                             \ the picture: 8 rows of 4 bytes, left to right  ok.
+: matrix-clear ( -- ) matrix-buf 32 0 fill ;  ok.
+: matrix-pixel ( x y -- )                         \ x 0..31 from the left, y 0..7 from the top  ok.
+  over 32 u< over 8 u< and 0= if 2drop exit then  ok.
+  4 * over 3 rshift + matrix-buf +                \ the byte: row y, column x/8  ok.
+  $80 rot 7 and rshift swap cbis! ;               \ bit 7 is the left LED  ok.
+: matrix-show ( -- )                              \ the picture to the LEDs, a row at a time  ok.
+  8 0 do  ok.
+    matrix-select  ok.
+    4 0 do  j 1+ >matrix  j 4 * i + matrix-buf + c@ >matrix  loop \ register: row + 1; the left chip first  ok.
+    matrix-load  ok.
+  loop ;  ok.
+  ok.
+: matrix-init ( -- )  ok.
+  1 2 lshift $4002104C bis!                       \ RCC AHB2ENR: clock for GPIOC  ok.
+  1 15 lshift $40021058 bis!                      \ RCC APB1ENR1: clock for SPI3  ok.
+  1 matrix-cs-pin lshift matrix-cs-port $18 + !   \ BSRR: high before it becomes an output  ok.
+  %11 matrix-cs-pin 2* lshift matrix-cs-port bic! \ MODER: clear the two bits  ok.
+  %01 matrix-cs-pin 2* lshift matrix-cs-port bis! \ MODER: 01 = output  ok.
+  1 matrix-cs-pin lshift matrix-cs-port 4 + bic!  \ OTYPER: push-pull  ok.
+  %11 matrix-clk-pin 2* lshift matrix-clk-port bic! \ MODER: clear the two bits  ok.
+  %10 matrix-clk-pin 2* lshift matrix-clk-port bis! \ MODER: 10 = alternate function  ok.
+  1 matrix-clk-pin lshift matrix-clk-port 4 + bic! \ OTYPER: push-pull  ok.
+  $F matrix-clk-pin 8 - 4 * lshift matrix-clk-port $24 + bic! \ AFRH: clear the four bits  ok.
+  matrix-clk-af matrix-clk-pin 8 - 4 * lshift matrix-clk-port $24 + bis! \ AFRH: AF6 = SPI3 SCK  ok.
+  %11 matrix-din-pin 2* lshift matrix-din-port bic! \ MODER: clear the two bits  ok.
+  %10 matrix-din-pin 2* lshift matrix-din-port bis! \ MODER: 10 = alternate function  ok.
+  1 matrix-din-pin lshift matrix-din-port 4 + bic! \ OTYPER: push-pull  ok.
+  $F matrix-din-pin 8 - 4 * lshift matrix-din-port $24 + bic! \ AFRH: clear the four bits  ok.
+  matrix-din-af matrix-din-pin 8 - 4 * lshift matrix-din-port $24 + bis! \ AFRH: AF6 = SPI3 MOSI  ok.
+  $1700 matrix-spi 4 + !                          \ CR2: 8-bit frames  ok.
+  $354 matrix-spi !                               \ CR1: master, SCK = 16 MHz / 8 (it takes 10 MHz), SSM and SSI, on  ok.
+  $F 0 matrix-all                                 \ display test off  ok.
+  9 0 matrix-all                                  \ no decoding: each bit is an LED  ok.
+  $B 7 matrix-all                                 \ scan all 8 rows: after power-up only row 0 shows  ok.
+  $A 3 matrix-all                                 \ intensity 3 of 15  ok.
+  matrix-clear matrix-show                        \ its rows hold noise at power-up  ok.
+  $C 1 matrix-all ;                               \ out of shutdown: on  ok.
+  ok.
+\ A dot bouncing about until a key is pressed  ok.
+0 variable matrix-x  0 variable matrix-y  1 variable matrix-dx  1 variable matrix-dy  ok.
+: matrix-move ( -- )  ok.
+  matrix-dx @ matrix-x +!  matrix-x @ 0= matrix-x @ 31 = or if matrix-dx @ negate matrix-dx ! then  ok.
+  matrix-dy @ matrix-y +!  matrix-y @ 0= matrix-y @ 7 = or if matrix-dy @ negate matrix-dy ! then ;  ok.
+: matrix-demo ( -- )  ok.
+  matrix-init  ok.
+  begin matrix-clear matrix-x @ matrix-y @ matrix-pixel matrix-show matrix-move 50 ms key? until ;  ok.
+  ok.
+\ Try it: matrix-init 3 3 matrix-pixel matrix-show   or   matrix-demo (Enter stops it)  ok.
+  ok.
+\ matrix2: LED matrix, MAX7219, 8 × 8, on SPI1: CS PB10, CLK PB3, DIN PB5  ok.
+\ Paste all of it into the console, or put it in a file after wiring.fs.  ok.
+  ok.
+\ PB10 (pin 30) → MAX7219 CS (LOAD); VCC → 5 V, GND → GND  ok.
+$48000400 constant matrix2-cs-port  \ GPIOB  ok.
+10 constant matrix2-cs-pin  ok.
+\ PB3 (pin 56) → MAX7219 CLK  ok.
+$48000400 constant matrix2-clk-port  \ GPIOB  ok.
+3 constant matrix2-clk-pin  ok.
+$40013000 constant matrix2-spi  \ SPI1  ok.
+5 constant matrix2-clk-af  ok.
+\ PB5 (pin 58) → MAX7219 DIN, on the module's input end  ok.
+$48000400 constant matrix2-din-port  \ GPIOB  ok.
+5 constant matrix2-din-pin  ok.
+5 constant matrix2-din-af  ok.
+  ok.
+\ ms: wait n milliseconds, counted by SysTick at 16 MHz  ok.
+\ (lib_systick uses SysTick too: with it loaded, use its delay-ms)  ok.
+: ms ( n -- ) Redefine ms.  ok.
+  15999 $E000E014 !  0 $E000E018 !  5 $E000E010 ! \ SysTick: wrap every 16000 cycles  ok.
+  0 ?do begin $E000E010 @ $10000 and until loop   \ count the wraps  ok.
+  0 $E000E010 ! ;                                 \ SysTick off again  ok.
+  ok.
+: matrix2-sr ( -- u ) matrix2-spi 8 + @ ;         \ SPI1 SR  ok.
+: >matrix2 ( b -- )                               \ one byte out  ok.
+  begin matrix2-sr 2 and until  matrix2-spi $C + c! ; \ wait for TXE; c! writes one frame  ok.
+: matrix2-idle ( -- ) begin matrix2-sr $80 and 0= until ; \ until BSY clears: the last byte is out  ok.
+: matrix2-select ( -- ) 1 matrix2-cs-pin lshift 16 lshift matrix2-cs-port $18 + ! ; \ CS (LOAD) low  ok.
+: matrix2-load ( -- ) matrix2-idle 1 matrix2-cs-pin lshift matrix2-cs-port $18 + ! ; \ CS high: each chip takes its 16 bits  ok.
+: matrix2-all ( reg v -- )                        \ the same register in every chip  ok.
+  matrix2-select  1 0 do over >matrix2 dup >matrix2 loop 2drop matrix2-load ;  ok.
+  ok.
+8 buffer: matrix2-buf                             \ the picture: 8 rows of 1 bytes, left to right  ok.
+: matrix2-clear ( -- ) matrix2-buf 8 0 fill ;  ok.
+: matrix2-pixel ( x y -- )                        \ x 0..7 from the left, y 0..7 from the top  ok.
+  over 8 u< over 8 u< and 0= if 2drop exit then  ok.
+  1 * over 3 rshift + matrix2-buf +               \ the byte: row y, column x/8  ok.
+  $80 rot 7 and rshift swap cbis! ;               \ bit 7 is the left LED  ok.
+: matrix2-show ( -- )                             \ the picture to the LEDs, a row at a time  ok.
+  8 0 do  ok.
+    matrix2-select  ok.
+    1 0 do  j 1+ >matrix2  j 1 * i + matrix2-buf + c@ >matrix2  loop \ register: row + 1; the left chip first  ok.
+    matrix2-load  ok.
+  loop ;  ok.
+  ok.
+: matrix2-init ( -- )  ok.
+  1 1 lshift $4002104C bis!                       \ RCC AHB2ENR: clock for GPIOB  ok.
+  1 12 lshift $40021060 bis!                      \ RCC APB2ENR: clock for SPI1  ok.
+  1 matrix2-cs-pin lshift matrix2-cs-port $18 + ! \ BSRR: high before it becomes an output  ok.
+  %11 matrix2-cs-pin 2* lshift matrix2-cs-port bic! \ MODER: clear the two bits  ok.
+  %01 matrix2-cs-pin 2* lshift matrix2-cs-port bis! \ MODER: 01 = output  ok.
+  1 matrix2-cs-pin lshift matrix2-cs-port 4 + bic! \ OTYPER: push-pull  ok.
+  %11 matrix2-clk-pin 2* lshift matrix2-clk-port bic! \ MODER: clear the two bits  ok.
+  %10 matrix2-clk-pin 2* lshift matrix2-clk-port bis! \ MODER: 10 = alternate function  ok.
+  1 matrix2-clk-pin lshift matrix2-clk-port 4 + bic! \ OTYPER: push-pull  ok.
+  $F matrix2-clk-pin 4 * lshift matrix2-clk-port $20 + bic! \ AFRL: clear the four bits  ok.
+  matrix2-clk-af matrix2-clk-pin 4 * lshift matrix2-clk-port $20 + bis! \ AFRL: AF5 = SPI1 SCK  ok.
+  %11 matrix2-din-pin 2* lshift matrix2-din-port bic! \ MODER: clear the two bits  ok.
+  %10 matrix2-din-pin 2* lshift matrix2-din-port bis! \ MODER: 10 = alternate function  ok.
+  1 matrix2-din-pin lshift matrix2-din-port 4 + bic! \ OTYPER: push-pull  ok.
+  $F matrix2-din-pin 4 * lshift matrix2-din-port $20 + bic! \ AFRL: clear the four bits  ok.
+  matrix2-din-af matrix2-din-pin 4 * lshift matrix2-din-port $20 + bis! \ AFRL: AF5 = SPI1 MOSI  ok.
+  $1700 matrix2-spi 4 + !                         \ CR2: 8-bit frames  ok.
+  $354 matrix2-spi !                              \ CR1: master, SCK = 16 MHz / 8 (it takes 10 MHz), SSM and SSI, on  ok.
+  $F 0 matrix2-all                                \ display test off  ok.
+  9 0 matrix2-all                                 \ no decoding: each bit is an LED  ok.
+  $B 7 matrix2-all                                \ scan all 8 rows: after power-up only row 0 shows  ok.
+  $A 3 matrix2-all                                \ intensity 3 of 15  ok.
+  matrix2-clear matrix2-show                      \ its rows hold noise at power-up  ok.
+  $C 1 matrix2-all ;                              \ out of shutdown: on  ok.
+  ok.
+\ A dot bouncing about until a key is pressed  ok.
+0 variable matrix2-x  0 variable matrix2-y  1 variable matrix2-dx  1 variable matrix2-dy  ok.
+: matrix2-move ( -- )  ok.
+  matrix2-dx @ matrix2-x +!  matrix2-x @ 0= matrix2-x @ 7 = or if matrix2-dx @ negate matrix2-dx ! then  ok.
+  matrix2-dy @ matrix2-y +!  matrix2-y @ 0= matrix2-y @ 7 = or if matrix2-dy @ negate matrix2-dy ! then ;  ok.
+: matrix2-demo ( -- )  ok.
+  matrix2-init  ok.
+  begin matrix2-clear matrix2-x @ matrix2-y @ matrix2-pixel matrix2-show matrix2-move 50 ms key? until ;  ok.
+  ok.
+\ Try it: matrix2-init 3 3 matrix2-pixel matrix2-show   or   matrix2-demo (Enter stops it)  ok.
+  ok.
+matrix-init 3 3 matrix-pixel 31 7 matrix-pixel matrix-show  ok.
+
+[chip] MAX7219: the module runs from 5 V and wants at least 3.5 V for a high on DIN, CLK and CS; a 3.3 V pin is below that. It mostly works on the bench; a level shifter makes it sure
+#!matrix 1
+................................
+................................
+................................
+...#............................
+................................
+................................
+................................
+...............................#
+Bus	CS PC9 · CLK PC10 · DIN PC12
+Chain	4 × MAX7219 · 32 × 8 LEDs
+Mode	on
+Intensity	3 · 7/32
+Scan limit	7 · all 8 rows
+Decode	none: each bit an LED
+Chips	all set alike
+Last	register 8 = 01 on chip 0 · 21 loads
+matrix2-init 0 0 matrix2-pixel 7 7 matrix2-pixel matrix2-show  ok.
+
+[chip] MAX7219: the module runs from 5 V and wants at least 3.5 V for a high on DIN, CLK and CS; a 3.3 V pin is below that. It mostly works on the bench; a level shifter makes it sure
+#!matrix 2
+#.......
+........
+........
+........
+........
+........
+........
+.......#
+Bus	CS PB10 · CLK PB3 · DIN PB5
+Chain	1 × MAX7219 · 8 × 8 LEDs
+Mode	on
+Intensity	3 · 7/32
+Scan limit	7 · all 8 rows
+Decode	none: each bit an LED
+Last	register 8 = 01 on chip 0 · 21 loads

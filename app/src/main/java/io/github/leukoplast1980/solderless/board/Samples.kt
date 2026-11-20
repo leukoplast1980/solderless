@@ -92,6 +92,8 @@ object Samples {
                 if (p.pins[0].function is Function.Dac) dacTone(c, n, chip, p) else pwmTone(c, n, chip, p)
             PartType.OLED -> oled(c, n, chip, p)
             PartType.FLASH -> flash(c, n, chip, p)
+            PartType.MATRIX -> matrix(c, n, chip, p)
+            PartType.TFT -> tft(c, n, chip, p)
         }
         return c.text()
     }
@@ -109,6 +111,10 @@ object Samples {
             "$%02X".format(java.util.Locale.ROOT, p.i2cAddr)
         PartType.FLASH -> "${p.flashName} flash, ${p.flashMbit / 8} MB, on ${p.spi}: CS ${p.pins[0].pin}, CLK ${p.pins[1].pin}, " +
             "DI ${p.pins[2].pin}, DO ${p.pins[3].pin}"
+        PartType.MATRIX -> "LED matrix, ${if (p.matrixChips == 1) "MAX7219, 8 × 8" else "${p.matrixChips} × MAX7219, ${8 * p.matrixChips} × 8"}, on " +
+            "${p.spi}: CS ${p.pins[0].pin}, CLK ${p.pins[1].pin}, DIN ${p.pins[2].pin}"
+        PartType.TFT -> "colour display, ST7789 240 × ${p.tftRows}, on ${p.spi}: CS ${p.pins[0].pin}, SCL ${p.pins[1].pin}, " +
+            "SDA ${p.pins[2].pin}, DC ${p.pins[3].pin}, RES ${p.pins[4].pin}"
     }
 
     // ---- pieces --------------------------------------------------------
@@ -507,6 +513,117 @@ object Samples {
         c.add("  0 $n-erase  $n-hello 0 $n-write")
         c.add("  0 $n-buf 16 $n-read  $n-buf 16 type ;")
         tryIt(c, "$n-init $n-id   or   $n-demo")
+    }
+
+    /** SPI setup shared by the SPI parts: clocks, the GPIOs as outputs (high first), the bus pins in their alternate function */
+    private fun spiPins(c: Code, n: String, chip: ChipPins, p: Part, f: Function.Spi) {
+        val (reg, regName, clockBit) = SPI_CLOCK.getValue(f.periph)
+        gpioClocks(c, chip, p.pins)
+        c.add("  1 $clockBit lshift $reg bis!", "RCC $regName: clock for ${f.periph}")
+        for ((r, u) in p.pins.withIndex()) {
+            val base = "$n-${p.type.roles[r]}"
+            if (u.function is Function.Spi) { mode(c, base, "10", "alternate function"); altFunction(c, base, bit(chip, u), u.function) }
+            else {
+                c.add("  1 $base-pin lshift $base-port \$18 + !", "BSRR: high before it becomes an output")
+                mode(c, base, "01", "output")
+            }
+        }
+    }
+
+    private fun matrix(c: Code, n: String, chip: ChipPins, p: Part) {
+        val f = p.pins[1].function as? Function.Spi ?: return
+        val sp = "$n-spi"
+        val ch = p.matrixChips
+        val w = 8 * ch
+        c.add(": $n-sr ( -- u ) $sp 8 + @ ;", "${f.periph} SR")
+        c.add(": >$n ( b -- )", "one byte out")
+        c.add("  begin $n-sr 2 and until  $sp \$C + c! ;", "wait for TXE; c! writes one frame")
+        c.add(": $n-idle ( -- ) begin $n-sr \$80 and 0= until ;", "until BSY clears: the last byte is out")
+        c.add(": $n-select ( -- ) 1 $n-cs-pin lshift 16 lshift $n-cs-port \$18 + ! ;", "CS (LOAD) low")
+        c.add(": $n-load ( -- ) $n-idle 1 $n-cs-pin lshift $n-cs-port \$18 + ! ;", "CS high: each chip takes its 16 bits")
+        c.add(": $n-all ( reg v -- )", "the same register in every chip")
+        c.add("  $n-select  $ch 0 do over >$n dup >$n loop 2drop $n-load ;")
+        c.gap()
+        c.add("${8 * ch} buffer: $n-buf", "the picture: 8 rows of $ch bytes, left to right")
+        c.add(": $n-clear ( -- ) $n-buf ${8 * ch} 0 fill ;")
+        c.add(": $n-pixel ( x y -- )", "x 0..${w - 1} from the left, y 0..7 from the top")
+        c.add("  over $w u< over 8 u< and 0= if 2drop exit then")
+        c.add("  $ch * over 3 rshift + $n-buf +", "the byte: row y, column x/8")
+        c.add("  \$80 rot 7 and rshift swap cbis! ;", "bit 7 is the left LED")
+        c.add(": $n-show ( -- )", "the picture to the LEDs, a row at a time")
+        c.add("  8 0 do")
+        c.add("    $n-select")
+        c.add("    $ch 0 do  j 1+ >$n  j $ch * i + $n-buf + c@ >$n  loop", "register: row + 1; the left chip first")
+        c.add("    $n-load")
+        c.add("  loop ;")
+        c.gap()
+        c.add(": $n-init ( -- )")
+        spiPins(c, n, chip, p, f)
+        c.add("  \$1700 $sp 4 + !", "CR2: 8-bit frames")
+        c.add("  \$354 $sp !", "CR1: master, SCK = 16 MHz / 8 (it takes 10 MHz), SSM and SSI, on")
+        c.add("  \$F 0 $n-all", "display test off")
+        c.add("  9 0 $n-all", "no decoding: each bit is an LED")
+        c.add("  \$B 7 $n-all", "scan all 8 rows: after power-up only row 0 shows")
+        c.add("  \$A 3 $n-all", "intensity 3 of 15")
+        c.add("  $n-clear $n-show", "its rows hold noise at power-up")
+        c.add("  \$C 1 $n-all ;", "out of shutdown: on")
+        c.gap()
+        c.add("\\ A dot bouncing about until a key is pressed")
+        c.add("0 variable $n-x  0 variable $n-y  1 variable $n-dx  1 variable $n-dy")
+        c.add(": $n-move ( -- )")
+        c.add("  $n-dx @ $n-x +!  $n-x @ 0= $n-x @ ${w - 1} = or if $n-dx @ negate $n-dx ! then")
+        c.add("  $n-dy @ $n-y +!  $n-y @ 0= $n-y @ 7 = or if $n-dy @ negate $n-dy ! then ;")
+        c.add(": $n-demo ( -- )")
+        c.add("  $n-init")
+        c.add("  begin $n-clear $n-x @ $n-y @ $n-pixel $n-show $n-move 50 ms key? until ;")
+        tryIt(c, "$n-init 3 3 $n-pixel $n-show   or   $n-demo (Enter stops it)")
+    }
+
+    private fun tft(c: Code, n: String, chip: ChipPins, p: Part) {
+        val f = p.pins[1].function as? Function.Spi ?: return
+        val sp = "$n-spi"
+        val bottom = p.tftRows - 1
+        c.add(": $n-sr ( -- u ) $sp 8 + @ ;", "${f.periph} SR")
+        c.add(": >$n ( b -- )", "one byte out")
+        c.add("  begin $n-sr 2 and until  $sp \$C + c! ;", "wait for TXE; c! writes one frame")
+        c.add(": $n-idle ( -- ) begin $n-sr \$80 and 0= until ;", "until BSY clears: the last byte is out")
+        c.add(": $n-dc ( f -- ) $n-idle  1 $n-dc-pin lshift", "DC changes only after the byte before it is out")
+        c.add("  swap 0= if 16 lshift then $n-dc-port \$18 + ! ;", "BSRR: high for data, low for a command")
+        c.add(": $n-cmd ( c -- )", "CS low, the command with DC low; DC high for what follows")
+        c.add("  1 $n-cs-pin lshift 16 lshift $n-cs-port \$18 + !  0 $n-dc >$n  1 $n-dc ;")
+        c.add(": $n-end ( -- ) $n-idle 1 $n-cs-pin lshift $n-cs-port \$18 + ! ;", "CS high")
+        c.add(": >${n}16 ( u -- ) dup 8 rshift >$n >$n ;", "16 bits, high byte first")
+        c.add(": $n-window ( x0 y0 x1 y1 -- )", "the pixels that follow fill this box, row by row")
+        c.add("  >r >r  \$2A $n-cmd swap >${n}16 r> >${n}16", "CASET: columns")
+        c.add("  \$2B $n-cmd >${n}16 r> >${n}16  \$2C $n-cmd ;", "RASET: rows; RAMWR")
+        c.add(": $n-fill ( x0 y0 x1 y1 colour -- )", "a box in one RGB565 colour")
+        c.add("  >r 2over 2over $n-window  rot - 1+ -rot swap - 1+ *")
+        c.add("  r> swap 0 ?do dup >${n}16 loop drop $n-end ;")
+        c.add(": $n-pixel ( x y colour -- ) >r 2dup $n-window r> >${n}16 $n-end ;")
+        c.add(": $n-reset ( -- )", "a pulse on RES, then the 120 ms it needs")
+        c.add("  1 $n-res-pin lshift 16 lshift $n-res-port \$18 + !  1 ms")
+        c.add("  1 $n-res-pin lshift $n-res-port \$18 + !  120 ms ;")
+        c.gap()
+        c.add(": $n-init ( -- )")
+        spiPins(c, n, chip, p, f)
+        c.add("  \$1700 $sp 4 + !", "CR2: 8-bit frames")
+        c.add("  \$344 $sp !", "CR1: master, SCK = 16 MHz / 2, SSM and SSI, on")
+        c.add("  $n-reset")
+        c.add("  \$11 $n-cmd $n-end 5 ms", "Sleep Out, then 5 ms before the next command")
+        c.add("  \$3A $n-cmd \$55 >$n $n-end", "COLMOD: RGB565, 2 bytes a pixel (18-bit after reset)")
+        c.add("  \$36 $n-cmd 0 >$n $n-end", "MADCTL: row 0 at the top, column 0 on the left")
+        c.add("  \$21 $n-cmd $n-end", "inversion on: this IPS panel shows true colours so")
+        c.add("  \$29 $n-cmd $n-end ;", "Display On")
+        c.gap()
+        c.add("\\ Colour bars, and a box that changes colour until a key is pressed")
+        c.add("create $n-colours  \$FFFF h, \$FFE0 h, \$07FF h, \$07E0 h, \$F81F h, \$F800 h, \$001F h, 0 h,")
+        c.add(": $n-colour ( n -- c ) 7 and 2* $n-colours + h@ ;")
+        c.add(": $n-bars ( -- )")
+        c.add("  8 0 do  i 30 * 0  i 30 * 29 + $bottom  i $n-colour $n-fill  loop ;")
+        c.add(": $n-demo ( -- )")
+        c.add("  $n-init $n-bars")
+        c.add("  0 begin  70 ${p.tftRows / 2 - 50} 169 ${p.tftRows / 2 + 49} 4 pick $n-colour $n-fill  1+  300 ms key? until drop ;")
+        tryIt(c, "$n-init $n-bars   or   $n-demo (Enter stops it)")
     }
 
     private val SCALE = "523 494 440 392 349 330 294 262"

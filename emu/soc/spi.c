@@ -203,9 +203,6 @@ void spi_event(struct sl_soc *s, int i)
     if (last != c->mosi_level) { c->mosi_level = last; board_af_outputs_changed(s); }
     int n = c->cur_bits > 8 ? 2 : 1;
     if (c->rxn + n > 4) {
-        if (!(c->flags & SR_OVR))
-            soc_log(s, LOG_SPI_OVR, "%s: overrun (OVR): a frame came in while the receive FIFO was full, and it is lost. "
-                    "Harmless when you only send; to read what comes back, read DR after every frame", c->name);
         c->flags |= SR_OVR;
         c->ovr_dr_read = 0;
     } else if (!(c->flags & SR_OVR)) {
@@ -232,6 +229,10 @@ uint32_t spi_read(struct sl_soc *s, int i, uint32_t off, int effects)
         int n = s->rd_width == 1 ? 1 : 2;
         uint32_t v = 0;
         for (int k = 0; k < n && k < c->rxn; k++) v |= (uint32_t)c->rxf[k] << (8 * k);
+        /* An overrun matters once the firmware reads what came in: only sending, it is harmless */
+        if (effects && (c->flags & SR_OVR) && !c->ovr_dr_read)
+            soc_log(s, LOG_SPI_OVR, "%s: overrun (OVR): frames came in while the receive FIFO was full and were lost, "
+                    "so DR gives old bytes. Read DR after every frame, or empty it before a transfer you read", c->name);
         if (effects) {
             int take = n < c->rxn ? n : c->rxn;
             memmove(c->rxf, c->rxf + take, (size_t)(4 - take));

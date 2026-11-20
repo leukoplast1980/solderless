@@ -34,7 +34,6 @@ Decode	none: each bit an LED
 Chips	all set alike
 $C 1 all  $B 7 all  $A 3 all  9 0 all  ok.
 
-[chip] SPI3: overrun (OVR): a frame came in while the receive FIFO was full, and it is lost. Harmless when you only send; to read what comes back, read DR after every frame
 [chip] MAX7219: the module runs from 5 V and wants at least 3.5 V for a high on DIN, CLK and CS; a 3.3 V pin is below that. It mostly works on the bench; a level shifter makes it sure
 #!matrix 1
 ..#.....#.##..###..#.#..#..#.##.

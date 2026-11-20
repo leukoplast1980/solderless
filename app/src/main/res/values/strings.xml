@@ -187,4 +187,6 @@
     <string name="hex_applied">%1$d bytes written into the chip</string>
     <string name="hex_discard">Leave without writing the %1$d edited bytes?</string>
     <string name="hex_discard_yes">Leave</string>
+    <string name="matrix_closeup_hint">Each LED as bright as the chip drives it: its intensity, and how many rows it scans.</string>
+    <string name="tft_closeup_hint">The panel as it shows its frame memory now.</string>
 </resources>

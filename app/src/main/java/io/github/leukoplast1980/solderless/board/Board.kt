@@ -56,6 +56,8 @@ data class Board(val parts: List<Part> = emptyList()) {
             PartType.OLED -> att(p.id, r, u.pin, ATT_DEVICE, false, 4700, 0, 0, DEV_SSD1306, p.i2cAddr)
             // roles CS, CLK, DI, DO as SL_SIG_CS, SCK, MOSI, MISO; WP and HOLD tied high
             PartType.FLASH -> att(p.id, FLASH_SIG[r], u.pin, ATT_DEVICE, false, 0, 0, 0, DEV_W25Q, p.flashCap)
+            PartType.MATRIX -> att(p.id, FLASH_SIG[r], u.pin, ATT_DEVICE, false, 0, 0, 0, DEV_MAX7219, p.matrixChips)
+            PartType.TFT -> att(p.id, TFT_SIG[r], u.pin, ATT_DEVICE, false, 0, 0, 0, DEV_ST7789, p.tftRows)
         }
         return out.toIntArray()
     }
@@ -71,7 +73,7 @@ data class Board(val parts: List<Part> = emptyList()) {
             .put("activeHigh", p.activeHigh).put("dimmable", p.dimmable).put("toVcc", p.toVcc)
             .put("externalPull", p.externalPull).put("bounceUs", p.bounceUs).put("interrupt", p.interrupt)
             .put("dacDrive", p.dacDrive).put("pinned", p.pinnedOverTabs).put("i2cAddr", p.i2cAddr)
-            .put("flashMbit", p.flashMbit))
+            .put("flashMbit", p.flashMbit).put("matrixChips", p.matrixChips).put("tftRows", p.tftRows))
     }).toString(1)
 
     companion object {
@@ -83,6 +85,10 @@ data class Board(val parts: List<Part> = emptyList()) {
         const val ATT_DEVICE = 6
         const val DEV_SSD1306 = 1
         const val DEV_W25Q = 2
+        const val DEV_MAX7219 = 3
+        const val DEV_ST7789 = 4
+        /** sl_attach.role of a colour display's roles: SL_SIG_CS, SCK, MOSI, DC, RES */
+        val TFT_SIG = intArrayOf(5, 2, 3, 6, 7)
         /** sl_attach.role of a flash's roles: SL_SIG_CS, SCK, MOSI, MISO */
         val FLASH_SIG = intArrayOf(5, 2, 3, 4)
         /** ints per attachment, in sl_attach's field order */
@@ -126,6 +132,7 @@ data class Board(val parts: List<Part> = emptyList()) {
                     bounceUs = o.optInt("bounceUs", 2000), interrupt = o.optBoolean("interrupt", true),
                     dacDrive = o.optBoolean("dacDrive", true), pinnedOverTabs = o.optBoolean("pinned", false),
                     i2cAddr = o.optInt("i2cAddr", 0x3C), flashMbit = o.optInt("flashMbit", 64),
+                    matrixChips = o.optInt("matrixChips", 4), tftRows = o.optInt("tftRows", 240),
                 )
             })
         }

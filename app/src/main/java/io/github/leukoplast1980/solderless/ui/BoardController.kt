@@ -70,6 +70,9 @@ class BoardController(
     private val potSlider: Slider = activity.findViewById(R.id.potSlider)
     /** Displays: what each controller holds, read with the board */
     private val oledBuf = ByteArray(128 * 64)
+    private val panelBuf = ByteArray(240 * 320 * 2)
+    /** A matrix or colour display close up: its part and what updates the sheet */
+    private var panelCloseUp: Pair<Int, (ByteArray, String) -> Unit>? = null
     private val deviceText = HashMap<Int, String>()
     /** The close-up open now: part id, its screen and its rows of state */
     private var closeUp: Triple<Int, OledView, LinearLayout>? = null
@@ -104,6 +107,7 @@ class BoardController(
             when (it.type) {
                 PartType.OLED -> showOled(it)
                 PartType.FLASH -> showFlash(it)
+                PartType.MATRIX, PartType.TFT -> showPanel(it)
                 else -> showSample(it)
             }
         }
@@ -151,6 +155,15 @@ class BoardController(
             deviceText[p.id] = text
             if (Regex("Status\tBUSY 1").containsMatchIn(text)) view.deviceBusy += p.id else view.deviceBusy -= p.id
             flashSheet?.let { (id, update) -> if (id == p.id) update(text) }
+        }
+        for (p in vm.board.parts.filter { it.type == PartType.MATRIX || it.type == PartType.TFT }) {
+            val text = vm.readDevice(p.id, panelBuf) ?: continue
+            val n = if (p.type == PartType.MATRIX) 64 * p.matrixChips else 240 * p.tftRows * 2
+            val px = panelBuf.copyOf(n)
+            view.devicePixels[p.id] = px
+            deviceText[p.id] = text
+            when (val v = pinnedViews[p.id]) { is MatrixView -> v.show(px); is TftView -> v.show(px) }
+            panelCloseUp?.let { (id, update) -> if (id == p.id) update(px, text) }
         }
         for (p in vm.board.parts.filter { it.type == PartType.OLED }) {
             val text = vm.readDevice(p.id, oledBuf) ?: continue
@@ -300,6 +313,8 @@ class BoardController(
             PartType.POT to "ADC input", PartType.SPEAKER to "DAC or PWM, transistor", PartType.PIEZO to "PWM",
             PartType.OLED to "I2C: SCL and SDA",
             PartType.FLASH to "SPI: CLK, DI, DO, and CS",
+            PartType.MATRIX to "SPI: CLK and DIN, and CS",
+            PartType.TFT to "SPI: SCL and SDA; CS, DC, RES",
         )
         val grid = android.widget.GridLayout(activity).apply { columnCount = 2 }
         for ((t, n) in needs) grid.addView(MaterialButton(activity, null, com.google.android.material.R.attr.materialButtonOutlinedStyle).apply {
@@ -421,6 +436,32 @@ class BoardController(
                 activity.getString(R.string.board_part_settings) to { dlg.dismiss(); showSettings(p) }, primaryLast = false)
         }
         dlg.setOnDismissListener { closeUp = null }
+        return dlg
+    }
+
+    /** A matrix or colour display close up: the LEDs or the panel, and what its controller holds */
+    private fun showPanel(p: Part): BottomSheetDialog {
+        val dlg = sheet { col, dlg ->
+            title(col, p.type.title, describe(p))
+            val screen: View = if (p.type == PartType.MATRIX) MatrixView(activity, p.matrixChips) else TftView(activity, p.tftRows)
+            col.addView(screen, LinearLayout.LayoutParams(-1, -2).apply { topMargin = dp(8) })
+            col.addView(body(activity.getString(if (p.type == PartType.MATRIX) R.string.matrix_closeup_hint else R.string.tft_closeup_hint), R.color.label))
+            val rows = LinearLayout(activity).apply { orientation = LinearLayout.VERTICAL }
+            col.addView(rows)
+            val update = { px: ByteArray, text: String ->
+                when (screen) { is MatrixView -> screen.show(px); is TftView -> screen.show(px) }
+                fillState(rows, text)
+            }
+            panelCloseUp = p.id to update
+            val px = view.devicePixels[p.id]; val t = deviceText[p.id]
+            if (px != null && t != null) update(px, t)
+            switch(col, activity.getString(R.string.board_pin_over_tabs), p.pinnedOverTabs) {
+                setBoard(vm.board.with(vm.board.parts.first { it.id == p.id }.copy(pinnedOverTabs = it)))
+            }
+            buttons(col, activity.getString(R.string.board_sample_code) to { dlg.dismiss(); showSample(p) },
+                activity.getString(R.string.board_part_settings) to { dlg.dismiss(); showSettings(p) }, primaryLast = false)
+        }
+        dlg.setOnDismissListener { panelCloseUp = null }
         return dlg
     }
 
@@ -556,6 +597,8 @@ class BoardController(
         PartType.PIEZO -> "passive"
         PartType.OLED -> "SSD1306 · ${p.i2c ?: "I2C"} · address " + "0x%02X".format(java.util.Locale.ROOT, p.i2cAddr)
         PartType.FLASH -> "${p.flashName} · ${p.flashMbit / 8} MB · ${p.spi ?: "SPI"}"
+        PartType.MATRIX -> (if (p.matrixChips == 1) "MAX7219 · 8 × 8" else "${p.matrixChips} × MAX7219 · ${8 * p.matrixChips} × 8") + " · ${p.spi ?: "SPI"}"
+        PartType.TFT -> "ST7789 · 240 × ${p.tftRows} · ${p.spi ?: "SPI"}"
     }
 
     private fun showRewire(pr: Recommender.Proposal, pin: String?) {
@@ -624,6 +667,10 @@ class BoardController(
                     "GPIO${'A' + (vm.chip.gpio(p.pins[0].pin)?.port ?: 0)}_PUPDR = ${if (p.toVcc) "10" else "01"} for ${p.pins[0].pin}.", R.color.label))
             }
             PartType.SPEAKER -> choice(col, "Driven by", listOf("DAC", "PWM"), if (p.dacDrive) 0 else 1) { update(p.copy(dacDrive = it == 0)) }
+            PartType.MATRIX -> choice(col, "Module", listOf("8 × 8 · one MAX7219", "32 × 8 · four in one"), if (p.matrixChips == 1) 0 else 1) {
+                update(p.copy(matrixChips = if (it == 0) 1 else 4)) }
+            PartType.TFT -> choice(col, "Panel", listOf("240 × 240 · 1.3\"", "240 × 320 · 2.0\""), if (p.tftRows == 320) 1 else 0) {
+                update(p.copy(tftRows = if (it == 1) 320 else 240)) }
             PartType.FLASH -> {
                 choice(col, "Chip", listOf("W25Q32 · 4 MB", "W25Q64 · 8 MB", "W25Q128 · 16 MB"), listOf(32, 64, 128).indexOf(p.flashMbit)) {
                     update(p.copy(flashMbit = listOf(32, 64, 128)[it])) }
@@ -773,6 +820,8 @@ class BoardController(
                     onTap = { openPot = if (openPot == p.id) -1 else p.id; showPotStrip(); updatePotButtons() }
                 }
                 PartType.OLED -> OledView(activity)
+                PartType.MATRIX -> MatrixView(activity, p.matrixChips)
+                PartType.TFT -> TftView(activity, p.tftRows)
                 else -> TextView(activity).apply {
                     textSize = 12f; setTextColor(color(R.color.console_text)); gravity = Gravity.CENTER_VERTICAL
                     compoundDrawablePadding = dp(8)
@@ -781,6 +830,9 @@ class BoardController(
             }
             // A 0.96" OLED's glass is about 22 mm wide: 138 dp is that on any screen
             if (p.type == PartType.OLED) pinned.addView(v, LinearLayout.LayoutParams(dp(138), dp(69)).apply { topMargin = dp(4); bottomMargin = dp(2) })
+            // a 1.3" panel is about 23 mm wide, a 2.0" one 31 mm; kept smaller so the card stays a card
+            else if (p.type == PartType.TFT) pinned.addView(v, LinearLayout.LayoutParams(dp(120), dp(120 * p.tftRows / 240)).apply { topMargin = dp(4); bottomMargin = dp(2) })
+            else if (p.type == PartType.MATRIX) pinned.addView(v, LinearLayout.LayoutParams(dp(if (p.matrixChips == 1) 64 else 200), -2).apply { topMargin = dp(4); bottomMargin = dp(2) })
             else pinned.addView(v, LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, if (p.type == PartType.POT) dp(40) else dp(36))
                 .apply { if (p.type == PartType.POT) topMargin = dp(4) })
             pinnedViews[p.id] = v

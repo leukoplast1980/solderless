@@ -54,6 +54,10 @@ class SamplesTest {
         Part(17, PartType.OLED, listOf(i2c("PC8", "SCL"), i2c("PC9", "SDA")), i2cAddr = 0x3D),
         Part(18, PartType.FLASH, listOf(gpio("PA4"), spi("PA5", "SCK"), spi("PA7", "MOSI"), spi("PA6", "MISO"))),
         Part(19, PartType.FLASH, listOf(gpio("PB12"), spi("PB13", "SCK"), spi("PB15", "MOSI"), spi("PB14", "MISO")), flashMbit = 32),
+        Part(20, PartType.MATRIX, listOf(gpio("PC9"), spi("PC10", "SCK"), spi("PC12", "MOSI"))),
+        Part(21, PartType.MATRIX, listOf(gpio("PB10"), spi("PB3", "SCK"), spi("PB5", "MOSI")), matrixChips = 1),
+        Part(22, PartType.TFT, listOf(gpio("PA4"), spi("PA5", "SCK"), spi("PA7", "MOSI"), gpio("PB0"), gpio("PB1"))),
+        Part(23, PartType.TFT, listOf(gpio("PB12"), spi("PB13", "SCK"), spi("PB15", "MOSI"), gpio("PC6"), gpio("PC7")), tftRows = 320),
     ))
 
     @Test fun everySampleIsTestedOnTheEmulator() {
@@ -87,6 +91,8 @@ class SamplesTest {
             Part(1, PartType.PIEZO, emptyList()),
             Part(1, PartType.OLED, emptyList()),
             Part(1, PartType.FLASH, emptyList()),
+            Part(1, PartType.MATRIX, emptyList()),
+            Part(1, PartType.TFT, emptyList()),
         )
         var n = 0
         for ((vi, v) in variants.withIndex()) for (o in rec.options(emptyList(), v, 0)) {

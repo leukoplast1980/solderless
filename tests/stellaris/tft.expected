@@ -26,7 +26,6 @@ $48000000 constant GPIOA  $48000400 constant GPIOB  $40013000 constant SPI1  ok.
 pins  ok.
 0 0 7 7 $F800 fill  ok.
 
-[chip] SPI1: overrun (OVR): a frame came in while the receive FIFO was full, and it is lost. Harmless when you only send; to read what comes back, read DR after every frame
 [chip] ST7789: pixels in 18-bit colour, 3 bytes each (COLMOD 66, its value after reset). For RGB565, 2 bytes a pixel, send 3A 55 first
 #!tft 1
 ..............................

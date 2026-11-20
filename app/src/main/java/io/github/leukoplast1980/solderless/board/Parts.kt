@@ -15,6 +15,8 @@ enum class PartType(val prefix: String, val title: String, val roles: List<Strin
     PIEZO("piezo", "Piezo buzzer", listOf("")),
     OLED("oled", "OLED display", listOf("scl", "sda")),
     FLASH("flash", "SPI flash", listOf("cs", "clk", "di", "do")),
+    MATRIX("matrix", "LED matrix", listOf("cs", "clk", "din")),
+    TFT("tft", "Colour display", listOf("cs", "scl", "sda", "dc", "res")),
 }
 
 enum class LedColour(val title: String, val vfMv: Int, val argb: Long) {
@@ -58,6 +60,8 @@ data class Part(
     val pinnedOverTabs: Boolean = false,
     val i2cAddr: Int = 0x3C,                // OLED: 0x3C, or 0x3D with its SA0 strap to 3V3
     val flashMbit: Int = 64,                // W25Q32, W25Q64, W25Q128
+    val matrixChips: Int = 4,               // MAX7219 modules: one 8 x 8, or a 4-in-1 board
+    val tftRows: Int = 240,                 // ST7789: 240 x 240 (1.3"), or 240 x 320 (2.0")
 ) {
     fun needs(): List<Need> = when (type) {
         PartType.BUTTON -> listOf(if (interrupt) Need.INPUT_EXTI else Need.INPUT)
@@ -68,6 +72,9 @@ data class Part(
         PartType.PIEZO -> listOf(Need.PWM)
         PartType.OLED -> listOf(Need.I2C_SCL, Need.I2C_SDA)
         PartType.FLASH -> listOf(Need.CS, Need.SPI_SCK, Need.SPI_MOSI, Need.SPI_MISO)
+        PartType.MATRIX -> listOf(Need.CS, Need.SPI_SCK, Need.SPI_MOSI)
+        // RES idles high like a chip select, so it stays off PB8 too
+        PartType.TFT -> listOf(Need.CS, Need.SPI_SCK, Need.SPI_MOSI, Need.OUTPUT, Need.CS)
     }
 
     /** The I2C peripheral a bus part is on, if it is */
@@ -136,6 +143,14 @@ object Passives {
         )
         PartType.OLED -> listOf(Passive(p.id, 0, "on the module", "4.7 kΩ × 2", 4700,
             "pull-ups on SCL and SDA: I2C lines are open-drain, something has to pull them high"))
+        PartType.MATRIX -> listOf(
+            Passive(p.id, 0, "wire", "VCC to 5 V", 0, "the LEDs and the MAX7219 run from 5 V; DIN, CLK and CS take 3.3 V logic, just"),
+            Passive(p.id, 0, "on the module", "10 µF + 100 nF", 0, "decoupling, and RSET setting the LED current"),
+        )
+        PartType.TFT -> listOf(
+            Passive(p.id, 0, "wire", "BLK to 3V3", 0, "the backlight: on; a PWM pin there would dim it"),
+            Passive(p.id, 0, "on the module", "regulator", 0, "the module runs from 3.3 V or 5 V; its logic is 3.3 V"),
+        )
         PartType.FLASH -> listOf(
             Passive(p.id, 0, "wire", "WP to 3V3", 0, "write protect: low would lock the status registers"),
             Passive(p.id, 0, "wire", "HOLD to 3V3", 0, "hold: low would pause the chip in the middle of a transfer"),

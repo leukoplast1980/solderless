@@ -136,7 +136,17 @@ class BoardView @JvmOverloads constructor(context: Context, attrs: AttributeSet?
         PartType.BUTTON -> dp(86f)
         PartType.PIEZO, PartType.SPEAKER -> dp(72f)
         PartType.FLASH -> dp(124f)
+        PartType.MATRIX -> dp(30f) + matrixWidth(p)
+        PartType.TFT -> dp(30f) + tftWidth()
     }
+
+    /** A 4-in-1 matrix as wide as fits; a single 8 x 8 a quarter of that */
+    private fun matrixWidth(p: Part): Float {
+        val full = minOf(dp(150f), boardW - 2 * headerW - dp(36f))
+        return if (p.matrixChips == 1) full * 0.45f else full
+    }
+
+    private fun tftWidth(): Float = minOf(dp(120f), boardW - 2 * headerW - dp(36f))
 
     /** Parts placement moved off their pins to keep clear of the other side or the
      * USB-serial strip; a taller row would not bring them back, so spreading ignores them */
@@ -283,6 +293,8 @@ class BoardView @JvmOverloads constructor(context: Context, attrs: AttributeSet?
         PartType.POT -> dp(42f) to dp(42f)
         PartType.OLED -> dp(56f) to dp(52f)
         PartType.FLASH -> dp(58f) to dp(50f)
+        PartType.MATRIX -> dp(58f) to dp(50f)
+        PartType.TFT -> if (p.tftRows == 320) dp(98f) to dp(94f) else dp(80f) to dp(76f)
         else -> dp(26f) to dp(24f)
     }
 
@@ -506,6 +518,8 @@ class BoardView @JvmOverloads constructor(context: Context, attrs: AttributeSet?
             }
             PartType.OLED -> drawOled(c, p, cy, x0, sg, isGhost, box)
             PartType.FLASH -> drawFlash(c, p, cy, x0, sg, isGhost, box)
+            PartType.MATRIX -> drawMatrix(c, p, cy, x0, sg, isGhost, box)
+            PartType.TFT -> drawTft(c, p, cy, x0, sg, isGhost, box)
         }
         box.sort()
         if (!isGhost) hit += box to p
@@ -557,6 +571,105 @@ class BoardView @JvmOverloads constructor(context: Context, attrs: AttributeSet?
             c.drawBitmap(oledBitmap, null, RectF(sx0, sy0, sx1, sy0 + sh), pixelPaint)
         }
         label(c, "OLED " + "0x%02X".format(java.util.Locale.ROOT, p.i2cAddr), (l + r) / 2, top - dp(5f), 9.5f, gc ?: cText, bold = true)
+        box.set(x0, top - dp(18f), far, bottom + dp(4f))
+        if (!isGhost) hitLabel += RectF(l, top - dp(20f), r, bottom) to p
+    }
+
+    /** Pins along a module's edge facing the header: VCC and GND first, then the signals
+     * in the order their header pins come, each wire turning in a column of its own */
+    private fun modulePins(c: Canvas, p: Part, near: Float, sg: Int, ys: List<Float>, names: List<String>, isGhost: Boolean,
+                           colourOf: (Int, String) -> Int) {
+        val gc = if (isGhost) cHigh else null
+        val al = if (sg > 0) Paint.Align.LEFT else Paint.Align.RIGHT
+        text.typeface = Typeface.MONOSPACE
+        for ((i, n) in listOf("VCC", "GND").withIndex()) {
+            fill.color = 0xFFC9A24A.toInt(); c.drawCircle(near, ys[i], dp(3f), fill)
+            label(c, n, near + sg * dp(6f), ys[i] + dp(2.5f), 6.5f, 0xFFB9C9D9.toInt(), al)
+        }
+        val roles = p.pins.indices.sortedBy { pinY[p.pins[it].pin] ?: 0f }
+        val rowOf = HashMap<Int, Float>()
+        roles.forEachIndexed { i, role -> rowOf[role] = ys[i + 2] }
+        fun py(role: Int) = pinY[p.pins[role].pin] ?: 0f
+        val jog = HashMap<Int, Float>()
+        roles.filter { rowOf[it]!! - py(it) > 0.5f }.sortedByDescending { py(it) }.forEachIndexed { k, role -> jog[role] = 6f + 5f * k }
+        roles.filter { rowOf[it]!! - py(it) < -0.5f }.sortedBy { py(it) }.forEachIndexed { k, role -> jog[role] = 6f + 5f * k }
+        for (role in roles) {
+            val y = rowOf[role]!!
+            fill.color = 0xFFC9A24A.toInt(); c.drawCircle(near, y, dp(3f), fill)
+            label(c, names[role], near + sg * dp(6f), y + dp(2.5f), 6.5f, 0xFFB9C9D9.toInt(), al)
+            val pin = p.pins[role].pin
+            feed(c, pin, near, y, isGhost, gc ?: colourOf(role, pin), jog[role] ?: 9f)
+        }
+    }
+
+    private val matrixPaint = Paint(Paint.ANTI_ALIAS_FLAG)
+
+    /** A MAX7219 matrix module: red LEDs on a dark board, its pin strip facing the header */
+    private fun drawMatrix(c: Canvas, p: Part, cy: Float, x0: Float, sg: Int, isGhost: Boolean, box: RectF) {
+        val gc = if (isGhost) cHigh else null
+        val near = x0 + sg * dp(30f)
+        val mw = matrixWidth(p)
+        val far = near + sg * mw
+        val l = minOf(near, far); val r = maxOf(near, far)
+        val strip = dp(26f)                                   // the pins and their names
+        val gx0 = if (sg > 0) l + strip else l + dp(4f)
+        val gx1 = if (sg > 0) r - dp(4f) else r - strip
+        val w = 8 * p.matrixChips
+        val dot = (gx1 - gx0) / w
+        val gh = dot * 8
+        val top = cy - maxOf(gh / 2 + dp(6f), dp(40f)); val bottom = cy + maxOf(gh / 2 + dp(6f), dp(40f))
+        fill.color = 0xFF1A1416.toInt()
+        if (!isGhost) c.drawRoundRect(RectF(l, top, r, bottom), dp(4f), dp(4f), fill)
+        setStroke(gc ?: 0xFF5A3434.toInt(), isGhost, 1.4f)
+        c.drawRoundRect(RectF(l, top, r, bottom), dp(4f), dp(4f), stroke)
+        val px = devicePixels[p.id]
+        val gy0 = cy - gh / 2
+        for (y in 0 until 8) for (x in 0 until w) {
+            val v = if (!isGhost && px != null && y * w + x < px.size) px[y * w + x].toInt() and 0xFF else 0
+            matrixPaint.color = if (isGhost) 0x553A2224 else Panels.ledColour(v)
+            c.drawCircle(gx0 + (x + 0.5f) * dot, gy0 + (y + 0.5f) * dot, dot * 0.36f, matrixPaint)
+        }
+        val ys = (0 until 5).map { cy - dp(26f) + it * dp(13f) }
+        modulePins(c, p, near, sg, ys, listOf("CS", "CLK", "DIN"), isGhost) { role, pin -> if (role == 0) wireColour(pin) else cBus }
+        val title = if (p.matrixChips == 1) "LED matrix · MAX7219" else "LED matrix · MAX7219 × ${p.matrixChips}"
+        label(c, title, (l + r) / 2, top - dp(5f), 9.5f, gc ?: cText, bold = true)
+        box.set(x0, top - dp(18f), far, bottom + dp(4f))
+        if (!isGhost) hitLabel += RectF(l, top - dp(20f), r, bottom) to p
+    }
+
+    private var tftBitmap: Bitmap? = null
+    private var tftArgb = IntArray(0)
+
+    /** An ST7789 module: the screen shows the panel as it is lit */
+    private fun drawTft(c: Canvas, p: Part, cy: Float, x0: Float, sg: Int, isGhost: Boolean, box: RectF) {
+        val gc = if (isGhost) cHigh else null
+        val near = x0 + sg * dp(30f)
+        val mw = tftWidth()
+        val far = near + sg * mw
+        val l = minOf(near, far); val r = maxOf(near, far)
+        val sx0 = if (sg > 0) l + dp(28f) else l + dp(5f)
+        val sx1 = if (sg > 0) r - dp(5f) else r - dp(28f)
+        val sw = sx1 - sx0
+        val sh = sw * p.tftRows / 240f
+        val top = cy - sh / 2 - dp(14f); val bottom = cy + sh / 2 + dp(14f)
+        fill.color = 0xFF14324A.toInt()
+        if (!isGhost) c.drawRoundRect(RectF(l, top, r, bottom), dp(6f), dp(6f), fill)
+        setStroke(gc ?: 0xFF4A6A86.toInt(), isGhost, 1.4f)
+        c.drawRoundRect(RectF(l, top, r, bottom), dp(6f), dp(6f), stroke)
+        val sy0 = cy - sh / 2
+        fill.color = 0xFF000000.toInt(); c.drawRect(sx0 - dp(2f), sy0 - dp(2f), sx1 + dp(2f), sy0 + sh + dp(2f), fill)
+        val px = devicePixels[p.id]
+        if (!isGhost && px != null && px.size >= 240 * p.tftRows * 2) {
+            val bm = tftBitmap?.takeIf { it.height == p.tftRows } ?: Bitmap.createBitmap(240, p.tftRows, Bitmap.Config.ARGB_8888).also { tftBitmap = it }
+            if (tftArgb.size != 240 * p.tftRows) tftArgb = IntArray(240 * p.tftRows)
+            Panels.rgb565(px, tftArgb, 240 * p.tftRows)
+            bm.setPixels(tftArgb, 0, 240, 0, 0, 240, p.tftRows)
+            pixelPaint.isFilterBitmap = true
+            c.drawBitmap(bm, null, RectF(sx0, sy0, sx1, sy0 + sh), pixelPaint)
+        }
+        val ys = (0 until 7).map { cy - dp(39f) + it * dp(13f) }
+        modulePins(c, p, near, sg, ys, listOf("CS", "SCL", "SDA", "DC", "RES"), isGhost) { role, pin -> if (role == 1 || role == 2) cBus else wireColour(pin) }
+        label(c, "ST7789 · 240 × ${p.tftRows}", (l + r) / 2, top - dp(5f), 9.5f, gc ?: cText, bold = true)
         box.set(x0, top - dp(18f), far, bottom + dp(4f))
         if (!isGhost) hitLabel += RectF(l, top - dp(20f), r, bottom) to p
     }
