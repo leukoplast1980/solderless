@@ -96,8 +96,12 @@ class BoardView @JvmOverloads constructor(context: Context, attrs: AttributeSet?
     private val hitLabel = ArrayList<Pair<RectF, Part>>()
     private val rowHit = ArrayList<Pair<RectF, ChipPins.Pin>>()
 
+    /** The view's width as placement sees it (onMeasure runs before width is set) */
+    private var boardW = 0f
+
     override fun onMeasure(widthMeasureSpec: Int, heightMeasureSpec: Int) {
         val w = MeasureSpec.getSize(widthMeasureSpec)
+        boardW = w.toFloat()
         rowH = baseRow
         if (autoSpread && chip != null) {
             // Smallest row height at which every part sits next to its pins
@@ -122,17 +126,41 @@ class BoardView @JvmOverloads constructor(context: Context, attrs: AttributeSet?
         for ((i, p) in right.withIndex()) { pinY[p.name] = top + (i + 0.5f) * r; pinSide[p.name] = -1 }
     }
 
-    /** Parts per side, each centred on its pins, pushed apart vertically */
+    /** How far a part reaches in from its header */
+    private fun widthOf(p: Part): Float = when (p.type) {
+        PartType.OLED -> dp(30f) + minOf(dp(146f), boardW - 2 * headerW - dp(36f))
+        PartType.RGB_LED -> dp(124f)
+        PartType.POT -> dp(100f)
+        PartType.LED -> dp(92f)
+        PartType.BUTTON -> dp(86f)
+        PartType.PIEZO, PartType.SPEAKER -> dp(72f)
+    }
+
+    /** Parts per side, each centred on its pins, pushed apart vertically. A part
+     * reaching far in also keeps clear of what the other side has at that height
+     * (and both sides of the USB-serial strip). */
     private fun placeParts(): List<Triple<Part, Float, Int>> {
+        if (boardW == 0f) boardW = width.toFloat()
         val placed = ArrayList<Triple<Part, Float, Int>>()
+        val inner = boardW - 2 * headerW
+        // (top, bottom, reach) of what is drawn, per side
+        val taken = mapOf(1 to ArrayList<Triple<Float, Float, Float>>(), -1 to ArrayList())
+        val y2 = pinY["PA2"]; val y3 = pinY["PA3"]
+        if (y2 != null && y3 != null) taken[pinSide["PA2"] ?: 1]!! += Triple(minOf(y2, y3) - dp(14f), maxOf(y2, y3) + dp(14f), dp(64f))
         for (side in listOf(1, -1)) {
             val parts = (board.parts + listOfNotNull(ghost)).filter { p -> sideOf(p) == side }
                 .map { it to anchor(it) }.sortedBy { it.second }
             var floor = top
             for ((p, y) in parts) {
                 val (above, below) = extent(p)
-                val cy = maxOf(y, floor + above)
+                val w = widthOf(p)
+                var cy = maxOf(y, floor + above)
+                val blocks = (taken[-side]!!.filter { it.third + w > inner - dp(6f) } +
+                    taken[side]!!.filter { it.third < dp(80f) && w > 0f }).sortedBy { it.first }
+                for (b in blocks)
+                    if (cy - above < b.second && cy + below > b.first) cy = b.second + above + dp(6f)
                 placed += Triple(p, cy, side)
+                taken[side]!! += Triple(cy - above, cy + below, w)
                 floor = cy + below + dp(6f)
             }
         }
@@ -502,6 +530,7 @@ class BoardView @JvmOverloads constructor(context: Context, attrs: AttributeSet?
         fill.color = 0xFF050A10.toInt(); c.drawRect(sx0 - dp(2f), sy0 - dp(2f), sx1 + dp(2f), sy0 + sh + dp(2f), fill)
         val px = devicePixels[p.id]
         if (!isGhost && px != null) {
+            pixelPaint.isFilterBitmap = sw < 128f      // smaller than the panel: blend rather than drop lines
             val contrast = deviceContrast[p.id] ?: 0x7F
             val a = (110 + 145 * contrast / 255).coerceIn(60, 255)
             val on = (a shl 24) or 0xCFE6FF
