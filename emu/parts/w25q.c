@@ -343,7 +343,8 @@ size_t w25q_text(struct w25q *w, uint64_t now, char *out, size_t len)
     if (busy(w, now)) ADD("Busy\t%s, %.0f ms left\n", w->busy_what, (double)(w->busy_until - now) / 1e9);
     if (w->powered_down) ADD("Power\tpowered down (B9)\n");
     if (w->last[0]) {
-        if (w->last_ps) ADD("Last\t%s · %.3g s\n", w->last, (double)w->last_ps / 1e12);
+        if (w->last_ps >= 1000000000000ull) ADD("Last\t%s · %.3g s\n", w->last, (double)w->last_ps / 1e12);
+        else if (w->last_ps) ADD("Last\t%s · %.3g ms\n", w->last, (double)w->last_ps / 1e9);
         else ADD("Last\t%s\n", w->last);
     }
     /* Written areas: runs of bytes that are not FF, close ones merged;

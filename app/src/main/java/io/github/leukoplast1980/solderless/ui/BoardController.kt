@@ -255,7 +255,9 @@ class BoardController(
         parent.addView(row, LinearLayout.LayoutParams(-1, -2).apply { topMargin = dp(10) })
     }
 
-    private fun buttons(parent: LinearLayout, vararg b: Pair<String, () -> Unit>, primaryLast: Boolean = true) {
+    /** A row of buttons; [compact] for three short ones on a narrow screen, [dangerLast] for one that destroys */
+    private fun buttons(parent: LinearLayout, vararg b: Pair<String, () -> Unit>, primaryLast: Boolean = true,
+                        compact: Boolean = false, dangerLast: Boolean = false) {
         val row = LinearLayout(activity).apply { orientation = LinearLayout.HORIZONTAL; setPadding(0, dp(16), 0, 0) }
         for ((i, x) in b.withIndex()) {
             val primary = primaryLast && i == b.size - 1 && b.size > 1
@@ -263,6 +265,8 @@ class BoardController(
                 if (primary) com.google.android.material.R.attr.materialButtonStyle
                 else com.google.android.material.R.attr.materialButtonOutlinedStyle)
             btn.text = x.first
+            if (compact) { btn.setPadding(dp(6), btn.paddingTop, dp(6), btn.paddingBottom); btn.textSize = 13f; btn.maxLines = 1 }
+            if (dangerLast && i == b.size - 1) btn.setTextColor(color(R.color.danger))
             btn.setOnClickListener { x.second() }
             row.addView(btn, LinearLayout.LayoutParams(0, -2, 1f).apply { if (i > 0) marginStart = dp(10) })
         }
@@ -428,6 +432,8 @@ class BoardController(
             section(col, activity.getString(R.string.flash_status))
             val chips = ChipGroup(activity)
             col.addView(chips)
+            val lastOp = body("", R.color.label, mono = true)
+            col.addView(lastOp)
             section(col, activity.getString(R.string.flash_written))
             val written = LinearLayout(activity).apply {
                 orientation = LinearLayout.VERTICAL
@@ -442,7 +448,7 @@ class BoardController(
             col.addView(body(activity.getString(R.string.flash_note), R.color.label))
             buttons(col, activity.getString(R.string.flash_load) to { flashFilePart = p.id; loadFlashFile.launch(arrayOf("*/*")) },
                 activity.getString(R.string.flash_save) to { flashFilePart = p.id; saveFlashFile.launch("${vm.board.nameOf(p)}.bin") },
-                activity.getString(R.string.flash_erase_all) to { eraseFlash(p) }, primaryLast = false)
+                activity.getString(R.string.flash_erase_all) to { eraseFlash(p) }, primaryLast = false, compact = true, dangerLast = true)
             buttons(col, activity.getString(R.string.board_sample_code) to { dlg.dismiss(); showSample(p) },
                 activity.getString(R.string.board_part_settings) to { dlg.dismiss(); showSettings(p) }, primaryLast = false)
             var last = ""
@@ -457,9 +463,8 @@ class BoardController(
                             if (t == "BUSY 1") setChipStrokeColorResource(R.color.chip_message)
                         })
                     }
-                    for (k in listOf("Busy", "Last", "Power")) kv.firstOrNull { it[0] == k }?.getOrNull(1)?.let { t ->
-                        chips.addView(Chip(activity).apply { text = t; isClickable = false; setTextColor(color(R.color.label)) })
-                    }
+                    lastOp.text = listOf("Busy", "Power", "Last").mapNotNull { k -> kv.firstOrNull { it[0] == k }?.getOrNull(1) }.joinToString("\n")
+                    lastOp.visibility = if (lastOp.text.isEmpty()) View.GONE else View.VISIBLE
                     written.removeAllViews()
                     for (w in kv.filter { it[0] == "Written" }) written.addView(LinearLayout(activity).apply {
                         orientation = LinearLayout.HORIZONTAL

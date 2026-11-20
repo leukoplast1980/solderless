@@ -45,6 +45,6 @@ wait 0 4 rd .... ok.
 Bus	SPI · CS PA4 · CLK PA5 · DI PA7 · DO PA6
 Chip	W25Q64 · 8 MB · JEDEC EF 40 17
 Status	BUSY 0 · WEL 0 · BP 000
-Last	4 KB erase at 000000 · 0.045 s
+Last	4 KB erase at 000000 · 45 ms
 Written	nothing yet: every byte reads FF	
 FF FF FF FF FF FF FF FF FF FF FF FF FF FF FF FF

@@ -64,6 +64,7 @@ class HexView(
     private lateinit var apply: MaterialButton
     private lateinit var adapter: Adapter
     private var cellW = dp(26f)
+    private var small = false
 
     private fun byteAt(a: Int): Int {
         edits[a]?.let { return it.toInt() and 0xFF }
@@ -164,12 +165,13 @@ class HexView(
                 true
             }
         }
-        tools.addView(goto, LinearLayout.LayoutParams(dp(92f), -2).apply { marginStart = dp(8f); marginEnd = dp(12f) })
+        tools.addView(goto, LinearLayout.LayoutParams(dp(84f), -2).apply { marginStart = dp(8f); marginEnd = dp(10f) })
         val toggle = MaterialButtonToggleGroup(activity).apply { isSingleSelection = true; isSelectionRequired = true }
         val bWritten = MaterialButton(activity, null, com.google.android.material.R.attr.materialButtonOutlinedStyle).apply {
             id = View.generateViewId(); text = activity.getString(R.string.hex_written); isAllCaps = false }
         val bAll = MaterialButton(activity, null, com.google.android.material.R.attr.materialButtonOutlinedStyle).apply {
             id = View.generateViewId(); text = activity.getString(R.string.hex_all); isAllCaps = false }
+        for (bt in listOf(bWritten, bAll)) { bt.minWidth = 0; bt.minimumWidth = 0; bt.setPadding(dp(12f), 0, dp(12f), 0) }
         toggle.addView(bWritten); toggle.addView(bAll)
         toggle.check(bWritten.id)
         toggle.addOnButtonCheckedListener { _, id, checked ->
@@ -181,12 +183,13 @@ class HexView(
         root.addView(tools)
 
         // Column heads and the rows
-        val avail = activity.resources.displayMetrics.widthPixels - dp(20f) - dp(54f) - dp(78f)
-        cellW = (avail / 8).coerceIn(dp(22f), dp(34f))
+        val avail = activity.resources.displayMetrics.widthPixels - dp(16f) - dp(OFFSET_W) - dp(ASCII_W)
+        cellW = (avail / 8 - dp(1f)).coerceIn(dp(20f), dp(34f))
+        small = cellW < dp(25f)
         root.addView(rowView(header = true).also { fillHeader(it) })
         list = ListView(activity).apply {
             divider = null; dividerHeight = 0; isVerticalScrollBarEnabled = true
-            setPadding(dp(10f), 0, dp(10f), 0); clipToPadding = false
+            setPadding(dp(8f), 0, dp(8f), 0); clipToPadding = false
         }
         adapter = Adapter()
         list.adapter = adapter
@@ -313,17 +316,18 @@ class HexView(
     private fun rowView(header: Boolean = false): LinearLayout {
         val row = LinearLayout(activity).apply {
             orientation = LinearLayout.HORIZONTAL; gravity = Gravity.CENTER_VERTICAL
-            setPadding(if (header) dp(10f) else 0, 0, 0, 0)
+            setPadding(if (header) dp(8f) else 0, 0, 0, 0)
         }
-        row.addView(TextView(activity).apply { typeface = Typeface.MONOSPACE; textSize = if (header) 11f else 12f; setTextColor(if (header) cErased else cLabel) },
-            LinearLayout.LayoutParams(dp(54f), -2))
+        val size = if (header) 11f else if (small) 12f else 13f
+        row.addView(TextView(activity).apply { typeface = Typeface.MONOSPACE; textSize = if (header) 11f else 12f; setTextColor(if (header) cErased else cLabel); maxLines = 1 },
+            LinearLayout.LayoutParams(dp(OFFSET_W), -2))
         for (k in 0 until 8) row.addView(TextView(activity).apply {
-            typeface = Typeface.MONOSPACE; textSize = if (header) 11f else 13f; gravity = Gravity.CENTER
+            typeface = Typeface.MONOSPACE; textSize = size; gravity = Gravity.CENTER; maxLines = 1
             setTextColor(if (header) cErased else cText)
         }, LinearLayout.LayoutParams(cellW, if (header) dp(22f) else dp(30f)).apply { marginEnd = dp(1f) })
-        row.addView(TextView(activity).apply { typeface = Typeface.MONOSPACE; textSize = if (header) 11f else 13f
-            letterSpacing = 0.05f; setTextColor(if (header) cErased else cAscii); setPadding(dp(6f), 0, 0, 0) },
-            LinearLayout.LayoutParams(-2, -2))
+        row.addView(TextView(activity).apply { typeface = Typeface.MONOSPACE; textSize = if (header) 11f else 12f
+            setTextColor(if (header) cErased else cAscii); setPadding(dp(5f), 0, 0, 0); maxLines = 1; setHorizontallyScrolling(true) },
+            LinearLayout.LayoutParams(dp(ASCII_W), -2))
         return row
     }
 
@@ -373,5 +377,10 @@ class HexView(
             (row.getChildAt(9) as TextView).text = ascii
             return row
         }
+    }
+
+    companion object {
+        private const val OFFSET_W = 48f
+        private const val ASCII_W = 70f
     }
 }

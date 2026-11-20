@@ -181,13 +181,13 @@ flash2-hello 32 flash2-write  32 flash2-buf 16 flash2-read  flash2-buf 16 type H
 Bus	SPI · CS PA4 · CLK PA5 · DI PA7 · DO PA6
 Chip	W25Q64 · 8 MB · JEDEC EF 40 17
 Status	BUSY 0 · WEL 0 · BP 000
-Last	page program at 000000 · 16 bytes · 0.0007 s
+Last	page program at 000000 · 16 bytes · 0.7 ms
 Written	000000–00000F	16 bytes
 48 65 6C 6C 6F 20 66 72 6F 6D 20 46 6F 72 74 68
 #!flash 2 32 16
 Bus	SPI · CS PB12 · CLK PB13 · DI PB15 · DO PB14
 Chip	W25Q32 · 4 MB · JEDEC EF 40 16
 Status	BUSY 0 · WEL 0 · BP 000
-Last	page program at 000020 · 16 bytes · 0.0007 s
+Last	page program at 000020 · 16 bytes · 0.7 ms
 Written	000020–00002F	16 bytes
 48 65 6C 6C 6F 20 66 72 6F 6D 20 46 6F 72 74 68
