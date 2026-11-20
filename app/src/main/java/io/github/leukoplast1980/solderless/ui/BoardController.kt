@@ -400,12 +400,23 @@ class BoardController(
         }, activity.getString(R.string.board_export)))
     }
 
-    private fun showPin(pin: ChipPins.Pin): BottomSheetDialog = sheet { col, _ ->
+    private fun showPin(pin: ChipPins.Pin): BottomSheetDialog = sheet { col, dlg ->
         title(col, pin.name, "pin ${pin.number}")
         val reserved = vm.recommender().reserved[pin.name]
         if (reserved != null) col.addView(body("Kept free: $reserved", R.color.chip_message))
+        // What is connected: tap for the part's settings (and Remove)
         vm.board.parts.filter { p -> p.pins.any { it.pin == pin.name } }.forEach { p ->
-            col.addView(body("${p.type.title} (${p.pins.first { it.pin == pin.name }.function})", R.color.accent))
+            col.addView(body("${p.type.title} (${p.pins.first { it.pin == pin.name }.function})  ›", R.color.accent).apply {
+                textSize = 15f
+                minHeight = dp(44)
+                gravity = Gravity.CENTER_VERTICAL
+                val tv = android.util.TypedValue()
+                activity.theme.resolveAttribute(android.R.attr.selectableItemBackground, tv, true)
+                setBackgroundResource(tv.resourceId)
+                isClickable = true
+                contentDescription = "${p.type.title} settings"
+                setOnClickListener { dlg.dismiss(); showSettings(p) }
+            })
         }
         if (pin.af.isNotEmpty()) {
             section(col, "Alternate functions")
