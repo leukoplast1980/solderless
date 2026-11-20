@@ -254,8 +254,6 @@ PA4 level 0 mV
 PA4 level 3300 mV
 PA4 level 0 mV
 speaker2-init 440 speaker2-tone  piezo-init 2000 piezo-tone  10 ms  ok.
-
-[chip] TIM16 CH1 is enabled, but MOE in TIM16_BDTR is 0: an advanced timer keeps its outputs off until MOE is set
 #!audio
 PB6 PWM 440 Hz duty 500/1000
 PB8 PWM 2000 Hz duty 500/1000

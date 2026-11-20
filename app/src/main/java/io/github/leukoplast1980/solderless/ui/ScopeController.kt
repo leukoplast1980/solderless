@@ -46,7 +46,9 @@ class ScopeController(private val activity: AppCompatActivity, private val vm: V
         view.onUserZoom = { w -> group.clearChecked(); view.windowNs = w; view.invalidate() }
         view.onUserPan = { dt ->
             if (!held) setHeld(true)
-            heldEnd = (heldEnd + dt).coerceIn(now - KEEP_NS + view.windowNs, now)
+            // back as far as there is history (held, that can be more than KEEP_NS)
+            val oldest = events.values.mapNotNull { it.firstOrNull()?.t }.minOrNull() ?: now
+            heldEnd = (heldEnd + dt).coerceIn(minOf(oldest + view.windowNs, now), now)
             view.endNs = heldEnd; view.invalidate()
         }
         view.onCursors = { updateReadout() }
@@ -114,8 +116,9 @@ class ScopeController(private val activity: AppCompatActivity, private val vm: V
         // Keep the last seconds and whatever is on screen, and the event in force before them
         val keepFrom = minOf(now - KEEP_NS, end - view.windowNs)
         for (list in events.values) {
-            val cut = list.indexOfFirst { it.t >= keepFrom }
-            if (cut > 1) list.subList(0, cut - 1).clear()
+            var lo = 0; var hi = list.size              // the first event at or after keepFrom
+            while (lo < hi) { val m = (lo + hi) ushr 1; if (list[m].t < keepFrom) lo = m + 1 else hi = m }
+            if (lo > 1) list.subList(0, lo - 1).clear()
             if (list.size > MAX_EVENTS) list.subList(0, list.size - MAX_EVENTS).clear()
         }
         if (!visible) return

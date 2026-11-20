@@ -86,6 +86,12 @@ class BoardProbeTest {
         ui.findObject(androidx.test.uiautomator.UiSelector().textStartsWith("LED"))?.click()
         Thread.sleep(1500)
         screenshot("board-proposal.png")
+        // The other pins open behind their button
+        ui.findObject(androidx.test.uiautomator.UiSelector().textStartsWith("Other pins"))?.click()
+        Thread.sleep(800)
+        screenshot("board-proposal-pins.png")
+        ui.findObject(androidx.test.uiautomator.UiSelector().textStartsWith("Other pins"))?.click()
+        Thread.sleep(500)
         // Further down the sheet: the sample code
         repeat(2) { ui.swipe(ui.displayWidth / 2, ui.displayHeight * 85 / 100, ui.displayWidth / 2, ui.displayHeight * 25 / 100, 25); Thread.sleep(600) }
         screenshot("board-proposal-code.png")

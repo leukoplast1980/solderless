@@ -409,7 +409,9 @@ int tim_output(struct sl_soc *s, int pi, int ch, int neg, struct sl_tim_out *o)
     int pol = neg ? (ccer >> 3) & 1u : (ccer >> 1) & 1u;
     if (!en || !cc_is_output(s, t, c)) return 0;
     if (t->adv && !((r[BDTR / 4] >> 15) & 1u)) {
-        if (t->moe_warned) return 0;
+        /* Warned only once the counter runs: enabling the channel and then
+         * setting MOE is the usual order, and not a mistake. */
+        if (t->moe_warned || !(r[CR1 / 4] & CEN)) return 0;
         t->moe_warned = 1;
         soc_log(s, LOG_TIMER, "%s CH%d%s is enabled, but MOE in %s_BDTR is 0: an advanced timer keeps its "
                 "outputs off until MOE is set", t->name, ch, neg ? "N" : "", t->name);

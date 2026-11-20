@@ -65,6 +65,8 @@ class ScopeView @JvmOverloads constructor(context: Context, attrs: AttributeSet?
     private fun x(t: Long): Float = labelW + (t - (endNs - windowNs)).toFloat() / windowNs * (right - labelW)
     private fun t(x: Float): Long = endNs - windowNs + ((x - labelW) / (right - labelW) * windowNs).toLong()
 
+    private val dashed = DashPathEffect(floatArrayOf(dp(3f), dp(3f)), 0f)
+
     override fun onDraw(c: Canvas) {
         c.drawColor(0xFF101418.toInt())
         if (channels.isEmpty()) {
@@ -91,7 +93,7 @@ class ScopeView @JvmOverloads constructor(context: Context, attrs: AttributeSet?
         }
         // trigger and cursors
         if (triggerNs in (endNs - windowNs)..endNs) {
-            line.color = cWarn; line.strokeWidth = dp(1f); line.pathEffect = DashPathEffect(floatArrayOf(dp(3f), dp(3f)), 0f)
+            line.color = cWarn; line.strokeWidth = dp(1f); line.pathEffect = dashed
             c.drawLine(x(triggerNs), 0f, x(triggerNs), y, line)
             line.pathEffect = null
             label(c, "T", x(triggerNs) + dp(3f), y - dp(3f), 9f, cWarn, Paint.Align.LEFT)
@@ -165,7 +167,7 @@ class ScopeView @JvmOverloads constructor(context: Context, attrs: AttributeSet?
                 measure = "${hz(e.a)} · ${(duty * 100).toInt()} %"
                 prevY = Float.NaN
             } else if (e.a < 0 || e.a > 100000) {               // floating (-1 as unsigned)
-                line.color = cWarn; line.strokeWidth = dp(1.2f); line.pathEffect = DashPathEffect(floatArrayOf(dp(3f), dp(3f)), 0f)
+                line.color = cWarn; line.strokeWidth = dp(1.2f); line.pathEffect = dashed
                 c.drawLine(x0, (hi + lo) / 2, x1, (hi + lo) / 2, line)
                 line.pathEffect = null
                 measure = "floating"

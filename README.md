@@ -7,7 +7,7 @@ or firmware you build yourself. A virtual breadboard with buttons, LEDs,
 sensors, displays and more follows in the next milestones (see
 [docs/design.md](docs/design.md)).
 
-**Status:** milestone 2, the breadboard (on the `milestone-2` branch):
+**Status:** milestone 2, the breadboard:
 
 - the Board tab: the chip's pins as two headers along the screen's long
   edges (in LQFP64-to-DIP adapter order or by port), parts in between with
@@ -15,6 +15,8 @@ sensors, displays and more follows in the next milestones (see
 - buttons (with contact bounce), LEDs, RGB LEDs, potentiometers, piezos
   and speakers; the app picks the pins and the resistors, shows why, and
   writes `wiring.fs` with a constant for every pin
+- ready-to-run Forth for every part: tap it for code that sets up its
+  clocks, pins and peripheral and drives or reads it
 - EXTI, the timers with PWM and input capture, ADC and DAC; sound from the
   piezo and the speaker
 - parts can float over the Console and Editor while you type
@@ -66,6 +68,9 @@ tests/run_host_tests.sh            # builds into build/host and runs all tests
 build/host/slemu firmware/stellaris/mecrisp-stellaris-stm32g431kb.bin   # interactive
 build/host/slemu -d -s file.fs firmware/stellaris/mecrisp-stellaris-stm32g431kb.bin
 ```
+
+`-d` runs without real-time pacing and the same way every time: typing
+takes no time, and while the firmware waits for input, time stands still.
 
 The tests need `arm-none-eabi-as` for the exception tests and the Python
 module `unicorn` for comparing the instruction set against Unicorn.

@@ -168,8 +168,6 @@ $40012C00 constant led4-timer  \ TIM1  ok.
   ok.
 led-init led-on  led2-init led2-on  ok.
 led3-init 25 led3-bright  led4-init 75 led4-bright  ok.
-
-[chip] TIM1 CH1 is enabled, but MOE in TIM1_BDTR is 0: an advanced timer keeps its outputs off until MOE is set
 10 ms  ok.
 #!pins
 PA8 alternate PWM 1000.000 Hz duty 3/1000  LED 4: 4.503 mA

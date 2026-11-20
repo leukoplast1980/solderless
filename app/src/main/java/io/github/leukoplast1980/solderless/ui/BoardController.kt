@@ -262,10 +262,11 @@ class BoardController(
                 col.addView(body(pr.why[r]))
             }
             for (x in Passives.forPart(pr.part)) col.addView(body("${x.value}: ${x.reason}"))
-            section(col, activity.getString(R.string.board_other_pins))
+            // The other pins stay behind a button: the list would push the rest off the screen
+            val opts = rec.options(board.parts, pr.part.copy(pins = emptyList()), role).filter { o -> pr.part.pins.none { it.pin == o.pin } }
+            val others = LinearLayout(activity).apply { orientation = LinearLayout.VERTICAL; visibility = View.GONE }
             val g = ChipGroup(activity)
-            for (o in rec.options(board.parts, pr.part.copy(pins = emptyList()), role).take(14)) {
-                if (pr.part.pins.any { it.pin == o.pin }) continue
+            for (o in opts) {
                 g.addView(Chip(activity).apply {
                     text = if (o.note.isEmpty()) o.pin else "${o.pin} · ${o.note}"
                     typeface = Typeface.MONOSPACE
@@ -278,14 +279,29 @@ class BoardController(
                     setOnClickListener { dlg.dismiss(); propose(part, o.pin, role) }
                 })
             }
-            col.addView(g)
-            col.addView(body(activity.getString(R.string.board_other_pins_legend), R.color.syntax_comment))
+            others.addView(g)
+            others.addView(body(activity.getString(R.string.board_other_pins_legend), R.color.syntax_comment))
+            if (opts.isNotEmpty()) {
+                val rn = pr.part.type.roles[role]
+                val label = activity.getString(R.string.board_other_pins_button, opts.size) + if (rn.isEmpty()) "" else " ($rn)"
+                col.addView(MaterialButton(activity, null, com.google.android.material.R.attr.borderlessButtonStyle).apply {
+                    text = "$label  ▾"
+                    isAllCaps = false
+                    setPadding(0, paddingTop, paddingRight, paddingBottom)
+                    setOnClickListener {
+                        val open = others.visibility != View.VISIBLE
+                        others.visibility = if (open) View.VISIBLE else View.GONE
+                        text = "$label  " + if (open) "▴" else "▾"
+                    }
+                }, LinearLayout.LayoutParams(-2, -2).apply { topMargin = dp(6) })
+                col.addView(others)
+            }
+            buttons(col, activity.getString(android.R.string.cancel) to { dlg.dismiss() },
+                activity.getString(R.string.board_add) to { dlg.dismiss(); setBoard(board.apply(pr)) })
             section(col, activity.getString(R.string.board_sample_code))
             col.addView(body(activity.getString(R.string.board_sample_hint), R.color.label))
             val after = board.with(pr.part)
             code(col, forth(Samples.forPart(after, vm.chip, pr.part)), copy = true, label = after.nameOf(pr.part) + " sample")
-            buttons(col, activity.getString(android.R.string.cancel) to { dlg.dismiss() },
-                activity.getString(R.string.board_add) to { dlg.dismiss(); setBoard(board.apply(pr)) })
         }
         dlg.setOnDismissListener { if (view.ghost === pr.part) { view.ghost = null; view.highlightPins = emptySet() } }
     }

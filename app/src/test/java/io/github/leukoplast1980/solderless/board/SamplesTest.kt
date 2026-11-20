@@ -57,6 +57,34 @@ class SamplesTest {
         assertTrue("not in tests/stellaris/samples_*.fs as generated (see app/build/samples): $missing", missing.isEmpty())
     }
 
+    /** Every kind of part, in every setting that changes the code, on every pin the
+     * app offers: written to build/samples/all for a run on the emulator
+     * (tests/samples_all.sh). Checks only that a sample is made for each. */
+    @Test fun everyPinHasASample() {
+        val out = File("build/samples/all").apply { deleteRecursively(); mkdirs() }
+        val rec = Recommender(chip)
+        val variants = listOf(
+            Part(1, PartType.LED, emptyList()), Part(1, PartType.LED, emptyList(), activeHigh = false),
+            Part(1, PartType.LED, emptyList(), dimmable = true), Part(1, PartType.LED, emptyList(), dimmable = true, activeHigh = false),
+            Part(1, PartType.RGB_LED, emptyList()), Part(1, PartType.RGB_LED, emptyList(), activeHigh = false),
+            Part(1, PartType.BUTTON, emptyList(), interrupt = false), Part(1, PartType.BUTTON, emptyList()),
+            Part(1, PartType.BUTTON, emptyList(), toVcc = true, externalPull = true),
+            Part(1, PartType.POT, emptyList()),
+            Part(1, PartType.SPEAKER, emptyList()), Part(1, PartType.SPEAKER, emptyList(), dacDrive = false),
+            Part(1, PartType.PIEZO, emptyList()),
+        )
+        var n = 0
+        for ((vi, v) in variants.withIndex()) for (o in rec.options(emptyList(), v, 0)) {
+            val pr = rec.proposeWithPin(emptyList(), v, 0, o.pin) ?: continue
+            val b = Board(listOf(pr.part))
+            val text = Samples.forPart(b, chip, pr.part)
+            val pins = pr.part.pins.joinToString("-") { it.pin }
+            File(out, "v${vi}_${pr.part.type.prefix}_$pins.fs").writeText(text)
+            n++
+        }
+        assertTrue("samples made: $n", n > 100)
+    }
+
     @Test fun linesFitMecrispsInputBuffer() {
         for (p in board.parts) for (l in Samples.forPart(board, chip, p).lines())
             assertTrue("${l.length}: $l", l.toByteArray().size < 200)

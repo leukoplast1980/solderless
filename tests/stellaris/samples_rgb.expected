@@ -215,8 +215,6 @@ $48000400 constant rgb3-blue-port  \ GPIOB  ok.
 \ Try it: rgb3-init 1 1 0 rgb3-colour (yellow)   or   rgb3-cycle (Enter stops it)  ok.
   ok.
 rgb-init 100 40 0 rgb-colour  ok.
-
-[chip] TIM1 CH1 is enabled, but MOE in TIM1_BDTR is 0: an advanced timer keeps its outputs off until MOE is set
 rgb2-init 0 20 100 rgb2-colour  ok.
 rgb3-init 1 0 1 rgb3-colour  ok.
 10 ms  ok.
