@@ -112,6 +112,11 @@ static void chip_driver(struct sl_soc *s, int slot, struct drivers *d, struct sl
             /* Open drain: an idle I2C line is released, the pull-ups hold it high; the
              * bytes go to the parts directly. Push-pull drives it high. */
             if (!od) { add(d, G_CHIP, SL_VDD_MV); p->chip_drives = 1; }
+        } else if (!strcmp(kind, "spi")) {
+            /* SCK idles at CPOL, MOSI keeps its last bit, NSS with SSOE; the
+             * frames go to the parts directly */
+            int lv;
+            if (spi_pin_out(s, e->periph, e->signal, &lv) && (!od || !lv)) { add(d, G_CHIP, lv ? SL_VDD_MV : 0); p->chip_drives = 1; }
         }
     } else if (mode == 3) {
         int mv, g;
@@ -208,7 +213,8 @@ static void resolve(struct sl_soc *s, int slot, int edges)
         default: break;
         }
     }
-    if (bus_pin_held_low(s, slot)) add(&d, G_CHIP, 0);      /* a bus part pulls the line low */
+    int part_level;
+    if (bus_pin_drive(s, slot, &part_level)) add(&d, G_CHIP, part_level ? SL_VDD_MV : 0);   /* a bus part drives the line */
 
     int old_level = p->level, old_float = p->floating;
     p->shorted = d.nstrong >= 2 && d.strong_max - d.strong_min > 1000;
@@ -319,6 +325,7 @@ void board_idr_read(struct sl_soc *s, int port)
     for (int b = 0; b < 16; b++) {
         struct sl_pin_state *p = &B->pin[port * 16 + b];
         if (!p->used || ((moder >> (2 * b)) & 3u) != 0u) continue;
+        if (bus_pin_is_miso(s, port * 16 + b)) continue;   /* DO floats between a part's answers; those bits are not used */
         char n[6]; pin_name(port * 16 + b, n);
         if (p->floating)
             soc_log(s, LOG_FLOATING, "%s floats: nothing drives it and its pull-up is off (GPIO%c_PUPDR), "

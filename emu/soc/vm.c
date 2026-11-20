@@ -75,7 +75,7 @@ struct sl_vm {
     pthread_mutex_t log_lock;
     char log[LOG_SIZE];
     size_t log_len;
-    uint32_t log_seen[64];          /* per key: messages so far */
+    uint32_t log_seen[128];          /* per key: messages so far */
 
     /* Pacing */
     uint64_t rt_base_ns;            /* wall clock minus emulated time */
@@ -136,7 +136,7 @@ static void h_log(void *host, int key, const char *msg)
 {
     sl_vm *vm = host;
     pthread_mutex_lock(&vm->log_lock);
-    uint32_t *seen = &vm->log_seen[key & 63];
+    uint32_t *seen = &vm->log_seen[key & 127];
     if (*seen < 3) {                     /* each kind of message at most three times */
         (*seen)++;
         size_t n = strlen(msg);
@@ -192,6 +192,7 @@ sl_vm *sl_create(const sl_config *cfg)
 void sl_destroy(sl_vm *vm)
 {
     if (!vm) return;
+    bus_free(vm->soc);
     for (int i = 0; i < vm->soc->np; i++) { free(vm->soc->regs[i]); free(vm->soc->wmask[i]); }
     free(vm->soc);
     pthread_mutex_destroy(&vm->lock);
@@ -730,6 +731,20 @@ size_t sl_device_read(sl_vm *vm, int part, uint8_t *pixels, size_t len, char *te
 {
     struct device_io io = { part, pixels, len, text, tlen, 0 };
     run_on_vm(vm, device_fn, &io);
+    return io.n;
+}
+
+struct dmem_io { int part; uint32_t addr; uint8_t *buf; size_t len; int write; size_t n; };
+static void dmem_fn(sl_vm *vm, void *arg)
+{
+    struct dmem_io *io = arg;
+    io->n = bus_device_mem(vm->soc, io->part, io->addr, io->buf, io->len, io->write);
+}
+
+size_t sl_device_mem(sl_vm *vm, int part, uint32_t addr, uint8_t *buf, size_t len, int write)
+{
+    struct dmem_io io = { part, addr, buf, len, write, 0 };
+    run_on_vm(vm, dmem_fn, &io);
     return io.n;
 }
 

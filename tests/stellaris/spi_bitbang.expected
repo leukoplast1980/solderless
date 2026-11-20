@@ -1,0 +1,18 @@
+\ The W25Q on bit-banged SPI (mode 0): PB13 CLK, PB15 DI, PB14 DO, PB12 CS.  ok.
+\ The decoder on the pins shifts the bits in on SCK rising and drives DO.  ok.
+#!attach 1 flash PB12 PB13 PB15 PB14
+$48000400 constant GPIOB  ok.
+: bb-pins ( -- )  ok.
+  %10 $4002104C bis!  ok.
+  %1011 12 lshift GPIOB $18 + !  1 13 lshift 16 lshift GPIOB $18 + !   \ CS and DI high, CLK low  ok.
+  $FF 24 lshift GPIOB bic!  %01000101 24 lshift GPIOB bis! ;          \ PB12, 13, 15 outputs; PB14 input  ok.
+: pin! ( f n -- ) 1 swap lshift swap 0= if 16 lshift then GPIOB $18 + ! ;  ok.
+: do? ( -- f ) GPIOB $10 + @ 1 14 lshift and 0<> ;  ok.
+: bb ( b -- b ) 0 swap 8 0 do dup $80 and 15 pin!  1 13 pin!  swap 2* do? 1 and or swap  0 13 pin!  2* loop drop ;  ok.
+: jedec ( -- ) 0 12 pin! $9F bb drop 0 bb hex. 0 bb hex. 0 bb hex. 1 12 pin! ;  ok.
+: uid ( -- ) 0 12 pin! $4B bb drop 0 bb 0 bb 0 bb 0 bb 2drop 2drop 8 0 do 0 bb hex. loop 1 12 pin! ;  ok.
+#!poke 1 0x100 536F6C6465726C657373
+: rd ( a u -- ) 0 12 pin! 3 bb drop over 16 rshift bb drop over 8 rshift bb drop swap bb drop 0 ?do 0 bb emit loop 1 12 pin! ;  ok.
+bb-pins jedec 000000EF 00000040 00000017  ok.
+uid 00000096 000000F4 000000E7 00000034 00000044 000000BD 00000060 000000E5  ok.
+$100 10 rd Solderless ok.

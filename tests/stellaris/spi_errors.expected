@@ -1,0 +1,42 @@
+\ SPI mistakes: no SSM/SSI (mode fault), RXNE that waits for two bytes  ok.
+\ (FRXTH clear), a word write that sends two frames, mode 1 where the  ok.
+\ flash wants 0 or 3 (3 works), the flash still busy.  ok.
+#!attach 1 flash PA4 PA5 PA7 PA6
+$48000000 constant GPIOA  ok.
+$40013000 constant SPI1  ok.
+: pins ( -- )  ok.
+  1 $4002104C bis!  1 12 lshift $40021060 bis!  ok.
+  1 4 lshift GPIOA $18 + !  ok.
+  $FF 8 lshift GPIOA bic!  %10101001 8 lshift GPIOA bis!  ok.
+  $FFF 20 lshift GPIOA $20 + bic!  $555 20 lshift GPIOA $20 + bis! ;  ok.
+: sr. ( -- ) SPI1 8 + @ hex. ;  ok.
+: cs-lo 1 4 lshift 16 lshift GPIOA $18 + ! ;  ok.
+: cs-hi 1 4 lshift GPIOA $18 + ! ;  ok.
+: settle 2000 0 do loop ;  ok.
+pins  ok.
+$54 SPI1 !  SPI1 @ hex. sr. 00000010 00000022  ok.
+
+[chip] SPI1: mode fault (MODF): NSS reads low, so the master stops (SPE and MSTR cleared). With a GPIO as chip select, set SSM and SSI in CR1; or let the SPI drive NSS with SSOE
+#!clear
+#!attach 1 flash PA4 PA5 PA7 PA6
+0 SPI1 !  $354 SPI1 !  SPI1 @ hex. 00000354  ok.
+cs-lo $9F SPI1 $C + c! settle sr. 00000202  ok.
+0 SPI1 $C + c! settle sr. 00000403  ok.
+SPI1 $C + h@ hex. cs-hi sr. 0000EF9C 00000002  ok.
+$1700 SPI1 4 + !  ok.
+cs-lo $9F SPI1 $C + ! settle sr. SPI1 $C + c@ hex. SPI1 $C + c@ hex. cs-hi 00000403 0000001D 000000EF  ok.
+0 SPI1 !  $355 SPI1 !  ok.
+cs-lo $9F SPI1 $C + c! settle SPI1 $C + c@ drop 0 SPI1 $C + c! settle SPI1 $C + c@ hex. cs-hi 0000003E  ok.
+
+[chip] SPI1 runs SPI mode 1; the W25Q flash takes mode 0 or 3 (it reads MOSI on the rising edge of SCK), so every bit lands one place off. Set CPOL = CPHA in CR1
+[chip] W25Q64: command 3F is not emulated (dual and quad modes, suspend, security registers are not there yet)
+[chip] SPI1 runs SPI mode 1; the W25Q flash takes mode 0 or 3 (it reads MOSI on the rising edge of SCK), so every bit lands one place off. Set CPOL = CPHA in CR1
+0 SPI1 !  $357 SPI1 !  ok.
+cs-lo $9F SPI1 $C + c! settle SPI1 $C + c@ drop 0 SPI1 $C + c! settle SPI1 $C + c@ hex. cs-hi 000000EF  ok.
+0 SPI1 !  $354 SPI1 !  ok.
+: b ( x -- y ) SPI1 $C + c! settle SPI1 $C + c@ ;  ok.
+cs-lo 6 b drop cs-hi  cs-lo $20 b drop 0 b drop 0 b drop 0 b drop cs-hi  ok.
+cs-lo $9F b drop 0 b hex. cs-hi 000000CD  ok.
+
+[chip] W25Q64: command 9F ignored, still busy with a sector erase. Poll BUSY (bit 0 of status register 1, command 05) until it is 0
+cs-lo 5 b drop 0 b hex. cs-hi 00000001  ok.

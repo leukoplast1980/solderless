@@ -22,6 +22,7 @@ static const char *dev_name(int kind)
 {
     switch (kind) {
     case SL_DEV_SSD1306: return "SSD1306 OLED";
+    case SL_DEV_W25Q: return "W25Q flash";
     default: return "part";
     }
 }
@@ -31,6 +32,7 @@ static uint32_t dev_max_hz(int kind)
 {
     switch (kind) {
     case SL_DEV_SSD1306: return 400000u;    /* fast mode; the datasheet's tcycle is 2.5 us */
+    case SL_DEV_W25Q: return 50000000u;     /* read (03) is the slowest command: 50 MHz */
     default: return 100000u;
     }
 }
@@ -40,13 +42,30 @@ static void pin_label(int slot, char *b)
     snprintf(b, 6, "P%c%d", 'A' + (slot >> 4), slot & 15);
 }
 
+static int is_spi(int kind) { return kind == SL_DEV_W25Q; }
+
+static void dev_power_on(struct sl_dev *d)
+{
+    uint32_t seed = 0x9E3779B9u * (uint32_t)(d->part + 1);
+    if (d->kind == SL_DEV_SSD1306) ssd1306_power_on(&d->m.oled, seed);
+    if (d->kind == SL_DEV_W25Q) w25q_init(&d->m.flash, d->addr, seed);
+}
+
+static void dev_free(struct sl_dev *d)
+{
+    if (d->kind == SL_DEV_W25Q) w25q_free(&d->m.flash);
+}
+
+static int line(struct sl_soc *s, int slot);
+
 void bus_set(struct sl_soc *s)
 {
-    /* Parts that stay keep their state: a display keeps its picture when
-     * another part is added */
+    /* Parts that stay keep their state: a display keeps its picture, a
+     * flash its contents, when another part is added */
     static struct sl_dev old[SL_MAX_DEV];
     int nold = B->ndev;
     memcpy(old, B->dev, sizeof old);
+    int kept[SL_MAX_DEV] = { 0 };
     B->ndev = 0;
     for (int i = 0; i < B->natt; i++) {
         const sl_attach *a = &B->att[i].a;
@@ -60,13 +79,30 @@ void bus_set(struct sl_soc *s)
             for (int k = 0; k < SL_SIG_COUNT; k++) d->pin[k] = -1;
             d->part = a->part; d->kind = a->dev; d->addr = a->addr;
             d->dec_scl = d->dec_sda = 1;
-            int kept = 0;
+            int found = 0;
             for (int k = 0; k < nold; k++)
-                if (old[k].part == a->part && old[k].kind == a->dev) { d->m = old[k].m; kept = 1; }
-            if (!kept && d->kind == SL_DEV_SSD1306) ssd1306_power_on(&d->m.oled, 0x9E3779B9u * (uint32_t)(a->part + 1));
+                if (!kept[k] && old[k].part == a->part && old[k].kind == a->dev && (!is_spi(a->dev) || old[k].addr == a->addr)) {
+                    d->m = old[k].m; kept[k] = 1; found = 1;
+                }
+            if (!found) dev_power_on(d);
         }
         if (a->role >= 0 && a->role < SL_SIG_COUNT) d->pin[a->role] = a->pin;
     }
+    for (int k = 0; k < nold; k++) if (!kept[k]) dev_free(&old[k]);
+    /* Chip selects as they are now; a part without one is always selected */
+    for (int i = 0; i < B->ndev; i++) {
+        struct sl_dev *d = &B->dev[i];
+        if (!is_spi(d->kind)) continue;
+        d->cs_low = d->pin[SL_SIG_CS] < 0 || !line(s, d->pin[SL_SIG_CS]);
+        d->dec_sck = d->pin[SL_SIG_SCK] >= 0 && line(s, d->pin[SL_SIG_SCK]);
+        d->spi_bits = 0; d->out_drive = 0; d->have_next = 0; d->spi_started = 0;
+    }
+}
+
+void bus_free(struct sl_soc *s)
+{
+    for (int i = 0; i < B->ndev; i++) dev_free(&B->dev[i]);
+    B->ndev = 0;
 }
 
 /* ---------------------------------------------------------------------- */
@@ -180,6 +216,153 @@ int bus_pin_pulled_up(struct sl_soc *s, int slot)
 }
 
 /* ---------------------------------------------------------------------- */
+/* SPI: chip select, bits, bytes                                          */
+/* ---------------------------------------------------------------------- */
+
+static void part_messages(struct sl_soc *s, struct sl_dev *d)
+{
+    char m[240];
+    if (d->kind == SL_DEV_W25Q)
+        while (d->m.flash.msg) {
+            int code = d->m.flash.msg;
+            if (w25q_message(&d->m.flash, m, sizeof m)) soc_log(s, LOG_PART + d->kind * 8 + code, "%s", m);
+        }
+}
+
+static void spi_select(struct sl_soc *s, struct sl_dev *d, int low)
+{
+    if (d->cs_low == low) return;
+    d->cs_low = low;
+    uint64_t now = soc_now_ps(s);
+    d->spi_bits = 0; d->spi_started = 0; d->have_next = 0; d->out_pos = 0;
+    d->spi_out = 0xFF;
+    int was_driving = d->out_drive;
+    d->out_drive = 0;
+    if (d->kind == SL_DEV_W25Q) {
+        if (low) w25q_select(&d->m.flash, now);
+        else w25q_deselect(&d->m.flash, now);
+    }
+    part_messages(s, d);
+    if (was_driving && d->pin[SL_SIG_MISO] >= 0)
+        board_port_changed(s, d->pin[SL_SIG_MISO] >> 4, 1u << (d->pin[SL_SIG_MISO] & 15));
+}
+
+static uint8_t spi_model_byte(struct sl_soc *s, struct sl_dev *d, uint8_t b, int *drive)
+{
+    uint64_t now = soc_now_ps(s);
+    uint8_t out = 0xFF;
+    *drive = 0;
+    if (d->kind == SL_DEV_W25Q) out = w25q_byte(&d->m.flash, b, now, drive);
+    part_messages(s, d);
+    return out;
+}
+
+/* SCK edge the part samples on (all parts here: rising, modes 0 and 3) */
+static void spi_rise(struct sl_soc *s, struct sl_dev *d, int mosi)
+{
+    d->spi_started = 1;
+    d->spi_in = (uint8_t)(d->spi_in << 1 | (mosi & 1));
+    if (++d->spi_bits < 8) return;
+    d->spi_bits = 0;
+    d->next_out = spi_model_byte(s, d, d->spi_in, &d->next_drive);
+    d->have_next = 1;
+}
+
+/* The other edge: DO moves on to the next bit */
+static void spi_fall(struct sl_dev *d)
+{
+    if (!d->spi_started) return;            /* mode 3: the first falling edge comes before any bit */
+    if (d->have_next) {
+        d->spi_out = d->next_out; d->out_drive = d->next_drive; d->out_pos = 0; d->have_next = 0;
+    } else if (d->out_pos < 7) d->out_pos++;
+    d->miso_level = (d->spi_out >> (7 - d->out_pos)) & 1;
+}
+
+static int spi_on(const struct sl_dev *d, int sck, int mosi)
+{
+    return is_spi(d->kind) && d->pin[SL_SIG_SCK] == sck && d->pin[SL_SIG_MOSI] == mosi;
+}
+
+uint32_t bus_spi_frame(struct sl_soc *s, int sck, int mosi, int miso, uint32_t v, int bits, int mode, int lsb,
+                       uint32_t hz, const char *who)
+{
+    struct sl_dev *sel[SL_MAX_DEV];
+    int nsel = 0;
+    for (int i = 0; i < B->ndev; i++) {
+        struct sl_dev *d = &B->dev[i];
+        if (!spi_on(d, sck, mosi) || !d->cs_low) continue;
+        sel[nsel++] = d;
+        uint32_t max = dev_max_hz(d->kind);
+        if (hz > max + max / 8)
+            soc_log(s, LOG_SPI_SPEED, "%s clocks SCK at %.3g MHz; the %s handles up to %u MHz, so it misreads bits. "
+                    "Raise BR in CR1 (SCK is PCLK / 2, 4, 8 ... 256)", who, hz / 1e6, dev_name(d->kind), max / 1000000u);
+        if (mode == 1 || mode == 2)
+            soc_log(s, LOG_SPI_MODE, "%s runs SPI mode %d; the %s takes mode 0 or 3 (it reads MOSI on the rising edge of SCK), "
+                    "so every bit lands one place off. Set CPOL = CPHA in CR1", who, mode, dev_name(d->kind));
+        if (lsb)
+            soc_log(s, LOG_SPI_ORDER, "%s sends LSB first (LSBFIRST in CR1); the %s expects the most significant bit first, "
+                    "so it reads every byte mirrored", who, dev_name(d->kind));
+    }
+    int miso_was[SL_MAX_DEV];
+    for (int k = 0; k < nsel; k++) miso_was[k] = sel[k]->out_drive;
+
+    int skew = mode == 1 || mode == 2;
+    uint32_t rx = 0;
+    int clash = 0;
+    for (int b = 0; b < bits; b++) {
+        int pos = lsb ? b : bits - 1 - b;
+        int bit = (int)((v >> pos) & 1u);
+        if (skew) {                         /* the part samples while the master changes MOSI: the next bit */
+            int npos = lsb ? b + 1 : bits - 2 - b;
+            bit = npos >= 0 && npos < bits ? (int)((v >> npos) & 1u) : bit;
+        }
+        int in = 1, drivers = 0, lv[2] = { 0, 0 };
+        if (!skew)
+            for (int k = 0; k < nsel; k++) if (sel[k]->out_drive) { in &= sel[k]->miso_level; drivers++; lv[sel[k]->miso_level] = 1; }
+        for (int k = 0; k < nsel; k++) {
+            struct sl_dev *d = sel[k];
+            int x = bit;
+            if (hz > dev_max_hz(d->kind) + dev_max_hz(d->kind) / 8) {
+                B->rng = B->rng * 6364136223846793005ull + 1442695040888963407ull;
+                if ((B->rng >> 61) == 0) x ^= 1;   /* one bit in eight misread */
+            }
+            spi_rise(s, d, x);
+            spi_fall(d);
+        }
+        if (skew)
+            for (int k = 0; k < nsel; k++) if (sel[k]->out_drive) { in &= sel[k]->miso_level; drivers++; lv[sel[k]->miso_level] = 1; }
+        if (drivers > 1 && lv[0] && lv[1]) clash = 1;
+        int r = drivers ? in : miso >= 0 ? board_pin_level(s, miso >> 4, miso & 15) : 0;   /* floating: at random */
+        rx |= (uint32_t)r << pos;
+    }
+    if (clash)
+        soc_log(s, LOG_SPI_MISO, "%s: two parts drive MISO at once with different bits: their chip selects are both low", who);
+    for (int k = 0; k < nsel; k++)
+        if (sel[k]->out_drive != miso_was[k] && miso >= 0) board_port_changed(s, miso >> 4, 1u << (miso & 15));
+    return rx;
+}
+
+/* Pin level: bit-banged SPI. The part samples MOSI on SCK rising and moves
+ * DO on SCK falling, while its CS is low. */
+static void spi_decode(struct sl_soc *s, struct sl_dev *d, int slot)
+{
+    if (slot == d->pin[SL_SIG_CS]) {
+        spi_select(s, d, !line(s, slot));
+        return;
+    }
+    if (slot != d->pin[SL_SIG_SCK]) return;
+    int sck = line(s, slot), was = d->dec_sck;
+    d->dec_sck = sck;
+    if (!d->cs_low || sck == was) return;
+    int drove = d->out_drive, lvl = d->miso_level;
+    if (sck) spi_rise(s, d, d->pin[SL_SIG_MOSI] >= 0 ? line(s, d->pin[SL_SIG_MOSI]) : 0);
+    else spi_fall(d);
+    int m = d->pin[SL_SIG_MISO];
+    if (m >= 0 && (drove != d->out_drive || (d->out_drive && lvl != d->miso_level)))
+        board_port_changed(s, m >> 4, 1u << (m & 15));
+}
+
+/* ---------------------------------------------------------------------- */
 /* Pin level: the decoder for bit-banged I2C                               */
 /* ---------------------------------------------------------------------- */
 
@@ -271,15 +454,37 @@ void bus_pin_changed(struct sl_soc *s, int slot)
 {
     for (int i = 0; i < B->ndev; i++) {
         struct sl_dev *d = &B->dev[i];
+        if (is_spi(d->kind)) {
+            if (d->pin[SL_SIG_CS] == slot || d->pin[SL_SIG_SCK] == slot) spi_decode(s, d, slot);
+            continue;
+        }
         if (d->pin[SL_SIG_SCL] < 0 || d->pin[SL_SIG_SDA] < 0) continue;
         if (d->pin[SL_SIG_SCL] == slot || d->pin[SL_SIG_SDA] == slot) decode(s, d);
     }
 }
 
-int bus_pin_held_low(struct sl_soc *s, int slot)
+int bus_pin_drive(struct sl_soc *s, int slot, int *level)
 {
-    for (int i = 0; i < B->ndev; i++)
-        if (B->dev[i].sda_low && B->dev[i].pin[SL_SIG_SDA] == slot) return 1;
+    for (int i = 0; i < B->ndev; i++) {
+        const struct sl_dev *d = &B->dev[i];
+        if (d->sda_low && d->pin[SL_SIG_SDA] == slot) { *level = 0; return 1; }
+        if (d->out_drive && d->cs_low && d->pin[SL_SIG_MISO] == slot) { *level = d->miso_level; return 1; }
+    }
+    return 0;
+}
+
+int bus_pin_is_miso(struct sl_soc *s, int slot)
+{
+    for (int i = 0; i < B->ndev; i++) if (is_spi(B->dev[i].kind) && B->dev[i].pin[SL_SIG_MISO] == slot) return 1;
+    return 0;
+}
+
+size_t bus_device_mem(struct sl_soc *s, int part, uint32_t addr, uint8_t *buf, size_t len, int write)
+{
+    for (int i = 0; i < B->ndev; i++) {
+        struct sl_dev *d = &B->dev[i];
+        if (d->part == part && d->kind == SL_DEV_W25Q) return w25q_mem(&d->m.flash, addr, buf, len, write);
+    }
     return 0;
 }
 
@@ -304,6 +509,18 @@ size_t bus_device_read(struct sl_soc *s, int part, uint8_t *px, size_t len, char
             }
             return n;
         }
+    }
+    for (int i = 0; i < B->ndev; i++) {
+        struct sl_dev *d = &B->dev[i];
+        if (d->part != part || d->kind != SL_DEV_W25Q) continue;
+        if (text && tlen) {
+            char p[4][6] = { "", "", "", "" };
+            static const int sig[4] = { SL_SIG_CS, SL_SIG_SCK, SL_SIG_MOSI, SL_SIG_MISO };
+            for (int k = 0; k < 4; k++) if (d->pin[sig[k]] >= 0) pin_label(d->pin[sig[k]], p[k]);
+            int k = snprintf(text, tlen, "Bus\tSPI · CS %s · CLK %s · DI %s · DO %s\n", p[0], p[1], p[2], p[3]);
+            if (k > 0 && (size_t)k < tlen) w25q_text(&d->m.flash, soc_now_ps(s), text + k, tlen - k);
+        }
+        return 0;
     }
     if (text && tlen) text[0] = 0;
     return 0;

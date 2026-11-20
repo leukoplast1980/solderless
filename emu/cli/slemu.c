@@ -20,6 +20,7 @@
 #include "sl/solderless.h"
 
 #include <pthread.h>
+#include <ctype.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -150,6 +151,50 @@ static int directive(const char *line)
             a->role = k ? SL_SIG_SDA : SL_SIG_SCL; a->pin = k ? sda : scl; a->r_ohm = pull;
         }
         sl_board_set(vm, board, nboard);
+        return 0;
+    }
+    if (!strcmp(cmd, "attach") && n >= 4 && !strcmp(a2, "flash") && nboard + 4 <= SL_MAX_ATTACH) {
+        /* #!attach N flash CS CLK DI DO [size=32|64|128]: a W25Q module (WP and HOLD tied high) */
+        char p4[16] = "", p5[16] = "", p6[16] = "";
+        sscanf(line + 2, "%*s %*s %*s %*s %15s %15s %15s", p4, p5, p6);
+        int pins[4] = { parse_pin(a3), parse_pin(p4), parse_pin(p5), parse_pin(p6) };
+        static const int roles[4] = { SL_SIG_CS, SL_SIG_SCK, SL_SIG_MOSI, SL_SIG_MISO };
+        int cap = 0x17;
+        const char *q = strstr(line, "size=");
+        if (q) cap = atoi(q + 5) == 32 ? 0x16 : atoi(q + 5) == 128 ? 0x18 : 0x17;
+        for (int k = 0; k < 4; k++) {
+            if (pins[k] < 0) return 1;
+            sl_attach *a = &board[nboard++];
+            memset(a, 0, sizeof *a);
+            a->part = atoi(a1); a->kind = SL_ATT_DEVICE; a->dev = SL_DEV_W25Q; a->addr = cap;
+            a->role = roles[k]; a->pin = pins[k];
+        }
+        sl_board_set(vm, board, nboard);
+        return 0;
+    }
+    if (!strcmp(cmd, "flash") && n >= 2) {
+        /* #!flash N [ADDR [LEN]]: the state, then LEN bytes from ADDR as hex (default 32 from 0) */
+        char text[1024];
+        sl_device_read(vm, atoi(a1), NULL, 0, text, sizeof text);
+        fputs(text, stdout);
+        uint32_t at = n >= 3 ? (uint32_t)strtoul(a2, NULL, 0) : 0, len = n >= 4 ? (uint32_t)strtoul(a3, NULL, 0) : 32;
+        uint8_t buf[256];
+        if (len > sizeof buf) len = sizeof buf;
+        size_t got = sl_device_mem(vm, atoi(a1), at, buf, len, 0);
+        for (size_t k = 0; k < got; k++) printf("%s%02X", k % 16 == 0 ? (k ? "\n" : "") : " ", buf[k]);
+        if (got) printf("\n");
+        fflush(stdout);
+        return 0;
+    }
+    if (!strcmp(cmd, "poke") && n >= 4) {
+        /* #!poke N ADDR HEXBYTES: write bytes into a memory part, as a programmer would */
+        uint8_t buf[128]; size_t k = 0;
+        const char *h = line + 2;
+        for (int f = 0; f < 3 && h; f++) { h = strchr(h, ' '); while (h && *h == ' ') h++; }
+        for (; h && isxdigit((unsigned char)h[0]) && isxdigit((unsigned char)h[1]) && k < sizeof buf; h += 2) {
+            unsigned x; sscanf(h, "%2x", &x); buf[k++] = (uint8_t)x;
+        }
+        sl_device_mem(vm, atoi(a1), (uint32_t)strtoul(a2, NULL, 0), buf, k, 1);
         return 0;
     }
     if (!strcmp(cmd, "oled") && n >= 2) {

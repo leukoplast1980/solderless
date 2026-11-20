@@ -65,7 +65,13 @@ struct sl_dev {
     /* Pin-level I2C decoder, for bit-banged drivers */
     int dec_phase, dec_bits, dec_read, dec_ack, dec_scl, dec_sda;
     uint8_t dec_byte;
-    union { struct ssd1306 oled; } m;
+    /* SPI */
+    int cs_low;                 /* chip select as the part sees it */
+    int spi_bits, spi_started, out_pos, out_drive, have_next, next_drive;
+    uint8_t spi_in, spi_out, next_out;
+    int miso_level;             /* what DO shows while driven */
+    int dec_sck;                /* pin-level decoder: SCK as last seen */
+    union { struct ssd1306 oled; struct w25q flash; } m;
 };
 
 #define SL_TRACE_RING 65536
@@ -113,12 +119,19 @@ int bus_i2c_start(struct sl_soc *s, int scl, int sda, int addr, int read, uint32
 int bus_i2c_write(struct sl_soc *s, int scl, int sda, uint8_t b);
 uint8_t bus_i2c_read(struct sl_soc *s, int scl, int sda, int ack);
 void bus_i2c_stop(struct sl_soc *s, int scl, int sda);
+/* SPI: one frame from an on-chip SPI, delivered to the selected parts on
+ * these pins. mode is CPOL << 1 | CPHA; returns what came back on MISO. */
+uint32_t bus_spi_frame(struct sl_soc *s, int sck, int mosi, int miso, uint32_t v, int bits, int mode, int lsb,
+                       uint32_t hz, const char *who);
 /* Is something on the board on this pin pulled up, as an idle I2C line needs? */
 int bus_pin_pulled_up(struct sl_soc *s, int slot);
 /* Board side */
 void bus_set(struct sl_soc *s);                       /* rebuild the parts from the attachments */
-void bus_pin_changed(struct sl_soc *s, int slot);     /* a pin's level changed: the bit-bang decoder */
-int bus_pin_held_low(struct sl_soc *s, int slot);     /* a part holds this line low */
+void bus_pin_changed(struct sl_soc *s, int slot);     /* a pin's level changed: the bit-bang decoders, chip selects */
+void bus_free(struct sl_soc *s);
+int bus_pin_is_miso(struct sl_soc *s, int slot);
+int bus_pin_drive(struct sl_soc *s, int slot, int *level);  /* a part drives this line (I2C: low only) */
+size_t bus_device_mem(struct sl_soc *s, int part, uint32_t addr, uint8_t *buf, size_t len, int write);
 size_t bus_device_read(struct sl_soc *s, int part, uint8_t *px, size_t len, char *text, size_t tlen);
 
 #endif

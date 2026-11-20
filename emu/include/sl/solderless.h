@@ -118,9 +118,11 @@ enum {
 /* Bus parts */
 enum {
     SL_DEV_SSD1306 = 1, /* 128 x 64 OLED controller, I2C; addr 0x3C or 0x3D */
+    SL_DEV_W25Q = 2,    /* serial flash, SPI; addr: JEDEC capacity 0x16 (32 Mbit), 0x17 (64), 0x18 (128) */
 };
 /* Signals of bus parts, as sl_attach.role */
-enum { SL_SIG_SCL = 0, SL_SIG_SDA = 1, SL_SIG_COUNT = 8 };
+enum { SL_SIG_SCL = 0, SL_SIG_SDA = 1, SL_SIG_SCK = 2, SL_SIG_MOSI = 3, SL_SIG_MISO = 4, SL_SIG_CS = 5,
+       SL_SIG_DC = 6, SL_SIG_RES = 7, SL_SIG_BLK = 8, SL_SIG_COUNT = 10 };
 
 typedef struct {
     int part;           /* the app's part number; inputs address parts by it */
@@ -168,6 +170,11 @@ void sl_board_read(sl_vm *vm, sl_board_state *out);
  * controller holds (on/off, modes, the last access). Returns the number of
  * pixels written; 0 if the part is not on the board. */
 size_t sl_device_read(sl_vm *vm, int part, uint8_t *pixels, size_t len, char *text, size_t tlen);
+
+/* A memory part's contents (W25Q: the flash array), read or written
+ * directly, as an external programmer would: a write sets bytes as given,
+ * 1s included. Returns the bytes moved; 0 if the part has no memory. */
+size_t sl_device_mem(sl_vm *vm, int part, uint32_t addr, uint8_t *buf, size_t len, int write);
 
 /* Sound: every change on a pin with an SL_ATT_AUDIO part, timestamped in
  * emulated time. A level (mV) for edges and DAC samples, or a PWM setting

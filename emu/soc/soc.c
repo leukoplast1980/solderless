@@ -120,6 +120,7 @@ static void dispatch_event(struct sl_soc *s, int ev)
         else if (ev >= EV_TIM0 && ev <= EV_TIM_LAST) tim_event(s, ev - EV_TIM0);
         else if (ev >= EV_ADC0 && ev <= EV_ADC_LAST) adc_event(s, ev - EV_ADC0);
         else if (ev >= EV_I2C0 && ev <= EV_I2C_LAST) i2c_event(s, ev - EV_I2C0);
+        else if (ev >= EV_SPI0 && ev <= EV_SPI_LAST) spi_event(s, ev - EV_SPI0);
         break;
     }
 }
@@ -249,6 +250,8 @@ static void periph_reset_one(struct sl_soc *s, int pi)
     if (pi == s->pi_exti) exti_reset(s);
     int c = i2c_index_of_periph(s, pi);
     if (c >= 0) i2c_reset(s, c);
+    int sp = spi_index_of_periph(s, pi);
+    if (sp >= 0) spi_reset(s, sp);
     board_af_outputs_changed(s);
 }
 
@@ -290,6 +293,8 @@ static uint32_t periph_read(struct sl_soc *s, int pi, uint32_t off, int effects)
     if (pi == s->pi_exti) return exti_read(s, off);
     int c = i2c_index_of_periph(s, pi);
     if (c >= 0) return i2c_read(s, c, off, effects);
+    int sp = spi_index_of_periph(s, pi);
+    if (sp >= 0) return spi_read(s, sp, off, effects);
     if (pi == s->pi_dbgmcu && off == 0) return 0x20016468u;   /* IDCODE: G431/G441, rev Z */
     return s->regs[pi][off / 4];
 }
@@ -311,6 +316,8 @@ static void periph_write(struct sl_soc *s, int pi, uint32_t off, uint32_t v, uin
     if (pi == s->pi_exti) { exti_write(s, off, v, mask); return; }
     int c = i2c_index_of_periph(s, pi);
     if (c >= 0) { i2c_write(s, c, off, v, mask); return; }
+    int sp = spi_index_of_periph(s, pi);
+    if (sp >= 0) { spi_write(s, sp, off, v, mask); return; }
     uint32_t wm = s->wmask[pi][off / 4] & mask;
     s->regs[pi][off / 4] = (s->regs[pi][off / 4] & ~wm) | (v & wm);
 }
@@ -378,7 +385,9 @@ static int mmio_read(void *ctx, uint32_t a, int n, uint32_t *v)
                 p->name, s->cpu.r[15]);
         w = 0;
     } else {
+        s->rd_width = n;
         w = periph_read(s, pi, off & ~3u, 1);
+        s->rd_width = 4;
     }
     unsigned sh = (off & 3u) * 8u;
     *v = n == 4 ? w : (w >> sh) & ((1u << (8 * n)) - 1u);
@@ -508,6 +517,7 @@ void soc_init(struct sl_soc *s)
     tim_init(s);
     adc_init(s);
     i2c_init(s);
+    spi_init(s);
     board_init(s);
     soc_reset(s, 1);
 }
@@ -529,6 +539,7 @@ void soc_reset(struct sl_soc *s, int power_on)
     dac_reset(s);
     exti_reset(s);
     for (int i = 0; i < SL_NUM_I2C; i++) if (s->i2c[i].pi >= 0) i2c_reset(s, i);
+    for (int i = 0; i < SL_NUM_SPI; i++) if (s->spi[i].pi >= 0) spi_reset(s, i);
     update_clock_gates(s);
     s->term_rx_busy = 0;
     s->idle_poll = 0;
