@@ -279,9 +279,19 @@ Settled with the mock-up (Solderless – Breadboard tab mock-up, 19 November
 - **Use and settings.** Tap a part to use it (hold the button, drag the
   pot); long-press for its settings sheet (colour, size, current, pin,
   active level, remove). Resistor values come with their calculation.
+- **Sample code.** Tapping a part that does not react to touch (LED, RGB
+  LED, piezo, speaker) or a button's label opens its sample code; every
+  settings sheet has a Sample code button. A sample runs as pasted: the
+  part's `wiring.fs` constants, a SysTick `ms`, an `-init` word that sets
+  up the clocks, pins and peripheral, words to use the part (`led-on`,
+  `rgb-colour`, `button?`, `button-pressed?` on its EXTI line, `pot@`,
+  `piezo-tone`), and a demo that runs until a key is pressed. The code
+  follows the part's settings and its pin's function (GPIO, timer
+  channel, ADC, DAC). Every variant runs in the host tests on the real
+  firmware (`tests/stellaris/samples_*.fs`).
 - **Adding a part** opens a sheet with the parts; the recommender's choice
   is drawn dashed on the board with the reason, the resistor, the other
-  valid pins (scarce or taken ones marked) and the `wiring.fs` lines. A
+  valid pins (scarce or taken ones marked) and the sample code. A
   pin that is taken leads to the re-wire sheet with the moves and the
   `wiring.fs` diff.
 - **Support circuit** (decoupling, VDDA filter, NRST capacitor, BOOT0
