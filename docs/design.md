@@ -290,6 +290,15 @@ Settled with the mock-up (Solderless – Breadboard tab mock-up, 19 November
 - **Pinned parts.** A part can be pinned so it floats over the Console and
   Editor tabs (an LED, a button you can press, a display at its real pixel
   size), so you see the circuit react while you type.
+- **Scope tab** (added in milestone 2, styled after Mecrisp Pocket's GPIO
+  trace): one row per pin with a part, or added from its sheet; logic
+  levels, voltages for analog pins, PWM as a square wave or a band, fast
+  toggling as a dense mark; windows of 1 ms to 5 s, pinch and drag, Hold,
+  trigger on a rising or falling edge, cursors A and B. The emulator
+  records each watched pin's changes with their time; the app keeps the
+  last 6 seconds.
+- **Settings:** spread the pins when parts need room (the tab grows and
+  scrolls), header order.
 - **Displays** (milestone 3) are drawn as their modules with the screen
   content pixel for pixel; tapping one opens a close-up with a pixel grid
   and the controller's state (on/off, contrast, charge pump, addressing,

@@ -18,6 +18,8 @@ sensors, displays and more follows in the next milestones (see
 - EXTI, the timers with PWM and input capture, ADC and DAC; sound from the
   piezo and the speaker
 - parts can float over the Console and Editor while you type
+- the Scope tab: every part's pin over time, logic levels, voltages and
+  PWM, 1 ms to 5 s, Hold, trigger on an edge, two cursors
 
 Milestone 1, the chip and the console:
 
