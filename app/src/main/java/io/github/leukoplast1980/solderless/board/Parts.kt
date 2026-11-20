@@ -5,7 +5,7 @@ import kotlin.math.log10
 import kotlin.math.pow
 import kotlin.math.roundToInt
 
-/** The parts of milestone 2. Each terminal that goes to the chip is a role. */
+/** The parts. Each terminal that goes to the chip is a role. */
 enum class PartType(val prefix: String, val title: String, val roles: List<String>) {
     BUTTON("button", "Button", listOf("")),
     LED("led", "LED", listOf("")),
@@ -13,6 +13,7 @@ enum class PartType(val prefix: String, val title: String, val roles: List<Strin
     POT("pot", "Potentiometer", listOf("")),
     SPEAKER("speaker", "Speaker", listOf("")),
     PIEZO("piezo", "Piezo buzzer", listOf("")),
+    OLED("oled", "OLED display", listOf("scl", "sda")),
 }
 
 enum class LedColour(val title: String, val vfMv: Int, val argb: Long) {
@@ -21,7 +22,7 @@ enum class LedColour(val title: String, val vfMv: Int, val argb: Long) {
 }
 
 /** What a part's pin has to be able to do */
-enum class Need { OUTPUT, INPUT, INPUT_EXTI, PWM, ADC, DAC_OR_PWM }
+enum class Need { OUTPUT, INPUT, INPUT_EXTI, PWM, ADC, DAC_OR_PWM, I2C_SCL, I2C_SDA }
 
 /** A chip pin given to one role of a part, and the function it is used with. */
 data class PinUse(val pin: String, val function: Function)
@@ -33,6 +34,8 @@ sealed class Function {
     }
     data class Adc(val adc: String, val channel: Int) : Function() { override fun toString() = "${adc} IN$channel" }
     data class Dac(val channel: Int) : Function() { override fun toString() = "DAC1 OUT$channel" }
+    /** An I2C peripheral's SCL or SDA, in alternate function [af] */
+    data class I2c(val periph: String, val signal: String, val af: Int) : Function() { override fun toString() = "$periph $signal" }
 }
 
 data class Part(
@@ -50,6 +53,7 @@ data class Part(
     val interrupt: Boolean = true,          // button wants its own EXTI line
     val dacDrive: Boolean = true,           // speaker on a DAC output, else PWM
     val pinnedOverTabs: Boolean = false,
+    val i2cAddr: Int = 0x3C,                // OLED: 0x3C, or 0x3D with its SA0 strap to 3V3
 ) {
     fun needs(): List<Need> = when (type) {
         PartType.BUTTON -> listOf(if (interrupt) Need.INPUT_EXTI else Need.INPUT)
@@ -58,7 +62,11 @@ data class Part(
         PartType.POT -> listOf(Need.ADC)
         PartType.SPEAKER -> listOf(if (dacDrive) Need.DAC_OR_PWM else Need.PWM)
         PartType.PIEZO -> listOf(Need.PWM)
+        PartType.OLED -> listOf(Need.I2C_SCL, Need.I2C_SDA)
     }
+
+    /** The I2C peripheral a bus part is on, if it is */
+    val i2c: String? get() = (pins.firstOrNull()?.function as? Function.I2c)?.periph
 
     fun vfMv(role: Int): Int = when (type) {
         PartType.RGB_LED -> if (role == 0) 1900 else 3000
@@ -114,6 +122,8 @@ object Passives {
             Passive(p.id, 0, "transistor", "NPN (BC337)", 0, "switches the speaker current, which a pin cannot supply"),
             Passive(p.id, 0, "diode", "1N4148", 0, "flyback: the speaker coil kicks back when switched off"),
         )
+        PartType.OLED -> listOf(Passive(p.id, 0, "on the module", "4.7 kΩ × 2", 4700,
+            "pull-ups on SCL and SDA: I2C lines are open-drain, something has to pull them high"))
         else -> emptyList()
     }
 

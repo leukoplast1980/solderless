@@ -142,10 +142,29 @@ class RecommenderTest {
     @Test fun attachmentsForTheEmulator() {
         val b = place(Board(), new(PartType.BUTTON, 1) { it.copy(externalPull = true) })
         val a = b.attachments(chip)
-        assertEquals(16, a.size)                       // switch and the pull resistor
+        val n = Board.ATT_INTS
+        assertEquals(2 * n, a.size)                    // switch and the pull resistor
         assertEquals(Board.ATT_SWITCH, a[3])
-        assertEquals(Board.ATT_PULL, a[8 + 3])
-        assertEquals(1, a[8 + 4])                      // pull-up to 3V3
+        assertEquals(Board.ATT_PULL, a[n + 3])
+        assertEquals(1, a[n + 4])                      // pull-up to 3V3
+    }
+
+    @Test fun oledsShareAnI2cBusWithTheirOwnAddresses() {
+        var b = place(Board(), new(PartType.OLED, 1))
+        val first = b.parts[0]
+        assertTrue("on an I2C peripheral: ${first.pins}", first.pins.all { it.function is Function.I2c })
+        assertEquals((first.pins[0].function as Function.I2c).periph, (first.pins[1].function as Function.I2c).periph)
+        assertEquals(listOf("SCL", "SDA"), first.pins.map { (it.function as Function.I2c).signal })
+        assertEquals(0x3C, first.i2cAddr)
+        b = place(b, new(PartType.OLED, 2))
+        val second = b.parts.first { it.id == 2 }
+        assertEquals("joins the same bus", first.pins, second.pins)
+        assertEquals(0x3D, second.i2cAddr)
+        val a = b.attachments(chip)
+        assertEquals(4 * Board.ATT_INTS, a.size)
+        assertEquals(Board.ATT_DEVICE, a[3]); assertEquals(Board.DEV_SSD1306, a[8]); assertEquals(0x3C, a[9])
+        assertEquals(0x3D, a[3 * Board.ATT_INTS + 9])
+        assertEquals("the board survives a save", b, Board.fromJson(b.toJson()))
     }
 
     @Test fun headersInBothOrders() {

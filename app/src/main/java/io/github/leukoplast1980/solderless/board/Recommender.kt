@@ -67,6 +67,7 @@ class Recommender(private val chip: ChipPins, hseFitted: Boolean = false, lseFit
         val adcCh = HashSet<String>()
         val dac = HashSet<Int>()
         val extiLines = HashMap<Int, Part>()
+        val i2cPins = HashMap<String, Function.I2c>()   // pin -> the bus signal on it, shareable
         init {
             for (p in board) for ((r, u) in p.pins.withIndex()) {
                 pins[u.pin] = p to r
@@ -74,6 +75,7 @@ class Recommender(private val chip: ChipPins, hseFitted: Boolean = false, lseFit
                     is Function.Timer -> { timerCh["${f.timer}/${f.channel}"] = p.id; timerOwner.putIfAbsent(f.timer, p) }
                     is Function.Adc -> adcCh += "${f.adc}/${f.channel}"
                     is Function.Dac -> dac += f.channel
+                    is Function.I2c -> i2cPins[u.pin] = f
                     else -> {}
                 }
                 if (p.type == PartType.BUTTON && p.interrupt) extiLines[bitOf(u.pin)] = p
@@ -111,6 +113,10 @@ class Recommender(private val chip: ChipPins, hseFitted: Boolean = false, lseFit
             Need.PWM -> pin.timerChannels.filter(::timerOk).forEach { out += Function.Timer(it.timer, it.channel, it.af) }
             Need.ADC -> pin.adcChannels.filter { "${it.first}/${it.second}" !in use.adcCh }
                 .forEach { out += Function.Adc(it.first, it.second) }
+            Need.I2C_SCL, Need.I2C_SDA -> {
+                val sig = if (need == Need.I2C_SCL) "SCL" else "SDA"
+                pin.i2c(sig).filter { groupTimer == null || it.periph == groupTimer }.forEach { out += Function.I2c(it.periph, sig, it.af) }
+            }
             Need.DAC_OR_PWM -> {
                 if (pin.dacChannel != 0 && pin.dacChannel !in use.dac) out += Function.Dac(pin.dacChannel)
                 pin.timerChannels.filter(::timerOk).forEach { out += Function.Timer(it.timer, it.channel, it.af) }
@@ -138,8 +144,12 @@ class Recommender(private val chip: ChipPins, hseFitted: Boolean = false, lseFit
     private fun place(part: Part, board: List<Part>, fixed: Map<Int, String> = emptyMap()): Placed? {
         val use = Usage(board.filter { it.id != part.id })
         val roles = part.type.roles.indices
-        val timers: List<String?> = if (part.type == PartType.RGB_LED)
-            chip.gpios.flatMap { p -> p.timerChannels.map { it.timer } }.distinct().sorted() else listOf(null)
+        val busPart = part.needs().any { it == Need.I2C_SCL || it == Need.I2C_SDA }
+        val timers: List<String?> = when {
+            part.type == PartType.RGB_LED -> chip.gpios.flatMap { p -> p.timerChannels.map { it.timer } }.distinct().sorted()
+            busPart -> chip.gpios.flatMap { p -> p.af.filter { it.periph.startsWith("I2C") }.map { it.periph } }.distinct().sorted()
+            else -> listOf(null)
+        }
         var best: Placed? = null
         for (t in timers) {
             val taken = HashSet<String>()
@@ -149,8 +159,11 @@ class Recommender(private val chip: ChipPins, hseFitted: Boolean = false, lseFit
             var ok = true
             for (r in roles) {
                 val cands = chip.gpios.asSequence()
-                    .filter { (fixed[r] == null || it.name == fixed[r]) && it.name !in use.pins && it.name !in taken }
+                    .filter { (fixed[r] == null || it.name == fixed[r]) && it.name !in taken }
                     .flatMap { p -> functionsFor(part, r, p, use, t).map { f -> Triple(p, f, fnCost(part, p, f)) } }
+                    // a pin in use only as the same bus signal: the part joins the bus there, for free
+                    .filter { (p, f, _) -> p.name !in use.pins || (f is Function.I2c && use.i2cPins[p.name] == f) }
+                    .map { (p, f, c) -> if (p.name in use.pins) Triple(p, f, 0.0) else Triple(p, f, c) }
                     .filter { (_, f, _) -> f !is Function.Timer || "${f.timer}/${f.channel}" !in takenCh }
                     .sortedWith(compareBy({ it.third }, { it.first.port }, { it.first.bit }))
                     .firstOrNull()
@@ -169,9 +182,17 @@ class Recommender(private val chip: ChipPins, hseFitted: Boolean = false, lseFit
                 val byCh = chosen.sortedBy { (it.function as Function.Timer).channel }
                 if (fixed.isEmpty()) { chosen.clear(); chosen += byCh }
             }
-            if (best == null || total < best.cost) best = Placed(part.copy(pins = chosen.toList()), total)
+            var placed = part.copy(pins = chosen.toList())
+            if (busPart) placed = placed.copy(i2cAddr = freeAddress(placed, board.filter { it.id != part.id }))
+            if (best == null || total < best.cost) best = Placed(placed, total)
         }
         return best
+    }
+
+    /** An address no other part on the same bus has: the OLED's SA0 strap gives 0x3C or 0x3D */
+    private fun freeAddress(p: Part, others: List<Part>): Int {
+        val onBus = others.filter { it.type == p.type && it.pins == p.pins }.map { it.i2cAddr }.toSet()
+        return listOf(p.i2cAddr, 0x3C, 0x3D).firstOrNull { it !in onBus } ?: p.i2cAddr
     }
 
     fun propose(board: List<Part>, newPart: Part): Proposal? {
@@ -253,6 +274,8 @@ class Recommender(private val chip: ChipPins, hseFitted: Boolean = false, lseFit
             is Function.Timer -> "${u.pin} carries $f (AF${f.af}), so the timer drives it as PWM."
             is Function.Adc -> "${u.pin} is ${f.adc} input ${f.channel}."
             is Function.Dac -> "${u.pin} is DAC1 output ${f.channel}; the DAC can play samples."
+            is Function.I2c -> "${u.pin} is ${f.periph} ${f.signal} (AF${f.af}). I2C lines are open-drain; the module's " +
+                "pull-ups hold them high." + if (r == 0) " Address 0x%02X.".format(java.util.Locale.ROOT, p.i2cAddr) else ""
         }
     }
 

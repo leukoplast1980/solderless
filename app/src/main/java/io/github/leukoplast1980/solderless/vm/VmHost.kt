@@ -253,6 +253,9 @@ class VmHost private constructor(context: Context) {
 
     fun readBoard(into: BoardState) = NativeVm.boardRead(handle, into.raw)
 
+    /** A bus part's pixels and state text (null if it is not on the board) */
+    fun readDevice(partId: Int, pixels: ByteArray): String? = NativeVm.deviceRead(handle, partId, pixels)
+
     fun step() = NativeVm.step(handle)
     fun reset() = NativeVm.reset(handle)
     fun powerCycle() = NativeVm.powerCycle(handle)

@@ -52,6 +52,8 @@ object NativeVm {
     @JvmStatic external fun boardSet(handle: Long, attachments: IntArray)
     /** A button's pressed state (0/1) or a pot's wiper in per mille. */
     @JvmStatic external fun boardInput(handle: Long, part: Int, value: Int)
+    /** A bus part: its pixels (one byte each) into [pixels]; its controller's state as "name\tvalue" lines, null if absent */
+    @JvmStatic external fun deviceRead(handle: Long, part: Int, pixels: ByteArray): String?
     /** Fills [out] (at least [BoardState.SIZE] ints); starts a new averaging window. */
     @JvmStatic external fun boardRead(handle: Long, out: IntArray)
     /** Sound events of piezo and speaker pins; see jni.c audioRead for the layout. */

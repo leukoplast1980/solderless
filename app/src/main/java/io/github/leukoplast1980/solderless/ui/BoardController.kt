@@ -68,6 +68,12 @@ class BoardController(
     private val potStripName: TextView = activity.findViewById(R.id.potStripName)
     private val potStripValue: TextView = activity.findViewById(R.id.potStripValue)
     private val potSlider: Slider = activity.findViewById(R.id.potSlider)
+    /** Displays: what each controller holds, read with the board */
+    private val oledBuf = ByteArray(128 * 64)
+    private val deviceText = HashMap<Int, String>()
+    /** The close-up open now: part id, its screen and its rows of state */
+    private var closeUp: Triple<Int, OledView, LinearLayout>? = null
+
     /** The pot whose slider is open, or -1 */
     private var openPot = -1
     private var bottomInset = 0
@@ -84,7 +90,7 @@ class BoardController(
         view.onPress = { p, down -> vm.boardInput(p.id, if (down) 1 else 0) }
         view.onPot = { p, v -> vm.boardInput(p.id, v) }
         view.onLongPress = { showSettings(it) }
-        view.onTap = { showSample(it) }
+        view.onTap = { if (it.type == PartType.OLED) showOled(it) else showSample(it) }
         view.onPinTap = { showPin(it) }
         activity.findViewById<View>(R.id.boardAdd).setOnClickListener { showAdd() }
         activity.findViewById<View>(R.id.boardSupport).setOnClickListener { showSupport() }
@@ -112,6 +118,7 @@ class BoardController(
         if (view.board !== vm.board) { view.board = vm.board; rebuildPinned() }
         if (!boardVisible && pinned.visibility != View.VISIBLE) return
         vm.readBoard(state)
+        readDevices()
         if (boardVisible) {
             view.state = state
             view.invalidate()
@@ -119,6 +126,21 @@ class BoardController(
             warn.visibility = if (n > 0) View.VISIBLE else View.GONE
             warn.text = activity.getString(R.string.board_warnings, n)
         } else updatePinned()
+    }
+
+    /** Pixels and state of the displays on the board, for the board, the card and the close-up */
+    private fun readDevices() {
+        for (p in vm.board.parts.filter { it.type == PartType.OLED }) {
+            val text = vm.readDevice(p.id, oledBuf) ?: continue
+            val contrast = Regex("Contrast\t0x([0-9A-F]{2})").find(text)?.groupValues?.get(1)?.toInt(16) ?: 0x7F
+            view.devicePixels[p.id] = oledBuf.copyOf()
+            view.deviceContrast[p.id] = contrast
+            deviceText[p.id] = text
+            (pinnedViews[p.id] as? OledView)?.show(oledBuf, contrast)
+            closeUp?.let { (id, screen, rows) ->
+                if (id == p.id) { screen.show(oledBuf, contrast); fillState(rows, text) }
+            }
+        }
     }
 
     private fun warnings(): Int = vm.board.parts.flatMap { it.pins }.count { u ->
@@ -250,6 +272,7 @@ class BoardController(
         val needs = mapOf(
             PartType.BUTTON to "input with interrupt", PartType.LED to "output or PWM", PartType.RGB_LED to "3 PWM channels, one timer",
             PartType.POT to "ADC input", PartType.SPEAKER to "DAC or PWM, transistor", PartType.PIEZO to "PWM",
+            PartType.OLED to "I2C: SCL and SDA",
         )
         val grid = android.widget.GridLayout(activity).apply { columnCount = 2 }
         for ((t, n) in needs) grid.addView(MaterialButton(activity, null, com.google.android.material.R.attr.materialButtonOutlinedStyle).apply {
@@ -330,6 +353,50 @@ class BoardController(
         dlg.setOnDismissListener { if (view.ghost === pr.part) { view.ghost = null; view.highlightPins = emptySet() } }
     }
 
+    /** "name\tvalue" lines as a two-column table */
+    private fun fillState(rows: LinearLayout, text: String) {
+        val lines = text.trimEnd().lines().filter { '\t' in it }
+        if (rows.childCount != lines.size) {
+            rows.removeAllViews()
+            for (l in lines) rows.addView(LinearLayout(activity).apply {
+                orientation = LinearLayout.HORIZONTAL
+                setPadding(0, dp(6), 0, dp(6))
+                addView(TextView(activity).apply { textSize = 12.5f; setTextColor(color(R.color.label)) }, LinearLayout.LayoutParams(dp(104), -2))
+                addView(TextView(activity).apply { textSize = 12.5f; typeface = Typeface.MONOSPACE; setTextColor(color(R.color.console_text)) },
+                    LinearLayout.LayoutParams(0, -2, 1f))
+            })
+        }
+        for ((i, l) in lines.withIndex()) {
+            val row = rows.getChildAt(i) as LinearLayout
+            val (k, v) = l.split('\t', limit = 2)
+            (row.getChildAt(0) as TextView).text = k
+            val tv = row.getChildAt(1) as TextView
+            if (tv.text.toString() != v) tv.text = v
+        }
+    }
+
+    /** A display close up: every pixel, and what its controller holds */
+    private fun showOled(p: Part): BottomSheetDialog {
+        val dlg = sheet { col, dlg ->
+            title(col, p.type.title, "SSD1306 · 128 × 64 · " + (p.i2c ?: "I2C") + " " + "0x%02X".format(java.util.Locale.ROOT, p.i2cAddr))
+            val screen = OledView(activity, grid = true)
+            col.addView(screen, LinearLayout.LayoutParams(-1, -2).apply { topMargin = dp(8) })
+            col.addView(body(activity.getString(R.string.oled_closeup_hint), R.color.label))
+            val rows = LinearLayout(activity).apply { orientation = LinearLayout.VERTICAL }
+            col.addView(rows)
+            closeUp = Triple(p.id, screen, rows)
+            view.devicePixels[p.id]?.let { screen.show(it, view.deviceContrast[p.id] ?: 0x7F) }
+            deviceText[p.id]?.let { fillState(rows, it) }
+            switch(col, activity.getString(R.string.board_pin_over_tabs), p.pinnedOverTabs) {
+                setBoard(vm.board.with(vm.board.parts.first { it.id == p.id }.copy(pinnedOverTabs = it)))
+            }
+            buttons(col, activity.getString(R.string.board_sample_code) to { dlg.dismiss(); showSample(p) },
+                activity.getString(R.string.board_part_settings) to { dlg.dismiss(); showSettings(p) }, primaryLast = false)
+        }
+        dlg.setOnDismissListener { closeUp = null }
+        return dlg
+    }
+
     /** A part's sample code, from a tap on the part or its sheet */
     private fun showSample(p: Part): BottomSheetDialog = sheet { col, dlg ->
         val b = vm.board
@@ -349,6 +416,7 @@ class BoardController(
         PartType.POT -> "10 kΩ linear"
         PartType.SPEAKER -> if (p.dacDrive) "DAC drive" else "PWM drive"
         PartType.PIEZO -> "passive"
+        PartType.OLED -> "SSD1306 · ${p.i2c ?: "I2C"} · address " + "0x%02X".format(java.util.Locale.ROOT, p.i2cAddr)
     }
 
     private fun showRewire(pr: Recommender.Proposal, pin: String?) {
@@ -417,6 +485,8 @@ class BoardController(
                     "GPIO${'A' + (vm.chip.gpio(p.pins[0].pin)?.port ?: 0)}_PUPDR = ${if (p.toVcc) "10" else "01"} for ${p.pins[0].pin}.", R.color.label))
             }
             PartType.SPEAKER -> choice(col, "Driven by", listOf("DAC", "PWM"), if (p.dacDrive) 0 else 1) { update(p.copy(dacDrive = it == 0)) }
+            PartType.OLED -> choice(col, "Address (the SA0 pad)", listOf("0x3C · to GND", "0x3D · to 3V3"), if (p.i2cAddr == 0x3D) 1 else 0) {
+                update(p.copy(i2cAddr = if (it == 1) 0x3D else 0x3C)) }
             else -> {}
         }
         for (x in Passives.forPart(p)) col.addView(body("${x.value}: ${x.reason}"))
@@ -558,13 +628,16 @@ class BoardController(
                     onChange = { setPot(p.id, it) }
                     onTap = { openPot = if (openPot == p.id) -1 else p.id; showPotStrip(); updatePotButtons() }
                 }
+                PartType.OLED -> OledView(activity)
                 else -> TextView(activity).apply {
                     textSize = 12f; setTextColor(color(R.color.console_text)); gravity = Gravity.CENTER_VERTICAL
                     compoundDrawablePadding = dp(8)
                     text = nameAndPins(p)
                 }
             }
-            pinned.addView(v, LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, if (p.type == PartType.POT) dp(40) else dp(36))
+            // A 0.96" OLED's glass is about 22 mm wide: 138 dp is that on any screen
+            if (p.type == PartType.OLED) pinned.addView(v, LinearLayout.LayoutParams(dp(138), dp(69)).apply { topMargin = dp(4); bottomMargin = dp(2) })
+            else pinned.addView(v, LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, if (p.type == PartType.POT) dp(40) else dp(36))
                 .apply { if (p.type == PartType.POT) topMargin = dp(4) })
             pinnedViews[p.id] = v
         }

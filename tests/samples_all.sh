@@ -22,11 +22,13 @@ one() {
                 v6|v7) echo "#!attach $i switch $p";;
                 v8) echo "#!attach $i switch $p vcc"; echo "#!attach 9 pull $p";;
                 v9) echo "#!attach $i pot $p"; echo "#!input $i 300";;
+                v13) [ $i = 1 ] && echo "#!attach 1 oled $(echo $pins | tr ' ' '\n' | head -1) $(echo $pins | tr ' ' '\n' | tail -1)";;
                 *) echo "#!attach $i audio $p";;
             esac
             i=$((i + 1))
         done
         cat "$f"; echo "$try"; echo "10 ms"; echo "#!pins"; echo "10 ms"; echo "#!pins"
+        [ $v = v13 ] && echo "#!oled 1"
     } > "$out/$b.in"
     timeout 60 "$slemu" -d -k -t 20000 -s "$out/$b.in" "$fw" > "$out/$b.txt" 2>&1
     bad=$(grep -E "not found|^line [0-9]+:|Stack|\[chip\]|timeout|locked" "$out/$b.txt" | head -3)

@@ -241,21 +241,36 @@ out:
 
 /* ---- The breadboard ---------------------------------------------------- */
 
-/* att: 8 ints per attachment, in sl_attach's field order */
+/* att: 10 ints per attachment, in sl_attach's field order */
 JNIEXPORT void JNICALL FN(boardSet)(JNIEnv *env, jclass cls, jlong h, jintArray att)
 {
     (void)cls;
-    jsize n = (*env)->GetArrayLength(env, att) / 8;
+    jsize n = (*env)->GetArrayLength(env, att) / 10;
     if (n > SL_MAX_ATTACH) n = SL_MAX_ATTACH;
     sl_attach a[SL_MAX_ATTACH];
     jint *v = (*env)->GetIntArrayElements(env, att, NULL);
     for (jsize i = 0; i < n; i++) {
-        jint *x = v + 8 * i;
+        jint *x = v + 10 * i;
         a[i].part = x[0]; a[i].role = x[1]; a[i].pin = x[2]; a[i].kind = x[3];
         a[i].to_vcc = x[4]; a[i].r_ohm = x[5]; a[i].vf_mv = x[6]; a[i].bounce_us = x[7];
+        a[i].dev = x[8]; a[i].addr = x[9];
     }
     (*env)->ReleaseIntArrayElements(env, att, v, JNI_ABORT);
     sl_board_set(VM(h), a, (int)n);
+}
+
+/* A bus part: pixels (one byte each) into px; returns its state as text */
+JNIEXPORT jstring JNICALL FN(deviceRead)(JNIEnv *env, jclass cls, jlong h, jint part, jbyteArray px)
+{
+    (void)cls;
+    static uint8_t buf[128 * 64];
+    char text[1024];
+    size_t n = sl_device_read(VM(h), part, buf, sizeof buf, text, sizeof text);
+    if (!n) return NULL;
+    jsize len = (*env)->GetArrayLength(env, px);
+    if ((size_t)len > n) len = (jsize)n;
+    (*env)->SetByteArrayRegion(env, px, 0, len, (const jbyte *)buf);
+    return (*env)->NewStringUTF(env, text);
 }
 
 JNIEXPORT void JNICALL FN(boardInput)(JNIEnv *env, jclass cls, jlong h, jint part, jint value)

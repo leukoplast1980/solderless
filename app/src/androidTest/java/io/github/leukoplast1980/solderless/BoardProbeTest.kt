@@ -43,6 +43,58 @@ class BoardProbeTest {
         Thread.sleep(1200)
     }
 
+    /** An OLED on I2C: its sample code draws, the board shows it, the close-up and the card too */
+    @Test
+    fun oled() {
+        val ctx = InstrumentationRegistry.getInstrumentation().targetContext
+        val scenario = ActivityScenario.launch(MainActivity::class.java)
+        Thread.sleep(2500)
+        val vm = VmHost.get(ctx)
+        val rec = vm.recommender()
+        var b = Board()
+        for (t in listOf(PartType.OLED, PartType.LED, PartType.BUTTON)) b = b.apply(rec.propose(b.parts, Part(b.nextId(), t, emptyList()))!!)
+        val oled = b.parts.first { it.type == PartType.OLED }
+        Log.i(TAG, "oled on ${oled.pins} at ${oled.i2cAddr}")
+        scenario.onActivity { vm.setBoard(b) }
+        val sample = io.github.leukoplast1980.solderless.board.Samples.forPart(b, vm.chip, oled)
+        for (line in sample.lines().filter { it.isNotBlank() })
+            assertEquals(line, io.github.leukoplast1980.solderless.forth.LineResult.OK, vm.sendLineChecked(line, 5000))
+        assertEquals(io.github.leukoplast1980.solderless.forth.LineResult.OK,
+            vm.sendLineChecked("oled-init oled-frame oled-ball 30 20 oled-pixel oled-show", 15000))
+        val px = ByteArray(128 * 64)
+        val text = vm.readDevice(oled.id, px)
+        Log.i(TAG, "oled state: $text")
+        assertTrue("lit: $text", text != null && "Display\ton" in text)
+        assertEquals("top-left corner of the frame", 1, px[0].toInt())
+        assertEquals("the ball", 1, px[10 * 128 + 10].toInt())
+        assertEquals("inside, dark", 0, px[30 * 128 + 60].toInt())
+        selectTab(scenario, R.string.tab_board)
+        Thread.sleep(800)
+        screenshot("oled-board.png")
+
+        var at: android.graphics.RectF? = null
+        val loc = IntArray(2)
+        scenario.onActivity { a ->
+            val bv = a.findViewById<io.github.leukoplast1980.solderless.ui.BoardView>(R.id.boardView)
+            at = bv.partBounds(oled.id); bv.getLocationOnScreen(loc)
+        }
+        assertTrue("OLED drawn", at != null)
+        ui().click(loc[0] + at!!.centerX().toInt(), loc[1] + at!!.centerY().toInt())
+        Thread.sleep(1500)
+        screenshot("oled-closeup.png")
+        InstrumentationRegistry.getInstrumentation().uiAutomation.performGlobalAction(android.accessibilityservice.AccessibilityService.GLOBAL_ACTION_BACK)
+        Thread.sleep(600)
+
+        scenario.onActivity { vm.setBoard(Board(vm.board.parts.map { if (it.id == oled.id) it.copy(pinnedOverTabs = true) else it })) }
+        selectTab(scenario, R.string.tab_repl)
+        Thread.sleep(800)
+        screenshot("oled-pinned.png")
+        scenario.onActivity { vm.setBoard(Board()) }
+        scenario.close()
+    }
+
+    private fun ui() = androidx.test.uiautomator.UiDevice.getInstance(InstrumentationRegistry.getInstrumentation())
+
     /** Parts pinned over the other tabs: the card on Console, Scope and Registers, and the pot's slider */
     @Test
     fun floatingControls() {

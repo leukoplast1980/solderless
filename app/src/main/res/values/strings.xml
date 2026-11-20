@@ -20,6 +20,7 @@
     <string name="tab_scope">Scope</string>
     <string name="registers_copy">Copy</string>
     <string name="board_sample_code">Sample code</string>
+    <string name="oled_closeup_hint">The pixels as the controller lights them now, one square each.</string>
     <string name="pot_down">Turn down by 1 %</string>
     <string name="pot_up">Turn up by 1 %</string>
     <string name="pot_slider">Potentiometer position</string>

@@ -16,6 +16,9 @@ object Samples {
     private const val EXTI = 0x40010400L
     private const val SYSCFG = 0x40010000L
 
+    /** RCC enable bit of each I2C */
+    private val I2C_CLOCK = mapOf("I2C1" to 21, "I2C2" to 22, "I2C3" to 30)
+
     /** RCC enable bit of each timer: register, its name, bit */
     private val TIMER_CLOCK = mapOf(
         "TIM2" to Triple(APB1ENR1, "APB1ENR1", 0), "TIM3" to Triple(APB1ENR1, "APB1ENR1", 1),
@@ -81,6 +84,7 @@ object Samples {
             PartType.POT -> pot(c, n, chip, p)
             PartType.PIEZO, PartType.SPEAKER ->
                 if (p.pins[0].function is Function.Dac) dacTone(c, n, chip, p) else pwmTone(c, n, chip, p)
+            PartType.OLED -> oled(c, n, chip, p)
         }
         return c.text()
     }
@@ -94,6 +98,8 @@ object Samples {
         PartType.POT -> "potentiometer, wiper on ${p.pins[0].pin} (${p.pins[0].function})"
         PartType.SPEAKER -> "speaker, driven by ${p.pins[0].pin} (${p.pins[0].function})"
         PartType.PIEZO -> "piezo buzzer on ${p.pins[0].pin} (${p.pins[0].function})"
+        PartType.OLED -> "OLED display, SSD1306 128 × 64, on ${p.i2c}: SCL ${p.pins[0].pin}, SDA ${p.pins[1].pin}, address " +
+            "$%02X".format(java.util.Locale.ROOT, p.i2cAddr)
     }
 
     // ---- pieces --------------------------------------------------------
@@ -113,10 +119,15 @@ object Samples {
         c.add("  %$bits $base-pin 2* lshift $base-port bis!", "MODER: $bits = $what")
     }
 
-    private fun altFunction(c: Code, base: String, pinBit: Int, f: Function.Timer) {
+    private fun altFunction(c: Code, base: String, pinBit: Int, f: Function) {
+        val (af, what) = when (f) {
+            is Function.Timer -> f.af to "${f.timer} CH${f.channel}"
+            is Function.I2c -> f.af to "${f.periph} ${f.signal}"
+            else -> return
+        }
         val (shift, off, reg) = if (pinBit < 8) Triple("$base-pin 4 *", "\$20", "AFRL") else Triple("$base-pin 8 - 4 *", "\$24", "AFRH")
         c.add("  \$F $shift lshift $base-port $off + bic!", "$reg: clear the four bits")
-        c.add("  $base-af $shift lshift $base-port $off + bis!", "$reg: AF${f.af} = ${f.timer} CH${f.channel}")
+        c.add("  $base-af $shift lshift $base-port $off + bis!", "$reg: AF$af = $what")
     }
 
     private fun timerClock(c: Code, timer: String) {
@@ -362,6 +373,79 @@ object Samples {
         c.add("    100 ms")
         c.add("  key? until drop ;")
         tryIt(c, "$n-init $n@ .   or   $n-watch (Enter stops it)")
+    }
+
+    private fun oled(c: Code, n: String, chip: ChipPins, p: Part) {
+        val f = p.pins[0].function as? Function.I2c ?: return
+        val i = "$n-i2c"
+        c.add(": $n-isr ( -- u ) $i \$18 + @ ;", "I2C ISR")
+        c.add(": $n-go ( n -- )", "write n bytes to the OLED, STOP after them")
+        c.add("  16 lshift  $n-addr 1 lshift or", "CR2: NBYTES, the address")
+        c.add("  1 25 lshift or  1 13 lshift or  $i 4 + ! ;", "AUTOEND, START")
+        c.add(": >$n ( b -- )", "one byte")
+        c.add("  begin $n-isr 2 and until  $i \$28 + ! ;", "wait for TXIS, then TXDR")
+        c.add(": $n-end ( -- )", "the transfer's STOP")
+        c.add("  begin $n-isr \$20 and until  \$20 $i \$1C + ! ;", "wait for STOPF, clear it in ICR")
+        c.add(": $n? ( -- flag )", "does the OLED answer at its address?")
+        c.add("  0 $n-go  begin $n-isr \$20 and until", "the address alone")
+        c.add("  $n-isr \$10 and 0=  \$30 $i \$1C + ! ;", "no NACKF: it answered")
+        c.add(": $n-cmd ( c -- ) 2 $n-go  0 >$n  >$n  $n-end ;", "control byte 00: a command follows")
+        c.gap()
+        c.add("1024 buffer: $n-buf", "the picture: 8 pages of 128 columns")
+        c.add(": $n-clear ( -- ) $n-buf 1024 0 fill ;")
+        c.add(": $n-pixel ( x y -- )", "x 0..127 from the left, y 0..63 from the top")
+        c.add("  over 128 u< over 64 u< and 0= if 2drop exit then")
+        c.add("  dup 7 and 1 swap lshift -rot", "the bit in its byte")
+        c.add("  3 rshift 7 lshift + $n-buf + cbis! ;", "the byte: page y/8, column x")
+        c.add(": $n-show ( -- )", "the picture to the display")
+        c.add("  \$21 $n-cmd 0 $n-cmd 127 $n-cmd", "columns 0 to 127")
+        c.add("  \$22 $n-cmd 0 $n-cmd 7 $n-cmd", "pages 0 to 7")
+        c.add("  8 0 do")
+        c.add("    129 $n-go  \$40 >$n", "control byte 40: data follows")
+        c.add("    128 0 do  j 7 lshift i + $n-buf + c@ >$n  loop")
+        c.add("    $n-end")
+        c.add("  loop ;")
+        c.gap()
+        c.add(": $n-init ( -- )")
+        gpioClocks(c, chip, p.pins)
+        c.add("  1 ${I2C_CLOCK[f.periph]} lshift $APB1ENR1 bis!", "RCC APB1ENR1: clock for ${f.periph}")
+        for ((r, u) in p.pins.withIndex()) {
+            val base = "$n-${p.type.roles[r]}"
+            mode(c, base, "10", "alternate function")
+            c.add("  1 $base-pin lshift $base-port 4 + bis!", "OTYPER: open-drain, as I2C needs")
+            altFunction(c, base, bit(chip, u), u.function)
+        }
+        c.add("  0 $i !", "CR1: PE off while setting the timing")
+        c.add("  \$00310F13 $i \$10 + !", "TIMINGR: SCL about 380 kHz from 16 MHz")
+        c.add("  1 $i !", "CR1: PE, on")
+        c.add("  $n? 0= if .\" The OLED does not answer at \" $n-addr hex. cr exit then")
+        c.add("  \$AE $n-cmd", "display off while setting it up")
+        c.add("  \$D5 $n-cmd \$80 $n-cmd", "clock: the default")
+        c.add("  \$A8 $n-cmd 63 $n-cmd", "multiplex: 64 lines")
+        c.add("  \$D3 $n-cmd 0 $n-cmd  \$40 $n-cmd", "no offset, start at line 0")
+        c.add("  \$8D $n-cmd \$14 $n-cmd", "charge pump on: without it the panel stays dark")
+        c.add("  \$20 $n-cmd 0 $n-cmd", "horizontal addressing")
+        c.add("  \$A1 $n-cmd  \$C8 $n-cmd", "column 0 on the left, row 0 at the top")
+        c.add("  \$DA $n-cmd \$12 $n-cmd", "COM pins as 128 × 64 panels are wired")
+        c.add("  \$81 $n-cmd \$CF $n-cmd", "contrast")
+        c.add("  \$A4 $n-cmd  \$A6 $n-cmd", "show the RAM, not inverted")
+        c.add("  $n-clear $n-show", "the RAM holds noise at power-on")
+        c.add("  \$AF $n-cmd ;", "display on")
+        c.gap()
+        c.add("\\ A ball bouncing inside a frame until a key is pressed")
+        c.add("10 variable $n-x  10 variable $n-y  2 variable $n-dx  1 variable $n-dy")
+        c.add(": $n-frame ( -- )")
+        c.add("  128 0 do i 0 $n-pixel  i 63 $n-pixel loop")
+        c.add("  64 0 do 0 i $n-pixel  127 i $n-pixel loop ;")
+        c.add(": $n-ball ( -- )")
+        c.add("  4 0 do 4 0 do  $n-x @ i +  $n-y @ j +  $n-pixel  loop loop ;")
+        c.add(": $n-move ( -- )")
+        c.add("  $n-dx @ $n-x +!  $n-x @ 2 < $n-x @ 122 > or if $n-dx @ negate $n-dx ! then")
+        c.add("  $n-dy @ $n-y +!  $n-y @ 2 < $n-y @ 58 > or if $n-dy @ negate $n-dy ! then ;")
+        c.add(": $n-demo ( -- )")
+        c.add("  $n-init  $n? 0= if exit then")
+        c.add("  begin $n-clear $n-frame $n-ball $n-show $n-move key? until ;")
+        tryIt(c, "$n-init 10 20 $n-pixel $n-show   or   $n-demo (Enter stops it)")
     }
 
     private val SCALE = "523 494 440 392 349 330 294 262"

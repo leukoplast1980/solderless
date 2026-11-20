@@ -8,6 +8,7 @@ package io.github.leukoplast1980.solderless.ui
 
 import android.annotation.SuppressLint
 import android.content.Context
+import android.graphics.Bitmap
 import android.graphics.Canvas
 import android.graphics.DashPathEffect
 import android.graphics.Paint
@@ -59,6 +60,12 @@ class BoardView @JvmOverloads constructor(context: Context, attrs: AttributeSet?
     var onPinTap: (ChipPins.Pin) -> Unit = {}
     /** Last known pot positions (per mille), drawn and dragged */
     val potValue = HashMap<Int, Int>()
+    /** Displays: lit pixels (128 x 64, one byte each) and contrast, by part id; the controller fills them */
+    val devicePixels = HashMap<Int, ByteArray>()
+    val deviceContrast = HashMap<Int, Int>()
+    private val oledBitmap = Bitmap.createBitmap(128, 64, Bitmap.Config.ARGB_8888)
+    private val oledRow = IntArray(128 * 64)
+    private val pixelPaint = Paint().apply { isFilterBitmap = false; isAntiAlias = false }
 
     private val d = resources.displayMetrics.density
     private fun dp(v: Float) = v * d
@@ -73,6 +80,7 @@ class BoardView @JvmOverloads constructor(context: Context, attrs: AttributeSet?
     private val cDimText = 0xFF56636A.toInt(); private val cDim = 0xFF3A4650.toInt(); private val cNum = 0xFF4A555C.toInt()
     private val cHigh = 0xFF8FD18F.toInt(); private val cLow = 0xFF5E6A70.toInt(); private val cPwm = 0xFFC49BE0.toInt()
     private val cAnalog = 0xFF80DEEA.toInt(); private val cWarn = 0xFFFFB454.toInt(); private val cDanger = 0xFFFF6B6B.toInt()
+    private val cBus = 0xFFE6B673.toInt()
 
     private val stroke = Paint(Paint.ANTI_ALIAS_FLAG).apply { style = Paint.Style.STROKE; strokeWidth = dp(1.6f); strokeJoin = Paint.Join.ROUND; strokeCap = Paint.Cap.ROUND }
     private val fill = Paint(Paint.ANTI_ALIAS_FLAG).apply { style = Paint.Style.FILL }
@@ -229,6 +237,7 @@ class BoardView @JvmOverloads constructor(context: Context, attrs: AttributeSet?
     private fun extent(p: Part): Pair<Float, Float> = when (p.type) {
         PartType.RGB_LED -> dp(52f) to dp(52f)
         PartType.POT -> dp(42f) to dp(42f)
+        PartType.OLED -> dp(56f) to dp(52f)
         else -> dp(26f) to dp(24f)
     }
 
@@ -450,9 +459,67 @@ class BoardView @JvmOverloads constructor(context: Context, attrs: AttributeSet?
                 }
                 box.set(x0, rows[0] - dp(30f), x0 + sg * dp(120f), rows[2] + dp(26f))
             }
+            PartType.OLED -> drawOled(c, p, cy, x0, sg, isGhost, box)
         }
         box.sort()
         if (!isGhost) hit += box to p
+    }
+
+    /** An SSD1306 module: its four pins face the header, the screen shows what the controller lights */
+    private fun drawOled(c: Canvas, p: Part, cy: Float, x0: Float, sg: Int, isGhost: Boolean, box: RectF) {
+        val gc = if (isGhost) cHigh else null
+        val avail = width - 2 * headerW - dp(36f)
+        val mw = minOf(dp(146f), avail)                  // module width
+        val near = x0 + sg * dp(30f)                     // the module's edge with the pins
+        val far = near + sg * mw
+        val top = cy - dp(46f); val bottom = cy + dp(46f)
+        val l = minOf(near, far); val r = maxOf(near, far)
+        fill.color = 0xFF14324A.toInt()
+        if (!isGhost) c.drawRoundRect(RectF(l, top, r, bottom), dp(6f), dp(6f), fill)
+        setStroke(gc ?: 0xFF4A6A86.toInt(), isGhost, 1.4f)
+        c.drawRoundRect(RectF(l, top, r, bottom), dp(6f), dp(6f), stroke)
+        // Pins: GND and VCC, then SCL and SDA in the order their header pins come, so the wires do not cross
+        val scl = p.pins.getOrNull(0)?.pin; val sda = p.pins.getOrNull(1)?.pin
+        val sclFirst = (pinY[scl] ?: 0f) <= (pinY[sda] ?: 0f)
+        val names = listOf("GND", "VCC") + if (sclFirst) listOf("SCL", "SDA") else listOf("SDA", "SCL")
+        val ys = listOf(cy - dp(30f), cy - dp(15f), cy + dp(10f), cy + dp(25f))
+        text.typeface = Typeface.MONOSPACE
+        for ((i, n) in names.withIndex()) {
+            fill.color = 0xFFC9A24A.toInt(); c.drawCircle(near, ys[i], dp(3f), fill)
+            label(c, n, near + sg * dp(6f), ys[i] + dp(2.5f), 6.5f, 0xFFB9C9D9.toInt(), if (sg > 0) Paint.Align.LEFT else Paint.Align.RIGHT)
+        }
+        val ySig = mapOf(names[2] to ys[2], names[3] to ys[3])
+        for ((role, pin) in listOf(scl, sda).withIndex()) {
+            if (pin == null) continue
+            val y = ySig[if (role == 0) "SCL" else "SDA"]!!
+            val jog = if ((role == 0) == sclFirst) 16f else 9f
+            feed(c, pin, near, y, isGhost, gc ?: busColour(pin), jog)
+        }
+        // The screen, 2:1, pixel for pixel
+        val sx0 = minOf(near + sg * dp(26f), far - sg * dp(6f)); val sx1 = maxOf(near + sg * dp(26f), far - sg * dp(6f))
+        val sw = sx1 - sx0; val sh = sw / 2f
+        val sy0 = cy - sh / 2 + dp(4f)
+        fill.color = 0xFF050A10.toInt(); c.drawRect(sx0 - dp(2f), sy0 - dp(2f), sx1 + dp(2f), sy0 + sh + dp(2f), fill)
+        val px = devicePixels[p.id]
+        if (!isGhost && px != null) {
+            val contrast = deviceContrast[p.id] ?: 0x7F
+            val a = (110 + 145 * contrast / 255).coerceIn(60, 255)
+            val on = (a shl 24) or 0xCFE6FF
+            for (i in 0 until 128 * 64) oledRow[i] = if (px[i].toInt() != 0) on else 0
+            oledBitmap.setPixels(oledRow, 0, 128, 0, 0, 128, 64)
+            c.drawBitmap(oledBitmap, null, RectF(sx0, sy0, sx1, sy0 + sh), pixelPaint)
+        }
+        label(c, "OLED " + "0x%02X".format(java.util.Locale.ROOT, p.i2cAddr), (l + r) / 2, top - dp(5f), 9.5f, gc ?: cText, bold = true)
+        box.set(x0, top - dp(18f), far, bottom + dp(4f))
+        if (!isGhost) hitLabel += RectF(l, top - dp(20f), r, bottom) to p
+    }
+
+    /** I2C lines: the bus colour while they idle high, as any wire otherwise */
+    private fun busColour(pin: String): Int {
+        val st = state ?: return cBus
+        val s = slot(pin)
+        if (s < 0) return cBus
+        return if (st.high(s) && !st.floating(s)) cBus else wireColour(pin)
     }
 
     private fun drawConsole(c: Canvas) {

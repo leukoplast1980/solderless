@@ -26,6 +26,9 @@ object Wiring {
             PartType.SPEAKER -> "${u.pin} (pin ${pin.number}) → 1 kΩ → NPN base; speaker from 3V3 to the collector, " +
                 "1N4148 across the speaker; emitter → GND"
             PartType.PIEZO -> "${u.pin} (pin ${pin.number}) → piezo → GND"
+            PartType.OLED -> if (role == 0) "${u.pin} (pin ${pin.number}) → OLED SCL; the module pulls it up (4.7 kΩ)"
+                else "${u.pin} (pin ${pin.number}) → OLED SDA, pulled up on the module; VCC → 3V3, GND → GND, " +
+                    "address 0x%02X (SA0 to %s)".format(java.util.Locale.ROOT, p.i2cAddr, if (p.i2cAddr == 0x3D) "3V3" else "GND")
         }
     }
 
@@ -62,6 +65,13 @@ object Wiring {
                 }
                 is Function.Dac -> sb.append(f.channel).append(" constant ").append(base).append("-dac-ch  \\ DAC1 OUT")
                     .append(f.channel).append('\n')
+                is Function.I2c -> {
+                    if (role == 0) {
+                        sb.append(hex(ChipPins.BASE[f.periph]!!)).append(" constant ").append(n).append("-i2c  \\ ").append(f.periph).append('\n')
+                        sb.append("$%02X".format(java.util.Locale.ROOT, p.i2cAddr)).append(" constant ").append(n).append("-addr\n")
+                    }
+                    sb.append(f.af).append(" constant ").append(base).append("-af\n")
+                }
                 is Function.Gpio -> {}
             }
         }
@@ -90,8 +100,9 @@ object Wiring {
                 PartType.POT -> add("potentiometer 10 kΩ, linear")
                 PartType.SPEAKER -> add("speaker 8 Ω, small")
                 PartType.PIEZO -> add("piezo buzzer, passive")
+                PartType.OLED -> add("OLED module, SSD1306, 128 × 64, 0.96\", I2C (4 pins)")
             }
-            for (x in Passives.forPart(p)) add(if (x.kind == "resistor") "resistor ${x.value}" else "${x.kind} ${x.value}")
+            for (x in Passives.forPart(p).filter { it.kind != "on the module" }) add(if (x.kind == "resistor") "resistor ${x.value}" else "${x.kind} ${x.value}")
         }
         add("capacitor 100 nF", 6); add("capacitor 1 µF"); add("capacitor 4.7 µF"); add("resistor 10 kΩ (BOOT0)")
         val sb = StringBuilder("Parts list: ").append(project).append("\n\n")
