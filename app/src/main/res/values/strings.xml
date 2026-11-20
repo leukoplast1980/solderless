@@ -23,7 +23,7 @@
     <string name="pot_down">Turn down by 1 %</string>
     <string name="pot_up">Turn up by 1 %</string>
     <string name="pot_slider">Potentiometer position</string>
-    <string name="pot_open">%1$s: open its slider</string>
+    <string name="pot_open">%1$s: drag to turn, tap for the wide slider</string>
     <string name="board_other_pins_button">Other pins: %1$d</string>
     <string name="board_sample_title">%1$s: sample code</string>
     <string name="board_sample_hint">Ready to run: paste it into the console, or into a file loaded after wiring.fs. Then try the word on its last line.</string>

@@ -553,13 +553,10 @@ class BoardController(
                         true
                     }
                 }
-                PartType.POT -> MaterialButton(activity, null, com.google.android.material.R.attr.materialButtonOutlinedStyle).apply {
-                    isAllCaps = false; textSize = 13f
-                    strokeColor = ColorStateList.valueOf(color(R.color.analog))
-                    setTextColor(color(R.color.bar_text))
-                    insetTop = 0; insetBottom = 0; minHeight = dp(40)
+                PartType.POT -> PotPill(activity).apply {
                     contentDescription = activity.getString(R.string.pot_open, vm.board.nameOf(p))
-                    setOnClickListener { openPot = if (openPot == p.id) -1 else p.id; showPotStrip(); updatePotButtons() }
+                    onChange = { setPot(p.id, it) }
+                    onTap = { openPot = if (openPot == p.id) -1 else p.id; showPotStrip(); updatePotButtons() }
                 }
                 else -> TextView(activity).apply {
                     textSize = 12f; setTextColor(color(R.color.console_text)); gravity = Gravity.CENTER_VERTICAL
@@ -598,17 +595,13 @@ class BoardController(
         showPotStrip()
     }
 
-    /** The card's pot buttons: name, voltage, and which way the slider is */
+    /** The card's pots: how far each is turned, and whether its wide slider is open */
     private fun updatePotButtons() {
         for (p in vm.board.parts.filter { it.pinnedOverTabs && it.type == PartType.POT }) {
-            val b = pinnedViews[p.id] as? MaterialButton ?: continue
-            val sb = SpannableStringBuilder(vm.board.nameOf(p)).append("   ")
-            val at = sb.length
-            sb.append(volts(potValue(p.id))).append(if (openPot == p.id) " ▾" else " ▴")
-            sb.setSpan(ForegroundColorSpan(color(R.color.analog)), at, sb.length, Spanned.SPAN_EXCLUSIVE_EXCLUSIVE)
-            sb.setSpan(TypefaceSpan("monospace"), at, sb.length, Spanned.SPAN_EXCLUSIVE_EXCLUSIVE)
-            b.text = sb
-            b.setBackgroundColor(if (openPot == p.id) color(R.color.analog_dim) else 0)
+            val pill = pinnedViews[p.id] as? PotPill ?: continue
+            pill.name = vm.board.nameOf(p)
+            pill.value = potValue(p.id)
+            pill.open = openPot == p.id
         }
     }
 

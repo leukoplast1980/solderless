@@ -76,6 +76,15 @@ class BoardProbeTest {
         Thread.sleep(500)
         screenshot("pinned-pot-open.png")
 
+        // Dragging along the pill turns the pot to where the finger is: about a quarter
+        val pill = ui.findObject(androidx.test.uiautomator.UiSelector().descriptionStartsWith("pot"))!!.bounds
+        ui.swipe(pill.right - pill.height(), pill.centerY(), pill.left + pill.height() / 2 + (pill.width() - pill.height()) / 4, pill.centerY(), 30)
+        Thread.sleep(600)
+        scenario.onActivity { a -> v = a.findViewById<io.github.leukoplast1980.solderless.ui.BoardView>(R.id.boardView).potValue[pot.id] ?: -1 }
+        Log.i(TAG, "pot after the drag: $v")
+        assertTrue("dragged to about 25 %, got $v", v in 180..320)
+        screenshot("pinned-pot-dragged.png")
+
         for ((tab, shot) in listOf(R.string.tab_scope to "pinned-scope.png", R.string.tab_registers to "pinned-registers.png")) {
             selectTab(scenario, tab)
             var shown = false
