@@ -3,20 +3,17 @@
 An Android app for learning how the STM32G431 works. It emulates an
 STM32G431RB, register for register, and runs the unmodified
 [Mecrisp-Stellaris](https://mecrisp.sourceforge.net/) Forth for the G431
-or firmware you build yourself. A virtual breadboard with buttons, LEDs,
-sensors, displays and more follows in the next milestones (see
-[docs/design.md](docs/design.md)).
+or firmware you build yourself, with a virtual breadboard of buttons,
+LEDs, potentiometers and sounders. Displays, sensors and more follow in
+the next milestones (see [docs/design.md](docs/design.md)).
 
-<img width="864" height="1939" alt="Screenshot_20261120-164003" src="https://github.com/user-attachments/assets/1a55c2fd-3d18-4490-b4b9-a4ee30c0245f" />
-
-<img width="864" height="1939" alt="Screenshot_20261120-164041" src="https://github.com/user-attachments/assets/2d306a71-29ee-4ce9-b573-9246e969b5d0" />
-
-<img width="864" height="1939" alt="Screenshot_20261120-164046" src="https://github.com/user-attachments/assets/1c904441-ddc0-4885-901c-cf9148db11bf" />
-
-<img width="864" height="1939" alt="Screenshot_20261120-164107" src="https://github.com/user-attachments/assets/8f2710f4-0bf3-4988-a547-6174b9b86e20" />
-
-<img width="864" height="1939" alt="Screenshot_20261120-164113" src="https://github.com/user-attachments/assets/7fd1d107-c9e8-4004-ad89-2df79d6b94e8" />
-
+<p>
+  <a href="https://github.com/user-attachments/assets/1a55c2fd-3d18-4490-b4b9-a4ee30c0245f"><img width="150" alt="Screenshot_20261120-164003" src="https://github.com/user-attachments/assets/1a55c2fd-3d18-4490-b4b9-a4ee30c0245f" /></a>
+  <a href="https://github.com/user-attachments/assets/2d306a71-29ee-4ce9-b573-9246e969b5d0"><img width="150" alt="Screenshot_20261120-164041" src="https://github.com/user-attachments/assets/2d306a71-29ee-4ce9-b573-9246e969b5d0" /></a>
+  <a href="https://github.com/user-attachments/assets/1c904441-ddc0-4885-901c-cf9148db11bf"><img width="150" alt="Screenshot_20261120-164046" src="https://github.com/user-attachments/assets/1c904441-ddc0-4885-901c-cf9148db11bf" /></a>
+  <a href="https://github.com/user-attachments/assets/8f2710f4-0bf3-4988-a547-6174b9b86e20"><img width="150" alt="Screenshot_20261120-164107" src="https://github.com/user-attachments/assets/8f2710f4-0bf3-4988-a547-6174b9b86e20" /></a>
+  <a href="https://github.com/user-attachments/assets/7fd1d107-c9e8-4004-ad89-2df79d6b94e8"><img width="150" alt="Screenshot_20261120-164113" src="https://github.com/user-attachments/assets/7fd1d107-c9e8-4004-ad89-2df79d6b94e8" /></a>
+</p>
 
 **Status:** milestone 2, the breadboard:
 
