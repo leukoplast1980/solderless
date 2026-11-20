@@ -172,6 +172,84 @@ static int directive(const char *line)
         sl_board_set(vm, board, nboard);
         return 0;
     }
+    if (!strcmp(cmd, "attach") && n >= 4 && !strcmp(a2, "matrix") && nboard + 3 <= SL_MAX_ATTACH) {
+        /* #!attach N matrix CS CLK DIN [chips=4]: MAX7219 8x8 module(s) */
+        char p4[16] = "", p5[16] = "";
+        sscanf(line + 2, "%*s %*s %*s %*s %15s %15s", p4, p5);
+        int pins[3] = { parse_pin(a3), parse_pin(p4), parse_pin(p5) };
+        static const int roles[3] = { SL_SIG_CS, SL_SIG_SCK, SL_SIG_MOSI };
+        const char *q = strstr(line, "chips=");
+        int chips = q ? atoi(q + 6) : 1;
+        for (int k = 0; k < 3; k++) {
+            if (pins[k] < 0) return 1;
+            sl_attach *a = &board[nboard++];
+            memset(a, 0, sizeof *a);
+            a->part = atoi(a1); a->kind = SL_ATT_DEVICE; a->dev = SL_DEV_MAX7219; a->addr = chips;
+            a->role = roles[k]; a->pin = pins[k];
+        }
+        sl_board_set(vm, board, nboard);
+        return 0;
+    }
+    if (!strcmp(cmd, "matrix") && n >= 2) {
+        /* #!matrix N: the LEDs (# lit, . dark), then the state */
+        static uint8_t px[64 * 8];
+        char text[1024];
+        size_t got = sl_device_read(vm, atoi(a1), px, sizeof px, text, sizeof text);
+        int w = (int)got / 8;
+        for (int y = 0; y < 8 && w; y++) {
+            for (int x = 0; x < w; x++) putchar(px[y * w + x] ? '#' : '.');
+            putchar('\n');
+        }
+        fputs(text, stdout);
+        fflush(stdout);
+        return 0;
+    }
+    if (!strcmp(cmd, "attach") && n >= 4 && !strcmp(a2, "tft") && nboard + 5 <= SL_MAX_ATTACH) {
+        /* #!attach N tft CS SCL SDA DC RES [rows=320]: an ST7789 module (CS may be "-" for modules without one) */
+        char p4[16] = "", p5[16] = "", p6[16] = "", p7[16] = "";
+        sscanf(line + 2, "%*s %*s %*s %*s %15s %15s %15s %15s", p4, p5, p6, p7);
+        const char *names[5] = { a3, p4, p5, p6, p7 };
+        static const int roles[5] = { SL_SIG_CS, SL_SIG_SCK, SL_SIG_MOSI, SL_SIG_DC, SL_SIG_RES };
+        const char *q = strstr(line, "rows=");
+        int rows = q ? atoi(q + 5) : 240;
+        for (int k = 0; k < 5; k++) {
+            if (!strcmp(names[k], "-")) continue;
+            int pin = parse_pin(names[k]);
+            if (pin < 0) return 1;
+            sl_attach *a = &board[nboard++];
+            memset(a, 0, sizeof *a);
+            a->part = atoi(a1); a->kind = SL_ATT_DEVICE; a->dev = SL_DEV_ST7789; a->addr = rows;
+            a->role = roles[k]; a->pin = pin;
+        }
+        sl_board_set(vm, board, nboard);
+        return 0;
+    }
+    if (!strcmp(cmd, "tft") && n >= 2) {
+        /* #!tft N: the screen in 8 x 8 blocks, each as its main colour (. black, W R G B Y C M, o for grey), then the state */
+        static uint8_t px[240 * 320 * 2];
+        char text[1024];
+        size_t got = sl_device_read(vm, atoi(a1), px, sizeof px, text, sizeof text);
+        int h = (int)(got / 480);
+        for (int by = 0; by < h; by += 8) {
+            for (int bx = 0; bx < 240; bx += 8) {
+                int r = 0, g = 0, b = 0;
+                for (int y = by; y < by + 8; y++) for (int x = bx; x < bx + 8; x++) {
+                    unsigned c = px[(y * 240 + x) * 2] | px[(y * 240 + x) * 2 + 1] << 8;
+                    r += (c >> 11) & 31; g += (c >> 6) & 31; b += c & 31;
+                }
+                r /= 64; g /= 64; b /= 64;
+                int R = r > 15, G = g > 15, Bl = b > 15;
+                const char *cs = ".BGCRMYW";
+                char ch = cs[R << 2 | G << 1 | Bl];
+                if (ch == 'W' && (r < 24 || g < 24 || b < 24)) ch = 'o';
+                putchar(ch);
+            }
+            putchar('\n');
+        }
+        fputs(text, stdout);
+        fflush(stdout);
+        return 0;
+    }
     if (!strcmp(cmd, "flash") && n >= 2) {
         /* #!flash N [ADDR [LEN]]: the state, then LEN bytes from ADDR as hex (default 32 from 0) */
         char text[1024];

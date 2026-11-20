@@ -71,7 +71,7 @@ struct sl_dev {
     uint8_t spi_in, spi_out, next_out;
     int miso_level;             /* what DO shows while driven */
     int dec_sck;                /* pin-level decoder: SCK as last seen */
-    union { struct ssd1306 oled; struct w25q flash; } m;
+    union { struct ssd1306 oled; struct w25q flash; struct max7219 matrix; struct st7789 tft; } m;
 };
 
 #define SL_TRACE_RING 65536

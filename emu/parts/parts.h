@@ -87,4 +87,62 @@ int w25q_message(struct w25q *w, char *out, size_t len);
 size_t w25q_mem(struct w25q *w, uint32_t addr, uint8_t *buf, size_t len, int write);
 size_t w25q_text(struct w25q *w, uint64_t now_ps, char *out, size_t len);
 
+/* MAX7219 on an 8 x 8 LED matrix module, chained up to 8 */
+#define MAX7219_CHAIN 8
+struct max7219 {
+    int n;                      /* chips in the chain */
+    uint8_t sh[2 * MAX7219_CHAIN];  /* the shift registers, the newest byte first */
+    int bytes, odd;
+    uint8_t digit[MAX7219_CHAIN][8];
+    uint8_t decode[MAX7219_CHAIN], intensity[MAX7219_CHAIN], scan[MAX7219_CHAIN], on[MAX7219_CHAIN], test[MAX7219_CHAIN];
+    unsigned latches;
+    int last_reg, last_val, warned_5v;
+};
+
+void max7219_power_on(struct max7219 *m, int chips, uint32_t seed);
+void max7219_select(struct max7219 *m);
+void max7219_byte(struct max7219 *m, uint8_t b);
+void max7219_deselect(struct max7219 *m);
+int max7219_message(struct max7219 *m, char *out, size_t len);
+/* 8n x 8 brightness values, row by row, chip 0 on the right */
+void max7219_pixels(const struct max7219 *m, uint8_t *px);
+size_t max7219_text(const struct max7219 *m, char *out, size_t len);
+
+/* ST7789 colour TFT controller, on a 240 x 240 or 240 x 320 IPS module */
+#define ST7789_W 240
+#define ST7789_H 320
+enum { ST7789_MSG_EARLY = 1, ST7789_MSG_ASLEEP, ST7789_MSG_OFF, ST7789_MSG_COLMOD, ST7789_MSG_OFFSCREEN };
+struct st7789 {
+    uint16_t *ram;              /* 240 x 320 frame memory, RGB565; heap */
+    int panel_h;                /* rows the panel shows: 240 or 320 */
+    int sleeping, on, inverted, idle, in_reset;
+    uint8_t colmod, madctl;
+    int colmod_set;
+    int xs, xe, ys, ye, x, y;
+    uint8_t cmd, args[8];
+    int nargs, writing;
+    uint8_t px[3];
+    int pxn;
+    uint64_t ready_at, last_ps;
+    const char *wait_why;
+    int wait_ms;
+    /* For the user */
+    int pixels, run, run_x, run_y, commands, offscreen;
+    int msg;
+    unsigned said;
+    uint8_t ignored;
+    double early_ms;
+};
+
+int st7789_init(struct st7789 *t, int rows, uint32_t seed);
+void st7789_free(struct st7789 *t);
+void st7789_reset_pin(struct st7789 *t, int low, uint64_t now_ps);
+/* A byte from the master, with the DC line as it was at its last bit (0 command, 1 data) */
+void st7789_byte(struct st7789 *t, uint8_t b, int dc, uint64_t now_ps);
+void st7789_check(struct st7789 *t);
+int st7789_message(struct st7789 *t, char *out, size_t len);
+/* 240 x panel_h RGB565 values as the panel shows them */
+void st7789_pixels(const struct st7789 *t, uint16_t *px);
+size_t st7789_text(const struct st7789 *t, uint64_t now_ps, char *out, size_t len);
+
 #endif

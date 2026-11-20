@@ -263,7 +263,7 @@ JNIEXPORT void JNICALL FN(boardSet)(JNIEnv *env, jclass cls, jlong h, jintArray 
 JNIEXPORT jstring JNICALL FN(deviceRead)(JNIEnv *env, jclass cls, jlong h, jint part, jbyteArray px)
 {
     (void)cls;
-    static uint8_t buf[128 * 64];
+    static uint8_t buf[240 * 320 * 2];      /* the largest display: an ST7789, two bytes a pixel */
     char text[1024];
     text[0] = 0;
     size_t n = sl_device_read(VM(h), part, buf, sizeof buf, text, sizeof text);

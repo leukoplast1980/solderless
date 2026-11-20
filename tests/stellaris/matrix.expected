@@ -1,0 +1,111 @@
+\ A 4-in-1 MAX7219 matrix on SPI3 (PC10 CLK, PC12 DIN, PC9 CS), 16-bit  ok.
+\ frames: the first word sent goes to the chip farthest from DIN. At power  ok.
+\ on the digit registers hold noise, which shows once shutdown is off.  ok.
+#!attach 1 matrix PC9 PC10 PC12 chips=4
+$48000800 constant GPIOC  ok.
+$40003C00 constant SPI3  ok.
+: pins ( -- )  ok.
+  %100 $4002104C bis!  1 15 lshift $40021058 bis!         \ GPIOC, SPI3  ok.
+  1 9 lshift GPIOC $18 + !                                \ CS high  ok.
+  %11 18 lshift GPIOC bic!  %01 18 lshift GPIOC bis!      \ PC9 output  ok.
+  %11 20 lshift %11 24 lshift or GPIOC bic!  %10 20 lshift %10 24 lshift or GPIOC bis!  ok.
+  $F 8 lshift $F 16 lshift or GPIOC $24 + bic!  6 8 lshift 6 16 lshift or GPIOC $24 + bis! ;  \ AF6  ok.
+: spi-on ( -- ) $0F00 SPI3 4 + !  $354 SPI3 ! ;            \ 16-bit frames, master, /8  ok.
+: >16 ( u -- ) begin SPI3 8 + @ 2 and until  SPI3 $C + h!  begin SPI3 8 + @ $80 and 0= until ;  ok.
+: cs-lo 1 9 lshift 16 lshift GPIOC $18 + ! ;  ok.
+: cs-hi 1 9 lshift GPIOC $18 + ! ;  ok.
+: all ( reg v -- ) swap 8 lshift or  cs-lo 4 0 do dup >16 loop drop cs-hi ;  ok.
+pins spi-on  ok.
+#!matrix 1
+................................
+................................
+................................
+................................
+................................
+................................
+................................
+................................
+Bus	CS PC9 · CLK PC10 · DIN PC12
+Chain	4 × MAX7219 · 32 × 8 LEDs
+Mode	shutdown (C = 0): dark
+Intensity	0 · 1/32
+Scan limit	0 · rows 0–0 only
+Decode	none: each bit an LED
+Chips	all set alike
+$C 1 all  $B 7 all  $A 3 all  9 0 all  ok.
+
+[chip] SPI3: overrun (OVR): a frame came in while the receive FIFO was full, and it is lost. Harmless when you only send; to read what comes back, read DR after every frame
+[chip] MAX7219: the module runs from 5 V and wants at least 3.5 V for a high on DIN, CLK and CS; a 3.3 V pin is below that. It mostly works on the bench; a level shifter makes it sure
+#!matrix 1
+..#.....#.##..###..#.#..#..#.##.
+#..#..##.#.#...#...#.##.####.#..
+..##.####...#.#......#.####..###
+##...#.##..###.#.#...#....##.#..
+.####....###........##...#...#..
+...##.#.#.#.#..#.....##.#.####.#
+.#.#....##..##.....#.##..##.....
+#..#.#.#.#....###....######..#.#
+Bus	CS PC9 · CLK PC10 · DIN PC12
+Chain	4 × MAX7219 · 32 × 8 LEDs
+Mode	on
+Intensity	3 · 7/32
+Scan limit	7 · all 8 rows
+Decode	none: each bit an LED
+Chips	all set alike
+Last	register 9 = 00 on chip 0 · 4 loads
+: clear ( -- ) 9 1 do i 0 all loop ;  ok.
+clear  ok.
+#!matrix 1
+................................
+................................
+................................
+................................
+................................
+................................
+................................
+................................
+Bus	CS PC9 · CLK PC10 · DIN PC12
+Chain	4 × MAX7219 · 32 × 8 LEDs
+Mode	on
+Intensity	3 · 7/32
+Scan limit	7 · all 8 rows
+Decode	none: each bit an LED
+Chips	all set alike
+Last	register 8 = 00 on chip 0 · 12 loads
+: arrow ( -- ) $18 $3C $7E $FF $18 $18 $18 $18  8 0 do  cs-lo 3 0 do 0 >16 loop  8 i - 8 lshift or >16 cs-hi loop ;  ok.
+arrow  ok.
+#!matrix 1
+...........................##...
+..........................####..
+.........................######.
+........................########
+...........................##...
+...........................##...
+...........................##...
+...........................##...
+Bus	CS PC9 · CLK PC10 · DIN PC12
+Chain	4 × MAX7219 · 32 × 8 LEDs
+Mode	on
+Intensity	3 · 7/32
+Scan limit	7 · all 8 rows
+Decode	none: each bit an LED
+Chips	all set alike
+Last	register 1 = 18 on chip 0 · 20 loads
+$C 0 all  ok.
+#!matrix 1
+................................
+................................
+................................
+................................
+................................
+................................
+................................
+................................
+Bus	CS PC9 · CLK PC10 · DIN PC12
+Chain	4 × MAX7219 · 32 × 8 LEDs
+Mode	shutdown (C = 0): dark
+Intensity	3 · 7/32
+Scan limit	7 · all 8 rows
+Decode	none: each bit an LED
+Chips	all set alike
+Last	register C = 00 on chip 0 · 21 loads

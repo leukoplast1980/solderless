@@ -24,6 +24,8 @@ set(SL_SOURCES
   board/bus.c
   parts/ssd1306.c
   parts/w25q.c
+  parts/max7219.c
+  parts/st7789.c
   soc/vm.c
   gen/g431_data.c
 )

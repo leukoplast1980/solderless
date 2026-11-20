@@ -119,6 +119,8 @@ enum {
 enum {
     SL_DEV_SSD1306 = 1, /* 128 x 64 OLED controller, I2C; addr 0x3C or 0x3D */
     SL_DEV_W25Q = 2,    /* serial flash, SPI; addr: JEDEC capacity 0x16 (32 Mbit), 0x17 (64), 0x18 (128) */
+    SL_DEV_MAX7219 = 3, /* 8 x 8 LED matrix module(s), SPI-style; addr: chips in the chain (1-8) */
+    SL_DEV_ST7789 = 4,  /* colour TFT, SPI with DC and RES; addr: rows of the panel, 240 or 320 */
 };
 /* Signals of bus parts, as sl_attach.role */
 enum { SL_SIG_SCL = 0, SL_SIG_SDA = 1, SL_SIG_SCK = 2, SL_SIG_MOSI = 3, SL_SIG_MISO = 4, SL_SIG_CS = 5,
@@ -166,7 +168,9 @@ void sl_board_read(sl_vm *vm, sl_board_state *out);
 
 /* A bus part as the user sees it. A display: its pixels as they are lit
  * now, one byte per pixel, row by row (SSD1306: 128 x 64, 0 or 1; the
- * contrast is in the text). Text: lines of "name\tvalue", what the part's
+ * contrast is in the text. MAX7219: 8 x chips wide, 8 high, brightness
+ * 0-255, the chip at DIN on the right. ST7789: 240 x 240 or 240 x 320,
+ * two bytes a pixel, RGB565 little-endian). Text: lines of "name\tvalue", what the part's
  * controller holds (on/off, modes, the last access). Returns the number of
  * pixels written; 0 if the part is not on the board. */
 size_t sl_device_read(sl_vm *vm, int part, uint8_t *pixels, size_t len, char *text, size_t tlen);

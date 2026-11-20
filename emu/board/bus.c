@@ -23,6 +23,8 @@ static const char *dev_name(int kind)
     switch (kind) {
     case SL_DEV_SSD1306: return "SSD1306 OLED";
     case SL_DEV_W25Q: return "W25Q flash";
+    case SL_DEV_MAX7219: return "MAX7219";
+    case SL_DEV_ST7789: return "ST7789 display";
     default: return "part";
     }
 }
@@ -33,6 +35,8 @@ static uint32_t dev_max_hz(int kind)
     switch (kind) {
     case SL_DEV_SSD1306: return 400000u;    /* fast mode; the datasheet's tcycle is 2.5 us */
     case SL_DEV_W25Q: return 50000000u;     /* read (03) is the slowest command: 50 MHz */
+    case SL_DEV_MAX7219: return 10000000u;
+    case SL_DEV_ST7789: return 62500000u;   /* write cycle 16 ns */
     default: return 100000u;
     }
 }
@@ -42,18 +46,21 @@ static void pin_label(int slot, char *b)
     snprintf(b, 6, "P%c%d", 'A' + (slot >> 4), slot & 15);
 }
 
-static int is_spi(int kind) { return kind == SL_DEV_W25Q; }
+static int is_spi(int kind) { return kind == SL_DEV_W25Q || kind == SL_DEV_MAX7219 || kind == SL_DEV_ST7789; }
 
 static void dev_power_on(struct sl_dev *d)
 {
     uint32_t seed = 0x9E3779B9u * (uint32_t)(d->part + 1);
     if (d->kind == SL_DEV_SSD1306) ssd1306_power_on(&d->m.oled, seed);
     if (d->kind == SL_DEV_W25Q) w25q_init(&d->m.flash, d->addr, seed);
+    if (d->kind == SL_DEV_MAX7219) max7219_power_on(&d->m.matrix, d->addr, seed);
+    if (d->kind == SL_DEV_ST7789) st7789_init(&d->m.tft, d->addr, seed);
 }
 
 static void dev_free(struct sl_dev *d)
 {
     if (d->kind == SL_DEV_W25Q) w25q_free(&d->m.flash);
+    if (d->kind == SL_DEV_ST7789) st7789_free(&d->m.tft);
 }
 
 static int line(struct sl_soc *s, int slot);
@@ -227,6 +234,14 @@ static void part_messages(struct sl_soc *s, struct sl_dev *d)
             int code = d->m.flash.msg;
             if (w25q_message(&d->m.flash, m, sizeof m)) soc_log(s, LOG_PART + d->kind * 8 + code, "%s", m);
         }
+    if (d->kind == SL_DEV_MAX7219) {
+        int code;
+        while ((code = max7219_message(&d->m.matrix, m, sizeof m))) soc_log(s, LOG_PART + d->kind * 8 + code, "%s", m);
+    }
+    if (d->kind == SL_DEV_ST7789) {
+        int code;
+        while ((code = st7789_message(&d->m.tft, m, sizeof m))) soc_log(s, LOG_PART + d->kind * 8 + code, "%s", m);
+    }
 }
 
 static void spi_select(struct sl_soc *s, struct sl_dev *d, int low)
@@ -242,6 +257,11 @@ static void spi_select(struct sl_soc *s, struct sl_dev *d, int low)
         if (low) w25q_select(&d->m.flash, now);
         else w25q_deselect(&d->m.flash, now);
     }
+    if (d->kind == SL_DEV_MAX7219) {
+        if (low) max7219_select(&d->m.matrix);
+        else max7219_deselect(&d->m.matrix);
+    }
+    if (d->kind == SL_DEV_ST7789 && !low) st7789_check(&d->m.tft);
     part_messages(s, d);
     if (was_driving && d->pin[SL_SIG_MISO] >= 0)
         board_port_changed(s, d->pin[SL_SIG_MISO] >> 4, 1u << (d->pin[SL_SIG_MISO] & 15));
@@ -253,6 +273,9 @@ static uint8_t spi_model_byte(struct sl_soc *s, struct sl_dev *d, uint8_t b, int
     uint8_t out = 0xFF;
     *drive = 0;
     if (d->kind == SL_DEV_W25Q) out = w25q_byte(&d->m.flash, b, now, drive);
+    if (d->kind == SL_DEV_MAX7219) max7219_byte(&d->m.matrix, b);
+    if (d->kind == SL_DEV_ST7789)   /* DC is read with the byte's last bit */
+        st7789_byte(&d->m.tft, b, d->pin[SL_SIG_DC] < 0 || line(s, d->pin[SL_SIG_DC]), now);
     part_messages(s, d);
     return out;
 }
@@ -456,6 +479,7 @@ void bus_pin_changed(struct sl_soc *s, int slot)
         struct sl_dev *d = &B->dev[i];
         if (is_spi(d->kind)) {
             if (d->pin[SL_SIG_CS] == slot || d->pin[SL_SIG_SCK] == slot) spi_decode(s, d, slot);
+            if (d->kind == SL_DEV_ST7789 && d->pin[SL_SIG_RES] == slot) st7789_reset_pin(&d->m.tft, !line(s, slot), soc_now_ps(s));
             continue;
         }
         if (d->pin[SL_SIG_SCL] < 0 || d->pin[SL_SIG_SDA] < 0) continue;
@@ -509,6 +533,38 @@ size_t bus_device_read(struct sl_soc *s, int part, uint8_t *px, size_t len, char
             }
             return n;
         }
+    }
+    for (int i = 0; i < B->ndev; i++) {
+        struct sl_dev *d = &B->dev[i];
+        if (d->part != part || d->kind != SL_DEV_ST7789) continue;
+        static uint16_t frame[ST7789_W * ST7789_H];
+        st7789_pixels(&d->m.tft, frame);
+        size_t nb = (size_t)(ST7789_W * d->m.tft.panel_h) * 2, k0 = len < nb ? len : nb;
+        if (px) for (size_t k = 0; k < k0; k++) px[k] = (uint8_t)(frame[k / 2] >> (8 * (k & 1)));
+        if (text && tlen) {
+            char p[5][6] = { "", "", "", "", "" };
+            static const int sig[5] = { SL_SIG_CS, SL_SIG_SCK, SL_SIG_MOSI, SL_SIG_DC, SL_SIG_RES };
+            for (int k = 0; k < 5; k++) if (d->pin[sig[k]] >= 0) pin_label(d->pin[sig[k]], p[k]);
+            int k = snprintf(text, tlen, "Bus\tCS %s · SCL %s · SDA %s · DC %s · RES %s\n", p[0], p[1], p[2], p[3], p[4]);
+            if (k > 0 && (size_t)k < tlen) st7789_text(&d->m.tft, soc_now_ps(s), text + k, tlen - k);
+        }
+        return k0;
+    }
+    for (int i = 0; i < B->ndev; i++) {
+        struct sl_dev *d = &B->dev[i];
+        if (d->part != part || d->kind != SL_DEV_MAX7219) continue;
+        static uint8_t frame[8 * MAX7219_CHAIN * 8];
+        max7219_pixels(&d->m.matrix, frame);
+        size_t np = (size_t)(64 * d->m.matrix.n), k0 = len < np ? len : np;
+        if (px) memcpy(px, frame, k0);
+        if (text && tlen) {
+            char p[3][6] = { "", "", "" };
+            static const int sig[3] = { SL_SIG_CS, SL_SIG_SCK, SL_SIG_MOSI };
+            for (int k = 0; k < 3; k++) if (d->pin[sig[k]] >= 0) pin_label(d->pin[sig[k]], p[k]);
+            int k = snprintf(text, tlen, "Bus\tCS %s · CLK %s · DIN %s\n", p[0], p[1], p[2]);
+            if (k > 0 && (size_t)k < tlen) max7219_text(&d->m.matrix, text + k, tlen - k);
+        }
+        return k0;
     }
     for (int i = 0; i < B->ndev; i++) {
         struct sl_dev *d = &B->dev[i];

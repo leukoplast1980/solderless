@@ -205,7 +205,7 @@ void spi_event(struct sl_soc *s, int i)
     if (c->rxn + n > 4) {
         if (!(c->flags & SR_OVR))
             soc_log(s, LOG_SPI_OVR, "%s: overrun (OVR): a frame came in while the receive FIFO was full, and it is lost. "
-                    "Read DR after every frame, also when only sending", c->name);
+                    "Harmless when you only send; to read what comes back, read DR after every frame", c->name);
         c->flags |= SR_OVR;
         c->ovr_dr_read = 0;
     } else if (!(c->flags & SR_OVR)) {
