@@ -81,6 +81,7 @@ class BoardController(
     fun refresh(boardVisible: Boolean, overlayAllowed: Boolean) {
         val anyPinned = vm.board.parts.any { it.pinnedOverTabs }
         pinned.visibility = if (!boardVisible && overlayAllowed && anyPinned) View.VISIBLE else View.GONE
+        if (view.board !== vm.board) { view.board = vm.board; rebuildPinned() }
         if (!boardVisible && pinned.visibility != View.VISIBLE) return
         vm.readBoard(state)
         if (boardVisible) {
@@ -199,11 +200,17 @@ class BoardController(
             PartType.BUTTON to "input with interrupt", PartType.LED to "output or PWM", PartType.RGB_LED to "3 PWM channels, one timer",
             PartType.POT to "ADC input", PartType.SPEAKER to "DAC or PWM, transistor", PartType.PIEZO to "PWM",
         )
-        val grid = ChipGroup(activity)
+        val grid = android.widget.GridLayout(activity).apply { columnCount = 2 }
         for ((t, n) in needs) grid.addView(MaterialButton(activity, null, com.google.android.material.R.attr.materialButtonOutlinedStyle).apply {
             text = "${t.title}\n$n"; isAllCaps = false; textAlignment = View.TEXT_ALIGNMENT_VIEW_START
-            minWidth = dp(150)
+            gravity = Gravity.START or Gravity.CENTER_VERTICAL
+            minHeight = dp(76)
+            cornerRadius = dp(14)
             setOnClickListener { dlg.dismiss(); propose(Part(vm.board.nextId(), t, emptyList())) }
+        }, android.widget.GridLayout.LayoutParams(
+            android.widget.GridLayout.spec(android.widget.GridLayout.UNDEFINED),
+            android.widget.GridLayout.spec(android.widget.GridLayout.UNDEFINED, 1f)).apply {
+            width = 0; setMargins(dp(4), dp(4), dp(4), dp(4))
         })
         col.addView(grid, LinearLayout.LayoutParams(-1, -2).apply { topMargin = dp(10) })
         col.addView(body(activity.getString(R.string.board_add_next), R.color.syntax_comment))

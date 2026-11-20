@@ -85,6 +85,11 @@ class BoardProbeTest {
         scenario.onActivity { a -> a.findViewById<View>(R.id.boardAdd).performClick() }
         Thread.sleep(1200)
         screenshot("board-add.png")
+        // Pick the LED tile: the proposal sheet with the dashed preview
+        val ui = androidx.test.uiautomator.UiDevice.getInstance(InstrumentationRegistry.getInstrumentation())
+        ui.findObject(androidx.test.uiautomator.UiSelector().textStartsWith("LED"))?.click()
+        Thread.sleep(1500)
+        screenshot("board-proposal.png")
         InstrumentationRegistry.getInstrumentation().uiAutomation.performGlobalAction(android.accessibilityservice.AccessibilityService.GLOBAL_ACTION_BACK)
         Thread.sleep(800)
         scenario.onActivity { a -> a.findViewById<View>(R.id.boardSupport).performClick() }

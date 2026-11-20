@@ -160,6 +160,8 @@ class Recommender(private val chip: ChipPins, hseFitted: Boolean = false, lseFit
                 total += c
             }
             if (!ok) continue
+            // Keep a multi-pin part on one side of the board (pins 1-32 or 33-64)
+            if (chosen.size > 1 && chosen.map { (chip.gpio(it.pin)?.number ?: 0) <= 32 }.toSet().size > 1) total += 2.0
             if (part.type == PartType.RGB_LED) {
                 // red, green, blue on rising channel numbers reads best
                 val byCh = chosen.sortedBy { (it.function as Function.Timer).channel }
