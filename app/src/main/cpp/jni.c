@@ -238,3 +238,107 @@ out:
     free(flash); free(ram); free(names); free(lens); free(hdrs); free(codes); free(flags);
     return result;
 }
+
+/* ---- The breadboard ---------------------------------------------------- */
+
+/* att: 8 ints per attachment, in sl_attach's field order */
+JNIEXPORT void JNICALL FN(boardSet)(JNIEnv *env, jclass cls, jlong h, jintArray att)
+{
+    (void)cls;
+    jsize n = (*env)->GetArrayLength(env, att) / 8;
+    if (n > SL_MAX_ATTACH) n = SL_MAX_ATTACH;
+    sl_attach a[SL_MAX_ATTACH];
+    jint *v = (*env)->GetIntArrayElements(env, att, NULL);
+    for (jsize i = 0; i < n; i++) {
+        jint *x = v + 8 * i;
+        a[i].part = x[0]; a[i].role = x[1]; a[i].pin = x[2]; a[i].kind = x[3];
+        a[i].to_vcc = x[4]; a[i].r_ohm = x[5]; a[i].vf_mv = x[6]; a[i].bounce_us = x[7];
+    }
+    (*env)->ReleaseIntArrayElements(env, att, v, JNI_ABORT);
+    sl_board_set(VM(h), a, (int)n);
+}
+
+JNIEXPORT void JNICALL FN(boardInput)(JNIEnv *env, jclass cls, jlong h, jint part, jint value)
+{
+    (void)env; (void)cls;
+    sl_board_input(VM(h), part, value);
+}
+
+/* Layout: mv, flags, mode, duty, freq_mhz, pwm_duty (SL_PIN_SLOTS each),
+ * current_ua (SL_MAX_ATTACH), time_ns (2 ints). */
+#define BOARD_INTS (6 * SL_PIN_SLOTS + SL_MAX_ATTACH + 2)
+JNIEXPORT void JNICALL FN(boardRead)(JNIEnv *env, jclass cls, jlong h, jintArray out)
+{
+    (void)cls;
+    if ((*env)->GetArrayLength(env, out) < BOARD_INTS) return;
+    sl_board_state st;
+    sl_board_read(VM(h), &st);
+    jint v[BOARD_INTS];
+    for (int i = 0; i < SL_PIN_SLOTS; i++) {
+        v[i] = st.mv[i];
+        v[SL_PIN_SLOTS + i] = st.flags[i];
+        v[2 * SL_PIN_SLOTS + i] = st.mode[i];
+        v[3 * SL_PIN_SLOTS + i] = st.duty[i];
+        v[4 * SL_PIN_SLOTS + i] = (jint)st.freq_mhz[i];
+        v[5 * SL_PIN_SLOTS + i] = st.pwm_duty[i];
+    }
+    for (int i = 0; i < SL_MAX_ATTACH; i++) v[6 * SL_PIN_SLOTS + i] = st.current_ua[i];
+    v[BOARD_INTS - 2] = (jint)(uint32_t)st.time_ns;
+    v[BOARD_INTS - 1] = (jint)(uint32_t)(st.time_ns >> 32);
+    (*env)->SetIntArrayRegion(env, out, 0, BOARD_INTS, v);
+}
+
+/* out[0..1]: emulated time now (ns); then 5 ints per event: time lo, time hi,
+ * kind, a, b. Returns the number of events. */
+JNIEXPORT jint JNICALL FN(audioRead)(JNIEnv *env, jclass cls, jlong h, jintArray out)
+{
+    (void)cls;
+    jsize len = (*env)->GetArrayLength(env, out);
+    size_t max = len > 2 ? (size_t)(len - 2) / 5 : 0;
+    if (max > 1024) max = 1024;
+    sl_audio_event ev[1024];
+    uint64_t now = 0;
+    size_t n = sl_audio_read(VM(h), ev, max, &now);
+    jint v[2 + 5 * 1024];
+    v[0] = (jint)(uint32_t)now; v[1] = (jint)(uint32_t)(now >> 32);
+    for (size_t i = 0; i < n; i++) {
+        jint *x = v + 2 + 5 * i;
+        x[0] = (jint)(uint32_t)ev[i].time_ns; x[1] = (jint)(uint32_t)(ev[i].time_ns >> 32);
+        x[2] = ev[i].kind; x[3] = (jint)ev[i].a; x[4] = (jint)ev[i].b;
+    }
+    (*env)->SetIntArrayRegion(env, out, 0, (jsize)(2 + 5 * n), v);
+    return (jint)n;
+}
+
+JNIEXPORT void JNICALL FN(tracePins)(JNIEnv *env, jclass cls, jlong h, jintArray slots)
+{
+    (void)cls;
+    jsize n = (*env)->GetArrayLength(env, slots);
+    if (n > SL_PIN_SLOTS) n = SL_PIN_SLOTS;
+    jint v[SL_PIN_SLOTS];
+    (*env)->GetIntArrayRegion(env, slots, 0, n, v);
+    int s[SL_PIN_SLOTS];
+    for (jsize i = 0; i < n; i++) s[i] = v[i];
+    sl_trace_pins(VM(h), s, (int)n);
+}
+
+/* Same layout as audioRead */
+JNIEXPORT jint JNICALL FN(traceRead)(JNIEnv *env, jclass cls, jlong h, jintArray out)
+{
+    (void)cls;
+    jsize len = (*env)->GetArrayLength(env, out);
+    size_t max = len > 2 ? (size_t)(len - 2) / 5 : 0;
+    if (max > 4096) max = 4096;
+    static sl_audio_event ev[4096];
+    static jint v[2 + 5 * 4096];
+    uint64_t now = 0;
+    size_t n = sl_trace_read(VM(h), ev, max, &now);
+    v[0] = (jint)(uint32_t)now; v[1] = (jint)(uint32_t)(now >> 32);
+    for (size_t i = 0; i < n; i++) {
+        jint *x = v + 2 + 5 * i;
+        x[0] = (jint)(uint32_t)ev[i].time_ns; x[1] = (jint)(uint32_t)(ev[i].time_ns >> 32);
+        x[2] = ev[i].kind; x[3] = (jint)ev[i].a; x[4] = (jint)ev[i].b;
+    }
+    (*env)->SetIntArrayRegion(env, out, 0, (jsize)(2 + 5 * n), v);
+    return (jint)n;
+}

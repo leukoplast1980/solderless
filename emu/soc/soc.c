@@ -112,8 +112,13 @@ static void dispatch_event(struct sl_soc *s, int ev)
     case EV_TERM_RX:
         usart_term_rx_event(s);
         break;
+    case EV_BOARD:
+        board_event(s);
+        break;
     default:
         if (ev >= EV_USART_TX0 && ev <= EV_USART_TX_LAST) usart_tx_event(s, ev - EV_USART_TX0);
+        else if (ev >= EV_TIM0 && ev <= EV_TIM_LAST) tim_event(s, ev - EV_TIM0);
+        else if (ev >= EV_ADC0 && ev <= EV_ADC_LAST) adc_event(s, ev - EV_ADC0);
         break;
     }
 }
@@ -222,6 +227,22 @@ static void periph_reset_one(struct sl_soc *s, int pi)
     int u = usart_index_of_periph(s, pi);
     if (u >= 0) usart_reset(s, u);
     if (pi == s->pi_flash) flash_reset(s);
+    int t = tim_index_of_periph(s, pi);
+    if (t >= 0) tim_reset(s, t);
+    int a = adc_index_of_periph(s, pi);
+    if (a >= 0) adc_reset(s, a);
+    if (pi == s->pi_dac1) dac_reset(s);
+    if (pi == s->pi_exti) exti_reset(s);
+    board_af_outputs_changed(s);
+}
+
+void soc_irq(struct sl_soc *s, int irq, int src, int level)
+{
+    if (irq < 0 || irq >= SL_NUM_IRQ) return;
+    uint64_t bit = 1ull << (src & 63);
+    uint64_t was = s->irq_src[irq];
+    s->irq_src[irq] = level ? was | bit : was & ~bit;
+    if ((was != 0) != (s->irq_src[irq] != 0)) cm_set_irq(&s->cpu, irq, s->irq_src[irq] != 0);
 }
 
 /* Applies RCC reset bits: a peripheral whose reset bit is written as 1
@@ -245,6 +266,12 @@ static uint32_t periph_read(struct sl_soc *s, int pi, uint32_t off, int effects)
     if (port >= 0) return gpio_read(s, port, off);
     int u = usart_index_of_periph(s, pi);
     if (u >= 0) return usart_read(s, u, off, effects);
+    int t = tim_index_of_periph(s, pi);
+    if (t >= 0) return tim_read(s, t, off, effects);
+    int a = adc_index_of_periph(s, pi);
+    if (a >= 0) return adc_read(s, a, off, effects);
+    if (pi == s->pi_dac1) return dac_read(s, off);
+    if (pi == s->pi_exti) return exti_read(s, off);
     if (pi == s->pi_dbgmcu && off == 0) return 0x20016468u;   /* IDCODE: G431/G441, rev Z */
     return s->regs[pi][off / 4];
 }
@@ -258,6 +285,12 @@ static void periph_write(struct sl_soc *s, int pi, uint32_t off, uint32_t v, uin
     if (port >= 0) { gpio_write(s, port, off, v, mask); return; }
     int u = usart_index_of_periph(s, pi);
     if (u >= 0) { usart_write(s, u, off, v, mask); return; }
+    int t = tim_index_of_periph(s, pi);
+    if (t >= 0) { tim_write(s, t, off, v, mask); return; }
+    int a = adc_index_of_periph(s, pi);
+    if (a >= 0) { adc_write(s, a, off, v, mask); return; }
+    if (pi == s->pi_dac1) { dac_write(s, off, v, mask); return; }
+    if (pi == s->pi_exti) { exti_write(s, off, v, mask); return; }
     uint32_t wm = s->wmask[pi][off / 4] & mask;
     s->regs[pi][off / 4] = (s->regs[pi][off / 4] & ~wm) | (v & wm);
 }
@@ -282,6 +315,10 @@ static void idle_observe(struct sl_soc *s, int pi, uint32_t a, uint32_t v)
             s->idle_poll = 1;
             d->periph = pi;
             c->stop_batch = 1;
+            /* Make sure the peripheral wakes the CPU when the register can change. */
+            int t = tim_index_of_periph(s, pi), ad = adc_index_of_periph(s, pi);
+            if (t >= 0) tim_poll_hint(s, t);
+            if (ad >= 0) adc_poll_hint(s, ad);
         }
     } else {
         d->addr = a;
@@ -406,6 +443,9 @@ void soc_init(struct sl_soc *s)
     s->pi_flash = periph_index("FLASH");
     s->pi_syscfg = periph_index("SYSCFG");
     s->pi_dbgmcu = periph_index("DBGMCU");
+    s->pi_exti = periph_index("EXTI");
+    s->pi_dac1 = periph_index("DAC1");
+    s->pi_adc_common = periph_index("ADC12_COMMON");
     static const char *ports[SL_NUM_PORTS] = { "GPIOA", "GPIOB", "GPIOC", "GPIOD", "GPIOE", "GPIOF", "GPIOG" };
     for (int i = 0; i < SL_NUM_PORTS; i++) s->pi_gpio[i] = periph_index(ports[i]);
 
@@ -445,6 +485,9 @@ void soc_init(struct sl_soc *s)
     if (!s->term_baud) s->term_baud = 115200;
     s->hclk = 16000000u;
     usart_init(s);
+    tim_init(s);
+    adc_init(s);
+    board_init(s);
     soc_reset(s, 1);
 }
 
@@ -459,6 +502,11 @@ void soc_reset(struct sl_soc *s, int power_on)
     flash_reset(s);
     gpio_reset(s);
     for (int i = 0; i < SL_NUM_USART; i++) usart_reset(s, i);
+    memset(s->irq_src, 0, sizeof s->irq_src);
+    for (int i = 0; i < SL_NUM_TIM; i++) if (s->tim[i].pi >= 0) tim_reset(s, i);
+    for (int i = 0; i < SL_NUM_ADC; i++) if (s->adc[i].pi >= 0) adc_reset(s, i);
+    dac_reset(s);
+    exti_reset(s);
     update_clock_gates(s);
     s->term_rx_busy = 0;
     s->idle_poll = 0;
@@ -467,6 +515,7 @@ void soc_reset(struct sl_soc *s, int power_on)
     s->t_rem = 0;
     s->hclk = 16000000u;
     rcc_update_clocks(s);
+    board_reset(s);
     cm_reset(&s->cpu);
     if (s->cpu.lockup)
         soc_log(s, LOG_LOCKUP, "The core could not start: no valid vector table at 0x08000000 (is flash empty?)");

@@ -96,6 +96,7 @@ class RegistersController(private val activity: Activity, private val vm: VmHost
                     else -> "running"
                 }
             )
+            append("  ·  %s MHz".format(java.math.BigDecimal(s.sysclk / 1e6).setScale(3, java.math.RoundingMode.HALF_UP).stripTrailingZeros().toPlainString()))
             append("  ·  %,d cycles  ·  %.3f s".format(s.cycles, s.timeNs / 1e9))
             if (!s.paused && s.speedPercent in 1..95) append("  ·  ${s.speedPercent} % speed")
         }

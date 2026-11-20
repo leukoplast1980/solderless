@@ -1,6 +1,6 @@
 # What the emulator models
 
-Status for milestone 1. "Works like the chip" means: same registers, reset
+Status for milestone 2. "Works like the chip" means: same registers, reset
 values and documented behaviour as in RM0440 (the G4 reference manual) and
 the ARMv7-M Architecture Reference Manual. Timing follows the datasheets,
 not the clock cycle.
@@ -55,8 +55,7 @@ its writable bits, taken from ST's SVD. Behaviour so far:
   states, the end-of-operation and error interrupts. Option bytes read back
   at their factory values.
 - **GPIO**: all registers, including the lock sequence. Pin levels come
-  from the port's drivers, pulls and the board; for now the board is only
-  the serial adapter on PA2/PA3.
+  from the breadboard (below).
 - **USART1-3, UART4, LPUART1**: transmit and receive with frame timing,
   baud rate from the kernel clock, word length, parity and stop bits; TXE,
   TC, RXNE, overrun (with OVRDIS), framing and parity errors, interrupts.
@@ -66,8 +65,51 @@ its writable bits, taken from ST's SVD. Behaviour so far:
   side's waveform at its own rate and sees what a real UART would see.
   Not yet: FIFO mode, idle line detection, LIN, IrDA, smartcard, flow
   control, auto baud rate.
-- Timers, ADC, DAC, I2C, SPI, DMA, EXTI and the rest: registers only, until
-  their milestones.
+- **SYSCFG, EXTI** (lines 0-15): port selection in EXTICR, rising and
+  falling triggers, interrupt mask, pending flags, software interrupt,
+  event mask (wakes WFE), the shared interrupts of lines 5-9 and 10-15.
+- **Timers TIM1-4, 6-8, 15-17**: prescaler, auto-reload with preload, up,
+  down and centre-aligned counting, update events (UDIS, URS, UG),
+  repetition counter, one-pulse mode, output compare and PWM modes with
+  polarity and complementary outputs, MOE on the advanced timers, input
+  capture of pin edges, interrupts (TIM1 and TIM8 on their four lines,
+  shared with TIM15-17). TIM2 is 32 bits wide. The counter is worked out
+  from the time when read, so a running timer costs nothing between
+  accesses. Not yet: slave modes and triggers, encoder mode (milestone 3),
+  dead time, break inputs, DMA.
+- **ADC1, ADC2**: deep power-down, the voltage regulator and its 20 us
+  start-up, calibration, enable and ADRDY, the clock source (ADC12_CCR
+  CKMODE or RCC_CCIPR, which selects no clock after reset), regular
+  sequences of up to 16 channels, single and continuous mode, resolution,
+  alignment, sampling times and the resulting conversion time, EOSMP,
+  EOC, EOS and overrun, interrupts, the temperature sensor, VREFINT and
+  VBAT/3. Not yet: injected conversions, external triggers,
+  oversampling, analog watchdogs, offsets, differential inputs, DMA.
+- **DAC1**: outputs 1 and 2 on PA4 and PA5 in analog mode, all data
+  register alignments, software trigger, the output buffer. Not yet:
+  timer triggers, wave generation, DMA, sample and hold.
+- RTC, I2C, SPI, DMA, comparators, op-amps and the rest: registers only,
+  until their milestones.
+
+## The breadboard
+
+Each chip pin is a net. Every driver on it is a voltage behind a
+resistance: the chip's output stage (about 40 ohm), its pull-ups and
+pull-downs (about 40 kohm), a closed button, a potentiometer's wiper, an
+external pull resistor, the DAC. The net settles at their weighted mean.
+
+- A digital input reads high above 2.31 V and low below 0.99 V. In
+  between, or with no driver at all (floating), it reads at random, and
+  the console says so when the firmware reads it.
+- Two strong drivers at opposite levels are a short.
+- A pin driven by a timer channel in PWM mode carries a frequency and a
+  duty cycle instead of single edges.
+- LEDs take their brightness from the average current over each screen
+  refresh; above 20 mA the console warns.
+- Buttons bounce: a press or release chatters a few times over the bounce
+  time (2 ms by default) before it settles, as real contacts do.
+- Piezos and speakers listen to their pin: the app plays PWM as a square
+  wave and edges and DAC samples as they come, about 80 ms behind.
 
 ## Time
 
@@ -101,3 +143,9 @@ The console shows these in amber, at most three times each per run:
 - the terminal and a USART using different baud rates or frame formats
 - a USART overrun; typed characters arriving while the receiver is off
 - bus errors: access where there is no memory or peripheral
+- a floating input or one between the thresholds, read by the firmware
+- a short between the chip and a part; more than 20 mA through an LED
+- an advanced timer's output enabled without MOE
+- the ADC without a clock, started before its regulator is ready,
+  calibrated while enabled, started before ADRDY; an ADC channel read on a
+  pin that is not in analog mode; an ADC overrun

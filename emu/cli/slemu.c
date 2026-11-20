@@ -60,6 +60,106 @@ static void *reader_thread(void *arg)
     return NULL;
 }
 
+static sl_attach board[SL_MAX_ATTACH];
+static int nboard;
+
+static int parse_pin(const char *t)
+{
+    if (t[0] != 'P' || t[1] < 'A' || t[1] > 'G') return -1;
+    return (t[1] - 'A') * 16 + atoi(t + 2);
+}
+
+static void print_pins(void)
+{
+    sl_board_state st;
+    sl_board_read(vm, &st);
+    static const char *const modes[4] = { "input", "output", "alternate", "analog" };
+    for (int p = 0; p < SL_PIN_SLOTS; p++) {
+        if (!(st.flags[p] & SL_PIN_USED)) continue;
+        printf("P%c%d %-9s ", 'A' + p / 16, p % 16, modes[st.mode[p]]);
+        if (st.flags[p] & SL_PIN_FLOATING) printf("floating");
+        else if (st.flags[p] & SL_PIN_PWM) printf("PWM %u.%03u Hz duty %u/1000", st.freq_mhz[p] / 1000, st.freq_mhz[p] % 1000, st.duty[p]);
+        else printf("%d mV %s", st.mv[p], (st.flags[p] & SL_PIN_UNDEFINED) ? "undefined" : (st.flags[p] & SL_PIN_HIGH) ? "high" : "low");
+        if (st.flags[p] & SL_PIN_SHORT) printf(" SHORT");
+        for (int i = 0; i < nboard; i++)
+            if (board[i].pin == p && board[i].kind == SL_ATT_LED) printf("  LED %d: %d.%03d mA", board[i].part, st.current_ua[i] / 1000, st.current_ua[i] % 1000);
+        printf("\n");
+    }
+    fflush(stdout);
+}
+
+/* Handles a "#!" line; returns nonzero on a syntax error. */
+static int directive(const char *line)
+{
+    char cmd[16] = "", a1[16] = "", a2[16] = "", a3[16] = "";
+    int n = sscanf(line + 2, "%15s %15s %15s %15s", cmd, a1, a2, a3);
+    if (n < 1) return 1;
+    if (!strcmp(cmd, "clear")) { nboard = 0; sl_board_set(vm, board, 0); return 0; }
+    if (!strcmp(cmd, "pins")) { print_pins(); return 0; }
+    if (!strcmp(cmd, "trace")) {
+        int slots[16], k = 0;
+        char tmp[256]; strncpy(tmp, line + 8, sizeof tmp - 1); tmp[sizeof tmp - 1] = 0;
+        for (char *t = strtok(tmp, " "); t && k < 16; t = strtok(NULL, " ")) slots[k++] = parse_pin(t);
+        sl_trace_pins(vm, slots, k);
+        return 0;
+    }
+    if (!strcmp(cmd, "scope")) {
+        sl_audio_event ev[256];
+        uint64_t now;
+        size_t m = sl_trace_read(vm, ev, 256, &now);
+        uint64_t t0 = m ? ev[0].time_ns : 0;
+        for (size_t i = 0; i < m; i++) {
+            int slot = (ev[i].kind >> 8) & 255;
+            printf("+%llu us P%c%d%s ", (unsigned long long)((ev[i].time_ns - t0) / 1000), 'A' + slot / 16, slot % 16,
+                   (ev[i].kind & SL_TRACE_BUSY) ? " (fast)" : "");
+            if ((ev[i].kind & 255) == SL_AUDIO_PWM) printf("PWM %u Hz duty %u/1000\n", ev[i].a / 1000, (ev[i].b * 1000 + 0x8000) >> 16);
+            else printf("%d mV\n", (int)ev[i].a);
+        }
+        fflush(stdout);
+        return 0;
+    }
+    if (!strcmp(cmd, "audio")) {
+        sl_audio_event ev[64];
+        uint64_t now;
+        size_t m = sl_audio_read(vm, ev, 64, &now);
+        for (size_t i = 0; i < m; i++) {
+            int slot = ev[i].kind >> 8;
+            printf("P%c%d ", 'A' + slot / 16, slot % 16);
+            if ((ev[i].kind & 255) == SL_AUDIO_PWM) printf("PWM %u Hz duty %u/1000\n", ev[i].a / 1000, (ev[i].b * 1000 + 0x8000) >> 16);
+            else printf("level %u mV\n", ev[i].a);
+        }
+        fflush(stdout);
+        return 0;
+    }
+    if (!strcmp(cmd, "input") && n >= 3) { sl_board_input(vm, atoi(a1), atoi(a2)); return 0; }
+    if (!strcmp(cmd, "attach") && n >= 4 && nboard < SL_MAX_ATTACH) {
+        sl_attach *a = &board[nboard];
+        memset(a, 0, sizeof *a);
+        a->part = atoi(a1);
+        a->kind = !strcmp(a2, "led") ? SL_ATT_LED : !strcmp(a2, "switch") ? SL_ATT_SWITCH : !strcmp(a2, "pull") ? SL_ATT_PULL
+                : !strcmp(a2, "pot") ? SL_ATT_POT : !strcmp(a2, "audio") ? SL_ATT_AUDIO : 0;
+        a->pin = parse_pin(a3);
+        if (!a->kind || a->pin < 0) return 1;
+        a->r_ohm = a->kind == SL_ATT_POT ? 10000 : a->kind == SL_ATT_PULL ? 10000 : 0;
+        a->vf_mv = 1900;
+        const char *p = line;
+        for (int k = 0; k < 4 && p; k++) p = strchr(p + 1, ' ');
+        while (p && *p) {
+            while (*p == ' ') p++;
+            if (!strncmp(p, "vcc", 3)) a->to_vcc = 1;
+            else if (!strncmp(p, "r=", 2)) a->r_ohm = atoi(p + 2);
+            else if (!strncmp(p, "vf=", 3)) a->vf_mv = atoi(p + 3);
+            else if (!strncmp(p, "bounce=", 7)) a->bounce_us = atoi(p + 7);
+            else if (!strncmp(p, "role=", 5)) a->role = atoi(p + 5);
+            p = strchr(p, ' ');
+        }
+        nboard++;
+        sl_board_set(vm, board, nboard);
+        return 0;
+    }
+    return 1;
+}
+
 static uint8_t *read_file(const char *path, size_t *len)
 {
     FILE *f = fopen(path, "rb");
@@ -131,6 +231,13 @@ int main(int argc, char **argv)
                 line = lines[li++];
             }
             lineno++;
+            if (line[0] == '#' && line[1] == '!') {
+                printf("%s\n", line);
+                if (directive(line)) { fprintf(stderr, "line %d: bad directive\n", lineno); status = 1; }
+                sl_wait_idle(vm, timeout);
+                drain();
+                continue;
+            }
             int r = sl_send_line(vm, line, strlen(line), timeout);
             drain();
             if (r != SL_LINE_OK) {

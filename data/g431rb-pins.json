@@ -1,0 +1,2158 @@
+{
+ "package": "STM32G431RBTx",
+ "pins": [
+  {
+   "number": 1,
+   "name": "VBAT"
+  },
+  {
+   "number": 2,
+   "name": "PC13",
+   "port": 2,
+   "bit": 13,
+   "af": [
+    {
+     "af": 2,
+     "periph": "TIM1",
+     "signal": "BKIN"
+    },
+    {
+     "af": 4,
+     "periph": "TIM1",
+     "signal": "CH1N"
+    },
+    {
+     "af": 6,
+     "periph": "TIM8",
+     "signal": "CH4N"
+    }
+   ],
+   "analog": []
+  },
+  {
+   "number": 3,
+   "name": "PC14",
+   "port": 2,
+   "bit": 14,
+   "af": [],
+   "analog": []
+  },
+  {
+   "number": 4,
+   "name": "PC15",
+   "port": 2,
+   "bit": 15,
+   "af": [],
+   "analog": []
+  },
+  {
+   "number": 5,
+   "name": "PF0",
+   "port": 5,
+   "bit": 0,
+   "af": [
+    {
+     "af": 4,
+     "periph": "I2C2",
+     "signal": "SDA"
+    },
+    {
+     "af": 5,
+     "periph": "SPI2",
+     "signal": "I2S_WS"
+    },
+    {
+     "af": 5,
+     "periph": "SPI2",
+     "signal": "NSS"
+    },
+    {
+     "af": 6,
+     "periph": "TIM1",
+     "signal": "CH3N"
+    }
+   ],
+   "analog": [
+    "ADC1_IN10",
+    "ADC1_INN9"
+   ]
+  },
+  {
+   "number": 6,
+   "name": "PF1",
+   "port": 5,
+   "bit": 1,
+   "af": [
+    {
+     "af": 5,
+     "periph": "SPI2",
+     "signal": "I2S_CK"
+    },
+    {
+     "af": 5,
+     "periph": "SPI2",
+     "signal": "SCK"
+    }
+   ],
+   "analog": [
+    "ADC2_IN10",
+    "ADC2_INN9",
+    "COMP3_INM",
+    "COMP3_INM0"
+   ]
+  },
+  {
+   "number": 7,
+   "name": "NRST"
+  },
+  {
+   "number": 8,
+   "name": "PC0",
+   "port": 2,
+   "bit": 0,
+   "af": [
+    {
+     "af": 1,
+     "periph": "LPTIM1",
+     "signal": "IN1"
+    },
+    {
+     "af": 2,
+     "periph": "TIM1",
+     "signal": "CH1"
+    },
+    {
+     "af": 8,
+     "periph": "LPUART1",
+     "signal": "RX"
+    }
+   ],
+   "analog": [
+    "ADC1_IN6",
+    "ADC1_INN5",
+    "ADC2_IN6",
+    "ADC2_INN5",
+    "COMP3_INM",
+    "COMP3_INM1"
+   ]
+  },
+  {
+   "number": 9,
+   "name": "PC1",
+   "port": 2,
+   "bit": 1,
+   "af": [
+    {
+     "af": 1,
+     "periph": "LPTIM1",
+     "signal": "OUT"
+    },
+    {
+     "af": 2,
+     "periph": "TIM1",
+     "signal": "CH2"
+    },
+    {
+     "af": 8,
+     "periph": "LPUART1",
+     "signal": "TX"
+    },
+    {
+     "af": 13,
+     "periph": "SAI1",
+     "signal": "SD_A"
+    }
+   ],
+   "analog": [
+    "ADC1_IN7",
+    "ADC1_INN6",
+    "ADC2_IN7",
+    "ADC2_INN6",
+    "COMP3_INP",
+    "COMP3_INP1"
+   ]
+  },
+  {
+   "number": 10,
+   "name": "PC2",
+   "port": 2,
+   "bit": 2,
+   "af": [
+    {
+     "af": 1,
+     "periph": "LPTIM1",
+     "signal": "IN2"
+    },
+    {
+     "af": 2,
+     "periph": "TIM1",
+     "signal": "CH3"
+    },
+    {
+     "af": 3,
+     "periph": "COMP3",
+     "signal": "OUT"
+    }
+   ],
+   "analog": [
+    "ADC1_IN8",
+    "ADC1_INN7",
+    "ADC2_IN8",
+    "ADC2_INN7"
+   ]
+  },
+  {
+   "number": 11,
+   "name": "PC3",
+   "port": 2,
+   "bit": 3,
+   "af": [
+    {
+     "af": 1,
+     "periph": "LPTIM1",
+     "signal": "ETR"
+    },
+    {
+     "af": 2,
+     "periph": "TIM1",
+     "signal": "CH4"
+    },
+    {
+     "af": 3,
+     "periph": "SAI1",
+     "signal": "D1"
+    },
+    {
+     "af": 6,
+     "periph": "TIM1",
+     "signal": "BKIN2"
+    },
+    {
+     "af": 13,
+     "periph": "SAI1",
+     "signal": "SD_A"
+    }
+   ],
+   "analog": [
+    "ADC1_IN9",
+    "ADC1_INN8",
+    "ADC2_IN9",
+    "ADC2_INN8"
+   ]
+  },
+  {
+   "number": 12,
+   "name": "PA0",
+   "port": 0,
+   "bit": 0,
+   "af": [
+    {
+     "af": 1,
+     "periph": "TIM2",
+     "signal": "CH1"
+    },
+    {
+     "af": 7,
+     "periph": "USART2",
+     "signal": "CTS"
+    },
+    {
+     "af": 7,
+     "periph": "USART2",
+     "signal": "NSS"
+    },
+    {
+     "af": 8,
+     "periph": "COMP1",
+     "signal": "OUT"
+    },
+    {
+     "af": 9,
+     "periph": "TIM8",
+     "signal": "BKIN"
+    },
+    {
+     "af": 10,
+     "periph": "TIM8",
+     "signal": "ETR"
+    },
+    {
+     "af": 14,
+     "periph": "TIM2",
+     "signal": "ETR"
+    }
+   ],
+   "analog": [
+    "ADC1_IN1",
+    "ADC2_IN1",
+    "COMP1_INM",
+    "COMP1_INM1",
+    "COMP3_INP",
+    "COMP3_INP0"
+   ]
+  },
+  {
+   "number": 13,
+   "name": "PA1",
+   "port": 0,
+   "bit": 1,
+   "af": [
+    {
+     "af": 0,
+     "periph": "RTC",
+     "signal": "REFIN"
+    },
+    {
+     "af": 1,
+     "periph": "TIM2",
+     "signal": "CH2"
+    },
+    {
+     "af": 7,
+     "periph": "USART2",
+     "signal": "DE"
+    },
+    {
+     "af": 7,
+     "periph": "USART2",
+     "signal": "RTS"
+    },
+    {
+     "af": 9,
+     "periph": "TIM15",
+     "signal": "CH1N"
+    }
+   ],
+   "analog": [
+    "ADC1_IN2",
+    "ADC1_INN1",
+    "ADC2_IN2",
+    "ADC2_INN1",
+    "COMP1_INP",
+    "COMP1_INP0",
+    "OPAMP1_VINP",
+    "OPAMP1_VINP0",
+    "OPAMP1_VINP_SEC",
+    "OPAMP3_VINP",
+    "OPAMP3_VINP2",
+    "OPAMP3_VINP_SEC"
+   ]
+  },
+  {
+   "number": 14,
+   "name": "PA2",
+   "port": 0,
+   "bit": 2,
+   "af": [
+    {
+     "af": 1,
+     "periph": "TIM2",
+     "signal": "CH3"
+    },
+    {
+     "af": 7,
+     "periph": "USART2",
+     "signal": "TX"
+    },
+    {
+     "af": 8,
+     "periph": "COMP2",
+     "signal": "OUT"
+    },
+    {
+     "af": 9,
+     "periph": "TIM15",
+     "signal": "CH1"
+    },
+    {
+     "af": 12,
+     "periph": "LPUART1",
+     "signal": "TX"
+    },
+    {
+     "af": 14,
+     "periph": "UCPD1",
+     "signal": "FRSTX1"
+    },
+    {
+     "af": 14,
+     "periph": "UCPD1",
+     "signal": "FRSTX2"
+    }
+   ],
+   "analog": [
+    "ADC1_IN3",
+    "ADC1_INN2",
+    "COMP2_INM",
+    "COMP2_INM1",
+    "OPAMP1_VOUT"
+   ]
+  },
+  {
+   "number": 15,
+   "name": "VSS"
+  },
+  {
+   "number": 16,
+   "name": "VDD"
+  },
+  {
+   "number": 17,
+   "name": "PA3",
+   "port": 0,
+   "bit": 3,
+   "af": [
+    {
+     "af": 1,
+     "periph": "TIM2",
+     "signal": "CH4"
+    },
+    {
+     "af": 3,
+     "periph": "SAI1",
+     "signal": "CK1"
+    },
+    {
+     "af": 7,
+     "periph": "USART2",
+     "signal": "RX"
+    },
+    {
+     "af": 9,
+     "periph": "TIM15",
+     "signal": "CH2"
+    },
+    {
+     "af": 12,
+     "periph": "LPUART1",
+     "signal": "RX"
+    },
+    {
+     "af": 13,
+     "periph": "SAI1",
+     "signal": "MCLK_A"
+    }
+   ],
+   "analog": [
+    "ADC1_IN4",
+    "ADC1_INN3",
+    "COMP2_INP",
+    "COMP2_INP1",
+    "OPAMP1_VINM",
+    "OPAMP1_VINM0",
+    "OPAMP1_VINM_SEC",
+    "OPAMP1_VINP",
+    "OPAMP1_VINP1",
+    "OPAMP1_VINP_SEC"
+   ]
+  },
+  {
+   "number": 18,
+   "name": "PA4",
+   "port": 0,
+   "bit": 4,
+   "af": [
+    {
+     "af": 2,
+     "periph": "TIM3",
+     "signal": "CH2"
+    },
+    {
+     "af": 5,
+     "periph": "SPI1",
+     "signal": "NSS"
+    },
+    {
+     "af": 6,
+     "periph": "SPI3",
+     "signal": "I2S_WS"
+    },
+    {
+     "af": 6,
+     "periph": "SPI3",
+     "signal": "NSS"
+    },
+    {
+     "af": 7,
+     "periph": "USART2",
+     "signal": "CK"
+    },
+    {
+     "af": 13,
+     "periph": "SAI1",
+     "signal": "FS_B"
+    }
+   ],
+   "analog": [
+    "ADC2_IN17",
+    "COMP1_INM",
+    "COMP1_INM0",
+    "DAC1_OUT1"
+   ]
+  },
+  {
+   "number": 19,
+   "name": "PA5",
+   "port": 0,
+   "bit": 5,
+   "af": [
+    {
+     "af": 1,
+     "periph": "TIM2",
+     "signal": "CH1"
+    },
+    {
+     "af": 2,
+     "periph": "TIM2",
+     "signal": "ETR"
+    },
+    {
+     "af": 5,
+     "periph": "SPI1",
+     "signal": "SCK"
+    },
+    {
+     "af": 14,
+     "periph": "UCPD1",
+     "signal": "FRSTX1"
+    },
+    {
+     "af": 14,
+     "periph": "UCPD1",
+     "signal": "FRSTX2"
+    }
+   ],
+   "analog": [
+    "ADC2_IN13",
+    "ADC2_INN12",
+    "COMP2_INM",
+    "COMP2_INM0",
+    "DAC1_OUT2",
+    "OPAMP2_VINM",
+    "OPAMP2_VINM0",
+    "OPAMP2_VINM_SEC"
+   ]
+  },
+  {
+   "number": 20,
+   "name": "PA6",
+   "port": 0,
+   "bit": 6,
+   "af": [
+    {
+     "af": 1,
+     "periph": "TIM16",
+     "signal": "CH1"
+    },
+    {
+     "af": 2,
+     "periph": "TIM3",
+     "signal": "CH1"
+    },
+    {
+     "af": 4,
+     "periph": "TIM8",
+     "signal": "BKIN"
+    },
+    {
+     "af": 5,
+     "periph": "SPI1",
+     "signal": "MISO"
+    },
+    {
+     "af": 6,
+     "periph": "TIM1",
+     "signal": "BKIN"
+    },
+    {
+     "af": 8,
+     "periph": "COMP1",
+     "signal": "OUT"
+    },
+    {
+     "af": 12,
+     "periph": "LPUART1",
+     "signal": "CTS"
+    }
+   ],
+   "analog": [
+    "ADC2_IN3",
+    "ADC2_INN2",
+    "OPAMP2_VOUT"
+   ]
+  },
+  {
+   "number": 21,
+   "name": "PA7",
+   "port": 0,
+   "bit": 7,
+   "af": [
+    {
+     "af": 1,
+     "periph": "TIM17",
+     "signal": "CH1"
+    },
+    {
+     "af": 2,
+     "periph": "TIM3",
+     "signal": "CH2"
+    },
+    {
+     "af": 4,
+     "periph": "TIM8",
+     "signal": "CH1N"
+    },
+    {
+     "af": 5,
+     "periph": "SPI1",
+     "signal": "MOSI"
+    },
+    {
+     "af": 6,
+     "periph": "TIM1",
+     "signal": "CH1N"
+    },
+    {
+     "af": 8,
+     "periph": "COMP2",
+     "signal": "OUT"
+    },
+    {
+     "af": 14,
+     "periph": "UCPD1",
+     "signal": "FRSTX1"
+    },
+    {
+     "af": 14,
+     "periph": "UCPD1",
+     "signal": "FRSTX2"
+    }
+   ],
+   "analog": [
+    "ADC2_IN4",
+    "ADC2_INN3",
+    "COMP2_INP",
+    "COMP2_INP0",
+    "OPAMP1_VINP",
+    "OPAMP1_VINP2",
+    "OPAMP1_VINP_SEC",
+    "OPAMP2_VINP",
+    "OPAMP2_VINP0",
+    "OPAMP2_VINP_SEC"
+   ]
+  },
+  {
+   "number": 22,
+   "name": "PC4",
+   "port": 2,
+   "bit": 4,
+   "af": [
+    {
+     "af": 2,
+     "periph": "TIM1",
+     "signal": "ETR"
+    },
+    {
+     "af": 4,
+     "periph": "I2C2",
+     "signal": "SCL"
+    },
+    {
+     "af": 7,
+     "periph": "USART1",
+     "signal": "TX"
+    }
+   ],
+   "analog": [
+    "ADC2_IN5",
+    "ADC2_INN4"
+   ]
+  },
+  {
+   "number": 23,
+   "name": "PC5",
+   "port": 2,
+   "bit": 5,
+   "af": [
+    {
+     "af": 2,
+     "periph": "TIM15",
+     "signal": "BKIN"
+    },
+    {
+     "af": 3,
+     "periph": "SAI1",
+     "signal": "D3"
+    },
+    {
+     "af": 6,
+     "periph": "TIM1",
+     "signal": "CH4N"
+    },
+    {
+     "af": 7,
+     "periph": "USART1",
+     "signal": "RX"
+    }
+   ],
+   "analog": [
+    "ADC2_IN11",
+    "ADC2_INN10",
+    "OPAMP1_VINM",
+    "OPAMP1_VINM1",
+    "OPAMP1_VINM_SEC",
+    "OPAMP2_VINM",
+    "OPAMP2_VINM1",
+    "OPAMP2_VINM_SEC"
+   ]
+  },
+  {
+   "number": 24,
+   "name": "PB0",
+   "port": 1,
+   "bit": 0,
+   "af": [
+    {
+     "af": 2,
+     "periph": "TIM3",
+     "signal": "CH3"
+    },
+    {
+     "af": 4,
+     "periph": "TIM8",
+     "signal": "CH2N"
+    },
+    {
+     "af": 6,
+     "periph": "TIM1",
+     "signal": "CH2N"
+    },
+    {
+     "af": 14,
+     "periph": "UCPD1",
+     "signal": "FRSTX1"
+    },
+    {
+     "af": 14,
+     "periph": "UCPD1",
+     "signal": "FRSTX2"
+    }
+   ],
+   "analog": [
+    "ADC1_IN15",
+    "COMP4_INP",
+    "COMP4_INP0",
+    "OPAMP2_VINP",
+    "OPAMP2_VINP2",
+    "OPAMP2_VINP_SEC",
+    "OPAMP3_VINP",
+    "OPAMP3_VINP0",
+    "OPAMP3_VINP_SEC"
+   ]
+  },
+  {
+   "number": 25,
+   "name": "PB1",
+   "port": 1,
+   "bit": 1,
+   "af": [
+    {
+     "af": 2,
+     "periph": "TIM3",
+     "signal": "CH4"
+    },
+    {
+     "af": 4,
+     "periph": "TIM8",
+     "signal": "CH3N"
+    },
+    {
+     "af": 6,
+     "periph": "TIM1",
+     "signal": "CH3N"
+    },
+    {
+     "af": 8,
+     "periph": "COMP4",
+     "signal": "OUT"
+    },
+    {
+     "af": 12,
+     "periph": "LPUART1",
+     "signal": "DE"
+    },
+    {
+     "af": 12,
+     "periph": "LPUART1",
+     "signal": "RTS"
+    }
+   ],
+   "analog": [
+    "ADC1_IN12",
+    "ADC1_INN11",
+    "COMP1_INP",
+    "COMP1_INP1",
+    "OPAMP3_VOUT"
+   ]
+  },
+  {
+   "number": 26,
+   "name": "PB2",
+   "port": 1,
+   "bit": 2,
+   "af": [
+    {
+     "af": 0,
+     "periph": "RTC",
+     "signal": "OUT2"
+    },
+    {
+     "af": 1,
+     "periph": "LPTIM1",
+     "signal": "OUT"
+    },
+    {
+     "af": 4,
+     "periph": "I2C3",
+     "signal": "SMBA"
+    }
+   ],
+   "analog": [
+    "ADC2_IN12",
+    "ADC2_INN11",
+    "COMP4_INM",
+    "COMP4_INM1",
+    "OPAMP3_VINM",
+    "OPAMP3_VINM0",
+    "OPAMP3_VINM_SEC"
+   ]
+  },
+  {
+   "number": 27,
+   "name": "VSSA"
+  },
+  {
+   "number": 28,
+   "name": "VREF+"
+  },
+  {
+   "number": 29,
+   "name": "VDDA"
+  },
+  {
+   "number": 30,
+   "name": "PB10",
+   "port": 1,
+   "bit": 10,
+   "af": [
+    {
+     "af": 1,
+     "periph": "TIM2",
+     "signal": "CH3"
+    },
+    {
+     "af": 7,
+     "periph": "USART3",
+     "signal": "TX"
+    },
+    {
+     "af": 8,
+     "periph": "LPUART1",
+     "signal": "RX"
+    },
+    {
+     "af": 12,
+     "periph": "TIM1",
+     "signal": "BKIN"
+    },
+    {
+     "af": 14,
+     "periph": "SAI1",
+     "signal": "SCK_A"
+    }
+   ],
+   "analog": [
+    "OPAMP3_VINM",
+    "OPAMP3_VINM1",
+    "OPAMP3_VINM_SEC"
+   ]
+  },
+  {
+   "number": 31,
+   "name": "VSS"
+  },
+  {
+   "number": 32,
+   "name": "VDD"
+  },
+  {
+   "number": 33,
+   "name": "PB11",
+   "port": 1,
+   "bit": 11,
+   "af": [
+    {
+     "af": 1,
+     "periph": "TIM2",
+     "signal": "CH4"
+    },
+    {
+     "af": 7,
+     "periph": "USART3",
+     "signal": "RX"
+    },
+    {
+     "af": 8,
+     "periph": "LPUART1",
+     "signal": "TX"
+    }
+   ],
+   "analog": [
+    "ADC1_IN14",
+    "ADC1_INN15",
+    "ADC2_IN14",
+    "ADC2_INN13"
+   ]
+  },
+  {
+   "number": 34,
+   "name": "PB12",
+   "port": 1,
+   "bit": 12,
+   "af": [
+    {
+     "af": 4,
+     "periph": "I2C2",
+     "signal": "SMBA"
+    },
+    {
+     "af": 5,
+     "periph": "SPI2",
+     "signal": "I2S_WS"
+    },
+    {
+     "af": 5,
+     "periph": "SPI2",
+     "signal": "NSS"
+    },
+    {
+     "af": 6,
+     "periph": "TIM1",
+     "signal": "BKIN"
+    },
+    {
+     "af": 7,
+     "periph": "USART3",
+     "signal": "CK"
+    },
+    {
+     "af": 8,
+     "periph": "LPUART1",
+     "signal": "DE"
+    },
+    {
+     "af": 8,
+     "periph": "LPUART1",
+     "signal": "RTS"
+    }
+   ],
+   "analog": [
+    "ADC1_IN11",
+    "ADC1_INN10"
+   ]
+  },
+  {
+   "number": 35,
+   "name": "PB13",
+   "port": 1,
+   "bit": 13,
+   "af": [
+    {
+     "af": 5,
+     "periph": "SPI2",
+     "signal": "I2S_CK"
+    },
+    {
+     "af": 5,
+     "periph": "SPI2",
+     "signal": "SCK"
+    },
+    {
+     "af": 6,
+     "periph": "TIM1",
+     "signal": "CH1N"
+    },
+    {
+     "af": 7,
+     "periph": "USART3",
+     "signal": "CTS"
+    },
+    {
+     "af": 7,
+     "periph": "USART3",
+     "signal": "NSS"
+    },
+    {
+     "af": 8,
+     "periph": "LPUART1",
+     "signal": "CTS"
+    }
+   ],
+   "analog": [
+    "OPAMP3_VINP",
+    "OPAMP3_VINP1",
+    "OPAMP3_VINP_SEC"
+   ]
+  },
+  {
+   "number": 36,
+   "name": "PB14",
+   "port": 1,
+   "bit": 14,
+   "af": [
+    {
+     "af": 1,
+     "periph": "TIM15",
+     "signal": "CH1"
+    },
+    {
+     "af": 5,
+     "periph": "SPI2",
+     "signal": "MISO"
+    },
+    {
+     "af": 6,
+     "periph": "TIM1",
+     "signal": "CH2N"
+    },
+    {
+     "af": 7,
+     "periph": "USART3",
+     "signal": "DE"
+    },
+    {
+     "af": 7,
+     "periph": "USART3",
+     "signal": "RTS"
+    },
+    {
+     "af": 8,
+     "periph": "COMP4",
+     "signal": "OUT"
+    }
+   ],
+   "analog": [
+    "ADC1_IN5",
+    "ADC1_INN4",
+    "OPAMP2_VINP",
+    "OPAMP2_VINP1",
+    "OPAMP2_VINP_SEC"
+   ]
+  },
+  {
+   "number": 37,
+   "name": "PB15",
+   "port": 1,
+   "bit": 15,
+   "af": [
+    {
+     "af": 0,
+     "periph": "RTC",
+     "signal": "REFIN"
+    },
+    {
+     "af": 1,
+     "periph": "TIM15",
+     "signal": "CH2"
+    },
+    {
+     "af": 2,
+     "periph": "TIM15",
+     "signal": "CH1N"
+    },
+    {
+     "af": 3,
+     "periph": "COMP3",
+     "signal": "OUT"
+    },
+    {
+     "af": 4,
+     "periph": "TIM1",
+     "signal": "CH3N"
+    },
+    {
+     "af": 5,
+     "periph": "SPI2",
+     "signal": "I2S_SD"
+    },
+    {
+     "af": 5,
+     "periph": "SPI2",
+     "signal": "MOSI"
+    }
+   ],
+   "analog": [
+    "ADC2_IN15",
+    "ADC2_INN14"
+   ]
+  },
+  {
+   "number": 38,
+   "name": "PC6",
+   "port": 2,
+   "bit": 6,
+   "af": [
+    {
+     "af": 2,
+     "periph": "TIM3",
+     "signal": "CH1"
+    },
+    {
+     "af": 4,
+     "periph": "TIM8",
+     "signal": "CH1"
+    },
+    {
+     "af": 6,
+     "periph": "SPI2",
+     "signal": "I2S_MCK"
+    }
+   ],
+   "analog": []
+  },
+  {
+   "number": 39,
+   "name": "PC7",
+   "port": 2,
+   "bit": 7,
+   "af": [
+    {
+     "af": 2,
+     "periph": "TIM3",
+     "signal": "CH2"
+    },
+    {
+     "af": 4,
+     "periph": "TIM8",
+     "signal": "CH2"
+    },
+    {
+     "af": 6,
+     "periph": "SPI3",
+     "signal": "I2S_MCK"
+    }
+   ],
+   "analog": []
+  },
+  {
+   "number": 40,
+   "name": "PC8",
+   "port": 2,
+   "bit": 8,
+   "af": [
+    {
+     "af": 2,
+     "periph": "TIM3",
+     "signal": "CH3"
+    },
+    {
+     "af": 4,
+     "periph": "TIM8",
+     "signal": "CH3"
+    },
+    {
+     "af": 8,
+     "periph": "I2C3",
+     "signal": "SCL"
+    }
+   ],
+   "analog": []
+  },
+  {
+   "number": 41,
+   "name": "PC9",
+   "port": 2,
+   "bit": 9,
+   "af": [
+    {
+     "af": 2,
+     "periph": "TIM3",
+     "signal": "CH4"
+    },
+    {
+     "af": 4,
+     "periph": "TIM8",
+     "signal": "CH4"
+    },
+    {
+     "af": 6,
+     "periph": "TIM8",
+     "signal": "BKIN2"
+    },
+    {
+     "af": 8,
+     "periph": "I2C3",
+     "signal": "SDA"
+    }
+   ],
+   "analog": []
+  },
+  {
+   "number": 42,
+   "name": "PA8",
+   "port": 0,
+   "bit": 8,
+   "af": [
+    {
+     "af": 0,
+     "periph": "RCC",
+     "signal": "MCO"
+    },
+    {
+     "af": 2,
+     "periph": "I2C3",
+     "signal": "SCL"
+    },
+    {
+     "af": 4,
+     "periph": "I2C2",
+     "signal": "SDA"
+    },
+    {
+     "af": 5,
+     "periph": "SPI2",
+     "signal": "I2S_MCK"
+    },
+    {
+     "af": 6,
+     "periph": "TIM1",
+     "signal": "CH1"
+    },
+    {
+     "af": 7,
+     "periph": "USART1",
+     "signal": "CK"
+    },
+    {
+     "af": 10,
+     "periph": "TIM4",
+     "signal": "ETR"
+    },
+    {
+     "af": 12,
+     "periph": "SAI1",
+     "signal": "CK2"
+    },
+    {
+     "af": 14,
+     "periph": "SAI1",
+     "signal": "SCK_A"
+    }
+   ],
+   "analog": []
+  },
+  {
+   "number": 43,
+   "name": "PA9",
+   "port": 0,
+   "bit": 9,
+   "af": [
+    {
+     "af": 2,
+     "periph": "I2C3",
+     "signal": "SMBA"
+    },
+    {
+     "af": 4,
+     "periph": "I2C2",
+     "signal": "SCL"
+    },
+    {
+     "af": 5,
+     "periph": "SPI3",
+     "signal": "I2S_MCK"
+    },
+    {
+     "af": 6,
+     "periph": "TIM1",
+     "signal": "CH2"
+    },
+    {
+     "af": 7,
+     "periph": "USART1",
+     "signal": "TX"
+    },
+    {
+     "af": 9,
+     "periph": "TIM15",
+     "signal": "BKIN"
+    },
+    {
+     "af": 10,
+     "periph": "TIM2",
+     "signal": "CH3"
+    },
+    {
+     "af": 14,
+     "periph": "SAI1",
+     "signal": "FS_A"
+    }
+   ],
+   "analog": []
+  },
+  {
+   "number": 44,
+   "name": "PA10",
+   "port": 0,
+   "bit": 10,
+   "af": [
+    {
+     "af": 1,
+     "periph": "TIM17",
+     "signal": "BKIN"
+    },
+    {
+     "af": 3,
+     "periph": "CRS",
+     "signal": "SYNC"
+    },
+    {
+     "af": 4,
+     "periph": "I2C2",
+     "signal": "SMBA"
+    },
+    {
+     "af": 5,
+     "periph": "SPI2",
+     "signal": "MISO"
+    },
+    {
+     "af": 6,
+     "periph": "TIM1",
+     "signal": "CH3"
+    },
+    {
+     "af": 7,
+     "periph": "USART1",
+     "signal": "RX"
+    },
+    {
+     "af": 10,
+     "periph": "TIM2",
+     "signal": "CH4"
+    },
+    {
+     "af": 11,
+     "periph": "TIM8",
+     "signal": "BKIN"
+    },
+    {
+     "af": 12,
+     "periph": "SAI1",
+     "signal": "D1"
+    },
+    {
+     "af": 14,
+     "periph": "SAI1",
+     "signal": "SD_A"
+    }
+   ],
+   "analog": []
+  },
+  {
+   "number": 45,
+   "name": "PA11",
+   "port": 0,
+   "bit": 11,
+   "af": [
+    {
+     "af": 5,
+     "periph": "SPI2",
+     "signal": "I2S_SD"
+    },
+    {
+     "af": 5,
+     "periph": "SPI2",
+     "signal": "MOSI"
+    },
+    {
+     "af": 6,
+     "periph": "TIM1",
+     "signal": "CH1N"
+    },
+    {
+     "af": 7,
+     "periph": "USART1",
+     "signal": "CTS"
+    },
+    {
+     "af": 7,
+     "periph": "USART1",
+     "signal": "NSS"
+    },
+    {
+     "af": 8,
+     "periph": "COMP1",
+     "signal": "OUT"
+    },
+    {
+     "af": 9,
+     "periph": "FDCAN1",
+     "signal": "RX"
+    },
+    {
+     "af": 10,
+     "periph": "TIM4",
+     "signal": "CH1"
+    },
+    {
+     "af": 11,
+     "periph": "TIM1",
+     "signal": "CH4"
+    },
+    {
+     "af": 12,
+     "periph": "TIM1",
+     "signal": "BKIN2"
+    }
+   ],
+   "analog": []
+  },
+  {
+   "number": 46,
+   "name": "PA12",
+   "port": 0,
+   "bit": 12,
+   "af": [
+    {
+     "af": 1,
+     "periph": "TIM16",
+     "signal": "CH1"
+    },
+    {
+     "af": 6,
+     "periph": "TIM1",
+     "signal": "CH2N"
+    },
+    {
+     "af": 7,
+     "periph": "USART1",
+     "signal": "DE"
+    },
+    {
+     "af": 7,
+     "periph": "USART1",
+     "signal": "RTS"
+    },
+    {
+     "af": 8,
+     "periph": "COMP2",
+     "signal": "OUT"
+    },
+    {
+     "af": 9,
+     "periph": "FDCAN1",
+     "signal": "TX"
+    },
+    {
+     "af": 10,
+     "periph": "TIM4",
+     "signal": "CH2"
+    },
+    {
+     "af": 11,
+     "periph": "TIM1",
+     "signal": "ETR"
+    }
+   ],
+   "analog": []
+  },
+  {
+   "number": 47,
+   "name": "VSS"
+  },
+  {
+   "number": 48,
+   "name": "VDD"
+  },
+  {
+   "number": 49,
+   "name": "PA13",
+   "port": 0,
+   "bit": 13,
+   "af": [
+    {
+     "af": 1,
+     "periph": "TIM16",
+     "signal": "CH1N"
+    },
+    {
+     "af": 4,
+     "periph": "I2C1",
+     "signal": "SCL"
+    },
+    {
+     "af": 7,
+     "periph": "USART3",
+     "signal": "CTS"
+    },
+    {
+     "af": 7,
+     "periph": "USART3",
+     "signal": "NSS"
+    },
+    {
+     "af": 10,
+     "periph": "TIM4",
+     "signal": "CH3"
+    },
+    {
+     "af": 13,
+     "periph": "SAI1",
+     "signal": "SD_B"
+    }
+   ],
+   "analog": []
+  },
+  {
+   "number": 50,
+   "name": "PA14",
+   "port": 0,
+   "bit": 14,
+   "af": [
+    {
+     "af": 1,
+     "periph": "LPTIM1",
+     "signal": "OUT"
+    },
+    {
+     "af": 4,
+     "periph": "I2C1",
+     "signal": "SDA"
+    },
+    {
+     "af": 5,
+     "periph": "TIM8",
+     "signal": "CH2"
+    },
+    {
+     "af": 6,
+     "periph": "TIM1",
+     "signal": "BKIN"
+    },
+    {
+     "af": 7,
+     "periph": "USART2",
+     "signal": "TX"
+    },
+    {
+     "af": 13,
+     "periph": "SAI1",
+     "signal": "FS_B"
+    }
+   ],
+   "analog": []
+  },
+  {
+   "number": 51,
+   "name": "PA15",
+   "port": 0,
+   "bit": 15,
+   "af": [
+    {
+     "af": 1,
+     "periph": "TIM2",
+     "signal": "CH1"
+    },
+    {
+     "af": 2,
+     "periph": "TIM8",
+     "signal": "CH1"
+    },
+    {
+     "af": 4,
+     "periph": "I2C1",
+     "signal": "SCL"
+    },
+    {
+     "af": 5,
+     "periph": "SPI1",
+     "signal": "NSS"
+    },
+    {
+     "af": 6,
+     "periph": "SPI3",
+     "signal": "I2S_WS"
+    },
+    {
+     "af": 6,
+     "periph": "SPI3",
+     "signal": "NSS"
+    },
+    {
+     "af": 7,
+     "periph": "USART2",
+     "signal": "RX"
+    },
+    {
+     "af": 8,
+     "periph": "UART4",
+     "signal": "DE"
+    },
+    {
+     "af": 8,
+     "periph": "UART4",
+     "signal": "RTS"
+    },
+    {
+     "af": 9,
+     "periph": "TIM1",
+     "signal": "BKIN"
+    },
+    {
+     "af": 14,
+     "periph": "TIM2",
+     "signal": "ETR"
+    }
+   ],
+   "analog": []
+  },
+  {
+   "number": 52,
+   "name": "PC10",
+   "port": 2,
+   "bit": 10,
+   "af": [
+    {
+     "af": 4,
+     "periph": "TIM8",
+     "signal": "CH1N"
+    },
+    {
+     "af": 5,
+     "periph": "UART4",
+     "signal": "TX"
+    },
+    {
+     "af": 6,
+     "periph": "SPI3",
+     "signal": "I2S_CK"
+    },
+    {
+     "af": 6,
+     "periph": "SPI3",
+     "signal": "SCK"
+    },
+    {
+     "af": 7,
+     "periph": "USART3",
+     "signal": "TX"
+    }
+   ],
+   "analog": []
+  },
+  {
+   "number": 53,
+   "name": "PC11",
+   "port": 2,
+   "bit": 11,
+   "af": [
+    {
+     "af": 4,
+     "periph": "TIM8",
+     "signal": "CH2N"
+    },
+    {
+     "af": 5,
+     "periph": "UART4",
+     "signal": "RX"
+    },
+    {
+     "af": 6,
+     "periph": "SPI3",
+     "signal": "MISO"
+    },
+    {
+     "af": 7,
+     "periph": "USART3",
+     "signal": "RX"
+    },
+    {
+     "af": 8,
+     "periph": "I2C3",
+     "signal": "SDA"
+    }
+   ],
+   "analog": []
+  },
+  {
+   "number": 54,
+   "name": "PC12",
+   "port": 2,
+   "bit": 12,
+   "af": [
+    {
+     "af": 4,
+     "periph": "TIM8",
+     "signal": "CH3N"
+    },
+    {
+     "af": 6,
+     "periph": "SPI3",
+     "signal": "I2S_SD"
+    },
+    {
+     "af": 6,
+     "periph": "SPI3",
+     "signal": "MOSI"
+    },
+    {
+     "af": 7,
+     "periph": "USART3",
+     "signal": "CK"
+    },
+    {
+     "af": 14,
+     "periph": "UCPD1",
+     "signal": "FRSTX1"
+    },
+    {
+     "af": 14,
+     "periph": "UCPD1",
+     "signal": "FRSTX2"
+    }
+   ],
+   "analog": []
+  },
+  {
+   "number": 55,
+   "name": "PD2",
+   "port": 3,
+   "bit": 2,
+   "af": [
+    {
+     "af": 2,
+     "periph": "TIM3",
+     "signal": "ETR"
+    },
+    {
+     "af": 4,
+     "periph": "TIM8",
+     "signal": "BKIN"
+    }
+   ],
+   "analog": []
+  },
+  {
+   "number": 56,
+   "name": "PB3",
+   "port": 1,
+   "bit": 3,
+   "af": [
+    {
+     "af": 1,
+     "periph": "TIM2",
+     "signal": "CH2"
+    },
+    {
+     "af": 2,
+     "periph": "TIM4",
+     "signal": "ETR"
+    },
+    {
+     "af": 3,
+     "periph": "CRS",
+     "signal": "SYNC"
+    },
+    {
+     "af": 4,
+     "periph": "TIM8",
+     "signal": "CH1N"
+    },
+    {
+     "af": 5,
+     "periph": "SPI1",
+     "signal": "SCK"
+    },
+    {
+     "af": 6,
+     "periph": "SPI3",
+     "signal": "I2S_CK"
+    },
+    {
+     "af": 6,
+     "periph": "SPI3",
+     "signal": "SCK"
+    },
+    {
+     "af": 7,
+     "periph": "USART2",
+     "signal": "TX"
+    },
+    {
+     "af": 10,
+     "periph": "TIM3",
+     "signal": "ETR"
+    },
+    {
+     "af": 14,
+     "periph": "SAI1",
+     "signal": "SCK_B"
+    }
+   ],
+   "analog": []
+  },
+  {
+   "number": 57,
+   "name": "PB4",
+   "port": 1,
+   "bit": 4,
+   "af": [
+    {
+     "af": 1,
+     "periph": "TIM16",
+     "signal": "CH1"
+    },
+    {
+     "af": 2,
+     "periph": "TIM3",
+     "signal": "CH1"
+    },
+    {
+     "af": 4,
+     "periph": "TIM8",
+     "signal": "CH2N"
+    },
+    {
+     "af": 5,
+     "periph": "SPI1",
+     "signal": "MISO"
+    },
+    {
+     "af": 6,
+     "periph": "SPI3",
+     "signal": "MISO"
+    },
+    {
+     "af": 7,
+     "periph": "USART2",
+     "signal": "RX"
+    },
+    {
+     "af": 10,
+     "periph": "TIM17",
+     "signal": "BKIN"
+    },
+    {
+     "af": 14,
+     "periph": "SAI1",
+     "signal": "MCLK_B"
+    }
+   ],
+   "analog": []
+  },
+  {
+   "number": 58,
+   "name": "PB5",
+   "port": 1,
+   "bit": 5,
+   "af": [
+    {
+     "af": 1,
+     "periph": "TIM16",
+     "signal": "BKIN"
+    },
+    {
+     "af": 2,
+     "periph": "TIM3",
+     "signal": "CH2"
+    },
+    {
+     "af": 3,
+     "periph": "TIM8",
+     "signal": "CH3N"
+    },
+    {
+     "af": 4,
+     "periph": "I2C1",
+     "signal": "SMBA"
+    },
+    {
+     "af": 5,
+     "periph": "SPI1",
+     "signal": "MOSI"
+    },
+    {
+     "af": 6,
+     "periph": "SPI3",
+     "signal": "I2S_SD"
+    },
+    {
+     "af": 6,
+     "periph": "SPI3",
+     "signal": "MOSI"
+    },
+    {
+     "af": 7,
+     "periph": "USART2",
+     "signal": "CK"
+    },
+    {
+     "af": 8,
+     "periph": "I2C3",
+     "signal": "SDA"
+    },
+    {
+     "af": 10,
+     "periph": "TIM17",
+     "signal": "CH1"
+    },
+    {
+     "af": 11,
+     "periph": "LPTIM1",
+     "signal": "IN1"
+    },
+    {
+     "af": 12,
+     "periph": "SAI1",
+     "signal": "SD_B"
+    }
+   ],
+   "analog": []
+  },
+  {
+   "number": 59,
+   "name": "PB6",
+   "port": 1,
+   "bit": 6,
+   "af": [
+    {
+     "af": 1,
+     "periph": "TIM16",
+     "signal": "CH1N"
+    },
+    {
+     "af": 2,
+     "periph": "TIM4",
+     "signal": "CH1"
+    },
+    {
+     "af": 5,
+     "periph": "TIM8",
+     "signal": "CH1"
+    },
+    {
+     "af": 6,
+     "periph": "TIM8",
+     "signal": "ETR"
+    },
+    {
+     "af": 7,
+     "periph": "USART1",
+     "signal": "TX"
+    },
+    {
+     "af": 8,
+     "periph": "COMP4",
+     "signal": "OUT"
+    },
+    {
+     "af": 10,
+     "periph": "TIM8",
+     "signal": "BKIN2"
+    },
+    {
+     "af": 11,
+     "periph": "LPTIM1",
+     "signal": "ETR"
+    },
+    {
+     "af": 14,
+     "periph": "SAI1",
+     "signal": "FS_B"
+    }
+   ],
+   "analog": []
+  },
+  {
+   "number": 60,
+   "name": "PB7",
+   "port": 1,
+   "bit": 7,
+   "af": [
+    {
+     "af": 1,
+     "periph": "TIM17",
+     "signal": "CH1N"
+    },
+    {
+     "af": 2,
+     "periph": "TIM4",
+     "signal": "CH2"
+    },
+    {
+     "af": 4,
+     "periph": "I2C1",
+     "signal": "SDA"
+    },
+    {
+     "af": 5,
+     "periph": "TIM8",
+     "signal": "BKIN"
+    },
+    {
+     "af": 7,
+     "periph": "USART1",
+     "signal": "RX"
+    },
+    {
+     "af": 8,
+     "periph": "COMP3",
+     "signal": "OUT"
+    },
+    {
+     "af": 10,
+     "periph": "TIM3",
+     "signal": "CH4"
+    },
+    {
+     "af": 11,
+     "periph": "LPTIM1",
+     "signal": "IN2"
+    },
+    {
+     "af": 14,
+     "periph": "UART4",
+     "signal": "CTS"
+    }
+   ],
+   "analog": []
+  },
+  {
+   "number": 61,
+   "name": "PB8",
+   "port": 1,
+   "bit": 8,
+   "af": [
+    {
+     "af": 1,
+     "periph": "TIM16",
+     "signal": "CH1"
+    },
+    {
+     "af": 2,
+     "periph": "TIM4",
+     "signal": "CH3"
+    },
+    {
+     "af": 3,
+     "periph": "SAI1",
+     "signal": "CK1"
+    },
+    {
+     "af": 4,
+     "periph": "I2C1",
+     "signal": "SCL"
+    },
+    {
+     "af": 7,
+     "periph": "USART3",
+     "signal": "RX"
+    },
+    {
+     "af": 8,
+     "periph": "COMP1",
+     "signal": "OUT"
+    },
+    {
+     "af": 9,
+     "periph": "FDCAN1",
+     "signal": "RX"
+    },
+    {
+     "af": 10,
+     "periph": "TIM8",
+     "signal": "CH2"
+    },
+    {
+     "af": 12,
+     "periph": "TIM1",
+     "signal": "BKIN"
+    },
+    {
+     "af": 14,
+     "periph": "SAI1",
+     "signal": "MCLK_A"
+    }
+   ],
+   "analog": []
+  },
+  {
+   "number": 62,
+   "name": "PB9",
+   "port": 1,
+   "bit": 9,
+   "af": [
+    {
+     "af": 1,
+     "periph": "TIM17",
+     "signal": "CH1"
+    },
+    {
+     "af": 2,
+     "periph": "TIM4",
+     "signal": "CH4"
+    },
+    {
+     "af": 3,
+     "periph": "SAI1",
+     "signal": "D2"
+    },
+    {
+     "af": 4,
+     "periph": "I2C1",
+     "signal": "SDA"
+    },
+    {
+     "af": 7,
+     "periph": "USART3",
+     "signal": "TX"
+    },
+    {
+     "af": 8,
+     "periph": "COMP2",
+     "signal": "OUT"
+    },
+    {
+     "af": 9,
+     "periph": "FDCAN1",
+     "signal": "TX"
+    },
+    {
+     "af": 10,
+     "periph": "TIM8",
+     "signal": "CH3"
+    },
+    {
+     "af": 12,
+     "periph": "TIM1",
+     "signal": "CH3N"
+    },
+    {
+     "af": 14,
+     "periph": "SAI1",
+     "signal": "FS_A"
+    }
+   ],
+   "analog": []
+  },
+  {
+   "number": 63,
+   "name": "VSS"
+  },
+  {
+   "number": 64,
+   "name": "VDD"
+  }
+ ]
+}

@@ -39,11 +39,19 @@ struct sl_af_info {
     const char *signal;     /* "TX", "RX", "CH1", ... */
 };
 
+struct sl_analog_info {
+    uint8_t port, pin;
+    const char *periph;     /* "ADC1", "DAC1", "COMP3", "OPAMP2" */
+    const char *signal;     /* "IN6", "OUT1", "INP", ... */
+};
+
 extern const struct sl_periph_info sl_g431_periph[];
 extern const int sl_g431_nperiph;
 extern const struct sl_pin_info sl_g431_pins[];
 extern const int sl_g431_npins;
 extern const struct sl_af_info sl_g431_af[];
 extern const int sl_g431_naf;
+extern const struct sl_analog_info sl_g431_analog[];
+extern const int sl_g431_nanalog;
 
 #endif

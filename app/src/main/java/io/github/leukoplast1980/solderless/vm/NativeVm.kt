@@ -47,4 +47,17 @@ object NativeVm {
      * flags: IntArray } in chain order.
      */
     @JvmStatic external fun dictionary(handle: Long, rootPointer: Int): Array<Any>?
+
+    /** The breadboard: 8 ints per attachment (part, role, pin slot, kind, toVcc, ohm, Vf mV, bounce us). */
+    @JvmStatic external fun boardSet(handle: Long, attachments: IntArray)
+    /** A button's pressed state (0/1) or a pot's wiper in per mille. */
+    @JvmStatic external fun boardInput(handle: Long, part: Int, value: Int)
+    /** Fills [out] (at least [BoardState.SIZE] ints); starts a new averaging window. */
+    @JvmStatic external fun boardRead(handle: Long, out: IntArray)
+    /** Sound events of piezo and speaker pins; see jni.c audioRead for the layout. */
+    @JvmStatic external fun audioRead(handle: Long, out: IntArray): Int
+    /** The pins the scope watches (slots); their state is recorded at once. */
+    @JvmStatic external fun tracePins(handle: Long, slots: IntArray)
+    /** The scope's events; same layout as [audioRead]. Called from the UI thread only. */
+    @JvmStatic external fun traceRead(handle: Long, out: IntArray): Int
 }

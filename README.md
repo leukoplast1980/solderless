@@ -7,7 +7,21 @@ or firmware you build yourself. A virtual breadboard with buttons, LEDs,
 sensors, displays and more follows in the next milestones (see
 [docs/design.md](docs/design.md)).
 
-**Status:** milestone 1, the chip and the console:
+**Status:** milestone 2, the breadboard (on the `milestone-2` branch):
+
+- the Board tab: the chip's pins as two headers along the screen's long
+  edges (in LQFP64-to-DIP adapter order or by port), parts in between with
+  live wires, glowing LEDs, the pot's voltage, the piezo's frequency
+- buttons (with contact bounce), LEDs, RGB LEDs, potentiometers, piezos
+  and speakers; the app picks the pins and the resistors, shows why, and
+  writes `wiring.fs` with a constant for every pin
+- EXTI, the timers with PWM and input capture, ADC and DAC; sound from the
+  piezo and the speaker
+- parts can float over the Console and Editor while you type
+- the Scope tab: every part's pin over time, logic levels, voltages and
+  PWM, 1 ms to 5 s, Hold, trigger on an edge, two cursors
+
+Milestone 1, the chip and the console:
 
 - the Cortex-M4 core (integer instructions, exceptions, NVIC, SysTick)
   and the G431's RCC, PWR, flash controller, GPIO and serial ports, with

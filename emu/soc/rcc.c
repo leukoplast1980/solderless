@@ -119,6 +119,7 @@ void rcc_update_clocks(struct sl_soc *s)
     s->pclk1 = p1 & 4u ? hclk >> ((p1 & 3u) + 1u) : hclk;
     s->pclk2 = p2 & 4u ? hclk >> ((p2 & 3u) + 1u) : hclk;
     soc_set_hclk(s, hclk);
+    tim_clocks_changed(s);
 
     if (s->sysclk > 150000000u && (pwr(s)[PWR_CR5 / 4] & PWR_R1MODE))
         soc_log(s, LOG_BOOST, "SYSCLK is %u MHz, but above 150 MHz the G431 needs range 1 boost mode "

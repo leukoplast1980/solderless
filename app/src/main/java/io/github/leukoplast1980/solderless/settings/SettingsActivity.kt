@@ -65,6 +65,17 @@ class SettingsActivity : AppCompatActivity() {
             }
         }
         applyKeepScreenOn(settings.keepScreenOn)
+
+        findViewById<MaterialSwitch>(R.id.boardSpread).apply {
+            isChecked = settings.boardSpread
+            setOnCheckedChangeListener { _, on -> settings.boardSpread = on }
+        }
+        val order = findViewById<android.widget.RadioGroup>(R.id.headerOrder)
+        order.check(if (settings.headerOrder == io.github.leukoplast1980.solderless.board.HeaderOrder.PORT) R.id.headerPort else R.id.headerAdapter)
+        order.setOnCheckedChangeListener { _, id ->
+            settings.headerOrder = if (id == R.id.headerPort) io.github.leukoplast1980.solderless.board.HeaderOrder.PORT
+            else io.github.leukoplast1980.solderless.board.HeaderOrder.ADAPTER
+        }
         // The labels under each switch toggle it too.
         findViewById<View>(R.id.lineWrapHint).setOnClickListener { findViewById<MaterialSwitch>(R.id.lineWrap).toggle() }
         findViewById<View>(R.id.keepScreenOnHint).setOnClickListener { findViewById<MaterialSwitch>(R.id.keepScreenOn).toggle() }

@@ -36,6 +36,8 @@ import io.github.leukoplast1980.solderless.files.SessionStore
 import io.github.leukoplast1980.solderless.settings.Settings
 import io.github.leukoplast1980.solderless.settings.SettingsActivity
 import io.github.leukoplast1980.solderless.ui.Completion
+import io.github.leukoplast1980.solderless.ui.BoardController
+import io.github.leukoplast1980.solderless.ui.ScopeController
 import io.github.leukoplast1980.solderless.ui.ConsoleController
 import io.github.leukoplast1980.solderless.ui.EditorController
 import io.github.leukoplast1980.solderless.ui.ExtraKeys
@@ -48,12 +50,16 @@ import io.github.leukoplast1980.solderless.vm.VmHost
 
 class MainActivity : AppCompatActivity() {
 
-    private enum class Screen { REPL, EDITOR, REGISTERS }
+    private enum class Screen { REPL, EDITOR, BOARD, SCOPE, REGISTERS }
 
     private lateinit var vm: VmHost
     private lateinit var console: ConsoleController
     private lateinit var editor: EditorController
     private lateinit var registers: RegistersController
+    private lateinit var boardCtl: BoardController
+    private lateinit var boardPane: View
+    private lateinit var scopeCtl: ScopeController
+    private lateinit var scopePane: View
     private lateinit var strip: SuggestionStrip
     private lateinit var folder: ProjectFolder
     private lateinit var sessionStore: SessionStore
@@ -104,6 +110,20 @@ class MainActivity : AppCompatActivity() {
         }
     }
 
+    private val scopeRefresh = object : Runnable {
+        override fun run() {
+            scopeCtl.poll(screen == Screen.SCOPE)
+            handler.postDelayed(this, if (screen == Screen.SCOPE) SCOPE_MS else SCOPE_IDLE_MS)
+        }
+    }
+
+    private val boardRefresh = object : Runnable {
+        override fun run() {
+            boardCtl.refresh(screen == Screen.BOARD, screen == Screen.REPL || screen == Screen.EDITOR)
+            handler.postDelayed(this, BOARD_MS)
+        }
+    }
+
     private val autosave = object : Runnable {
         override fun run() {
             Thread { vm.saveFlash() }.start()
@@ -136,6 +156,8 @@ class MainActivity : AppCompatActivity() {
             pickFolder = { pickFolder.launch(folder.treeUri) },
         )
         registers = RegistersController(this, vm)
+        boardCtl = BoardController(this, vm, settings) { file -> openInEditor(file) }
+        scopeCtl = ScopeController(this, vm)
         registers.onPausedChanged = { console.markDictionaryStale() }
         ExtraKeys(findViewById<LinearLayout>(R.id.extraKeys)) { activeInput() }
 
@@ -144,6 +166,8 @@ class MainActivity : AppCompatActivity() {
         rightPane = findViewById(R.id.rightPane)
         replPane = findViewById(R.id.replPane)
         registersPane = findViewById(R.id.registersPane)
+        boardPane = findViewById(R.id.boardPane)
+        scopePane = findViewById(R.id.scopePane)
         divider = findViewById(R.id.paneDivider)
         extraKeysScroll = findViewById(R.id.extraKeysScroll)
         title = findViewById(R.id.title)
@@ -213,12 +237,14 @@ class MainActivity : AppCompatActivity() {
         tabsWide = wide
         rebuildingTabs = true
         tabs.removeAllTabs()
-        val order = if (wide) listOf(Screen.REPL, Screen.REGISTERS)
-        else listOf(Screen.REPL, Screen.EDITOR, Screen.REGISTERS)
+        val order = if (wide) listOf(Screen.REPL, Screen.BOARD, Screen.SCOPE, Screen.REGISTERS)
+        else listOf(Screen.REPL, Screen.EDITOR, Screen.BOARD, Screen.SCOPE, Screen.REGISTERS)
         for (s in order) {
             val label = when (s) {
                 Screen.REPL -> R.string.tab_repl
                 Screen.EDITOR -> R.string.tab_editor
+                Screen.BOARD -> R.string.tab_board
+                Screen.SCOPE -> R.string.tab_scope
                 Screen.REGISTERS -> R.string.tab_registers
             }
             tabs.addTab(tabs.newTab().setText(label).setTag(s), false)
@@ -240,14 +266,16 @@ class MainActivity : AppCompatActivity() {
         editorPane.visibility = if (wide || screen == Screen.EDITOR) View.VISIBLE else View.GONE
         divider.visibility = if (wide) View.VISIBLE else View.GONE
         rightPane.visibility = if (wide || screen != Screen.EDITOR) View.VISIBLE else View.GONE
-        replPane.visibility = if (screen == Screen.REGISTERS) View.GONE else View.VISIBLE
+        replPane.visibility = if (screen == Screen.REGISTERS || screen == Screen.BOARD || screen == Screen.SCOPE) View.GONE else View.VISIBLE
+        scopePane.visibility = if (screen == Screen.SCOPE) View.VISIBLE else View.GONE
         registersPane.visibility = if (screen == Screen.REGISTERS) View.VISIBLE else View.GONE
+        boardPane.visibility = if (screen == Screen.BOARD) View.VISIBLE else View.GONE
 
         if (!wide) {
             when (screen) {
                 Screen.REPL -> console.focusInput()
                 Screen.EDITOR -> editor.editor.requestFocus()
-                Screen.REGISTERS -> getSystemService(InputMethodManager::class.java)
+                Screen.REGISTERS, Screen.BOARD, Screen.SCOPE -> getSystemService(InputMethodManager::class.java)
                     ?.hideSoftInputFromWindow(rightPane.windowToken, 0)
             }
         }
@@ -261,11 +289,11 @@ class MainActivity : AppCompatActivity() {
             return when (screen) {
                 Screen.REPL -> console
                 Screen.EDITOR -> editor
-                Screen.REGISTERS -> null
+                Screen.REGISTERS, Screen.BOARD, Screen.SCOPE -> null
             }
         }
         if (editor.editor.hasFocus()) return editor
-        if (screen == Screen.REGISTERS) return editor
+        if (screen == Screen.REGISTERS || screen == Screen.BOARD || screen == Screen.SCOPE) return editor
         return lastInput ?: console
     }
 
@@ -284,6 +312,12 @@ class MainActivity : AppCompatActivity() {
         vm.powerCycle()
         console.markDictionaryStale()
         Toast.makeText(this, R.string.power_cycled, Toast.LENGTH_SHORT).show()
+    }
+
+    /** Opens a file of the app's own (wiring.fs) in the editor. */
+    private fun openInEditor(file: java.io.File) {
+        editor.openUri(android.net.Uri.fromFile(file))
+        if (!isWide()) { screen = Screen.EDITOR; applyLayout() }
     }
 
     private fun showMenu(anchor: View) {
@@ -333,7 +367,7 @@ class MainActivity : AppCompatActivity() {
                 val name = names.getOrNull(chosen) ?: return@setPositiveButton
                 if (name != vm.project.name) Thread {
                     vm.openProject(name)
-                    runOnUiThread { console.markDictionaryStale(); note(getString(R.string.project_opened, name)) }
+                    runOnUiThread { console.markDictionaryStale(); boardCtl.reload(); note(getString(R.string.project_opened, name)) }
                 }.start()
             }
             .setNeutralButton(R.string.new_project) { _, _ -> askNewProject() }
@@ -360,7 +394,7 @@ class MainActivity : AppCompatActivity() {
                 }
                 Thread {
                     vm.createProject(name)
-                    runOnUiThread { console.markDictionaryStale(); note(getString(R.string.project_created, name)) }
+                    runOnUiThread { console.markDictionaryStale(); boardCtl.reload(); note(getString(R.string.project_created, name)) }
                 }.start()
             }
             .setNegativeButton(android.R.string.cancel, null)
@@ -487,6 +521,9 @@ class MainActivity : AppCompatActivity() {
         vm.setForeground(true)
         handler.post(poll)
         handler.post(registerRefresh)
+        handler.post(boardRefresh)
+        handler.post(scopeRefresh)
+        boardCtl.reload()
         handler.postDelayed(autosave, AUTOSAVE_MS)
     }
 
@@ -504,6 +541,8 @@ class MainActivity : AppCompatActivity() {
         started = false
         handler.removeCallbacks(poll)
         handler.removeCallbacks(registerRefresh)
+        handler.removeCallbacks(boardRefresh)
+        handler.removeCallbacks(scopeRefresh)
         handler.removeCallbacks(autosave)
         vm.setForeground(false)
         console.history.save()
@@ -528,6 +567,9 @@ class MainActivity : AppCompatActivity() {
 
     companion object {
         private const val POLL_MS = 30L
+        private const val BOARD_MS = 50L
+        private const val SCOPE_MS = 40L
+        private const val SCOPE_IDLE_MS = 200L
         private const val REGISTERS_MS = 100L
         private const val AUTOSAVE_MS = 5000L
         private const val WIDE_DP = 600
