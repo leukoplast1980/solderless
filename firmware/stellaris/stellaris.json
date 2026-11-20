@@ -1,0 +1,10 @@
+{
+  "name": "Mecrisp-Stellaris RA 3.0.2",
+  "version": "3.0.2",
+  "image": "mecrisp-stellaris-stm32g431kb.bin",
+  "sha256": "fd6dd1b87ece91bf28c75d43011244025998c2285428b94701aaf9c6234bfc39",
+  "dictionaryRoot": "0x20007FD4",
+  "flashDictionaryStart": "0x5000",
+  "dataStackBase": "0x20000284",
+  "returnStackBase": "0x20000384"
+}

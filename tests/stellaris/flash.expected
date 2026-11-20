@@ -1,0 +1,12 @@
+\ Compile into flash, use, then erase. eraseflash resets the chip.  ok.
+compiletoflash  ok.
+: cube dup dup * * ;  ok.
+compiletoram  ok.
+5 cube . 125  ok.
+eraseflash Erase block at  00005008  from Flash
+Finished. Reset Mecrisp-Stellaris RA 3.0.2 for STM32G431KB by Matthias Koch
+
+line 6: not ok
+cube cube not found.
+
+line 7: not ok

@@ -1,6 +1,7 @@
 # Solderless: design
 
-Status: draft for review, 19 November 2026.
+Status: milestone 1 implemented, 19 November 2026. What the emulator
+models today is in [emulator.md](emulator.md).
 
 Solderless is an Android app for learning how the STM32G431 works. It
 emulates an STM32G431RB and the parts wired to it on a virtual breadboard. It
@@ -126,8 +127,8 @@ nothing, reads return 0) and the Log says why.
 
 ### 3.5 Firmware
 
-- Bundled: Mecrisp-Stellaris `stm32g431kb-ra` (the G431 target arrived in
-  2.6.5), unmodified, version recorded in `firmware/stellaris/UPSTREAM.md`. It
+- Bundled: Mecrisp-Stellaris 3.0.2 `stm32g431kb-ra` (the G431 target arrived
+  in 2.6.5), unmodified, version recorded in `firmware/stellaris/UPSTREAM.md`. It
   runs on the HSI16 clock with its console on USART2, PA2/PA3, 115200 baud. It
   runs unchanged on the G431RB, as on real chips.
 - Your own firmware: `.bin` (loaded at `0x0800_0000`), `.hex`, `.elf` (load
@@ -136,8 +137,11 @@ nothing, reads return 0) and the Log says why.
   survive a restart, as on a real chip.
 - Console: the line loader from Mecrisp Pocket, sending a line and waiting for
   Stellaris' ` ok.`, like e4thcom.
-- Autocompletion needs a reader for Stellaris' dictionary layout, which
-  differs from Quintus' (open question 3).
+- Autocompletion reads Stellaris' dictionary from memory: the chain starts
+  at the entry stored at `0x2000_7FD4` (newest RAM word, or the core's
+  first word at `0xC4`), runs through the core into the flash dictionary at
+  `0x5000` and ends at an erased link. These addresses belong to the bundled
+  image and are kept in `firmware/stellaris/stellaris.json`.
 
 ## 4. The breadboard
 
@@ -425,13 +429,13 @@ Each milestone ends with a release that is useful on its own.
 
 ## 13. Open questions
 
-1. **SVD and pin data licensing.** Can ST's G431 SVD and the alternate
-   function tables be bundled, or must they be generated at build time or
-   written from the datasheet? Decide before milestone 2.
+1. ~~**SVD and pin data licensing.**~~ Settled: ST's SVD is Apache-2.0 and
+   the stm32-data chip file is MIT OR Apache-2.0; both are bundled in
+   `data/` with their licences.
 2. **Breadboard look.** Settled with the mock-up before milestone 2.
-3. **Stellaris dictionary reader** for autocompletion: read the dictionary
-   from memory (as Mecrisp Pocket does for Quintus) or parse `words`.
-4. **Idle detection limits.** Which poll loops are safe to skip besides
-   the console; to be measured in milestone 1.
+3. ~~**Stellaris dictionary reader.**~~ Settled: read from memory (section 3.5).
+4. ~~**Idle detection limits.**~~ Settled in milestone 1: register poll
+   loops and busy loops whose state repeats are skipped to the next event;
+   loops that write to peripherals never are (emulator.md, Time).
 5. **Debugger.** A GDB stub for C firmware: after milestone 5, or earlier if
    C firmware becomes a main use.

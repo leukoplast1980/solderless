@@ -1,0 +1,14 @@
+\ What the chip reports about itself  ok.
+$E0042000 @ hex. 20016468  ok.
+$E000ED00 @ hex. 410FC241  ok.
+$1FFF75E0 h@ . 128  ok.
+$40021000 @ hex. 00000500  ok.
+$40021008 @ hex. 00000005  ok.
+$4002104C @ hex. 0000002F  ok.
+$40022000 @ hex. 00000600  ok.
+$48000000 @ hex. EBFFFFAF  ok.
+\ USART2 is clocked; USART1 is not and reads 0  ok.
+$40004400 @ hex. 0000000D  ok.
+$40013800 @ hex. 00000000  ok.
+
+[chip] USART1 read while its clock is off in RCC: reads give 0 (PC 0x000017E0)

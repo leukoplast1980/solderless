@@ -1,0 +1,29 @@
+<?xml version="1.0" encoding="utf-8"?>
+<LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    android:layout_width="match_parent"
+    android:layout_height="wrap_content"
+    android:orientation="vertical"
+    android:paddingStart="20dp"
+    android:paddingTop="16dp"
+    android:paddingEnd="20dp">
+
+    <EditText
+        android:id="@+id/findText"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:fontFamily="monospace"
+        android:hint="@string/find"
+        android:importantForAutofill="no"
+        android:inputType="text|textNoSuggestions"
+        android:maxLines="1" />
+
+    <EditText
+        android:id="@+id/replaceText"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:fontFamily="monospace"
+        android:hint="@string/replace_with"
+        android:importantForAutofill="no"
+        android:inputType="text|textNoSuggestions"
+        android:maxLines="1" />
+</LinearLayout>

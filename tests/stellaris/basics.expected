@@ -1,0 +1,12 @@
+\ Basic interpreter, arithmetic and memory  ok.
+1 2 + . 3  ok.
+-7 3 /mod . . -2 -1  ok.
+hex FF decimal . 255  ok.
+: sq dup * ;  ok.
+12 sq . 144  ok.
+1000000 1000000 um* d. 1000000000000  ok.
+create buf 16 allot  ok.
+$12345678 buf ! buf c@ hex. buf 2 + h@ hex. 00000078 00001234  ok.
+nosuchword nosuchword not found.
+
+line 10: not ok

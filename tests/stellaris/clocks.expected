@@ -1,0 +1,156 @@
+\  ok.
+\  system clock handling for use PLL as systemclock STM32G431  ok.
+\  ok.
+\  Ralph Sahli, 2022  ok.
+\    ok.
+\  resources used:  ok.
+\   - pll  ok.
+\  ok.
+  ok.
+16000000 variable hclk \ system clock: initial 16 MHz from HSI RC  ok.
+  ok.
+$40021000 constant RCC  ok.
+ RCC $00 + constant RCC.CR  ok.
+ RCC $08 + constant RCC.CFGR  ok.
+ RCC $0C + constant RCC.PLLCFGR  ok.
+  ok.
+$40022000 constant FLASH.ACR   \ Flash Access Control Register  ok.
+  ok.
+$40004400 constant USART2  ok.
+  ok.
+: baud ( n -- reg-val )  ok.
+ hclk @ over /mod -rot  ok.
+ swap 2/ >= if 1+ then ;  \ round   ok.
+  ok.
+: bit ( u -- u )  \ turn a bit position into a single-bit mask  ok.
+  1 swap lshift  1-foldable ;  ok.
+   ok.
+: waitState! ( n -- )  ok.
+ 8 bit or FLASH.ACR bis! ;  \ wait state, PRFTEN: Prefetch enable  ok.
+   ok.
+: vco ( PLLM PLLN PLLR -- )  ok.
+ 25 lshift swap  ok.
+ 8 lshift + swap  ok.
+ 4 lshift +   ok.
+ 24 bit +        \ PLLREN: Main PLL PLLCLK output enable  ok.
+ %10 + RCC.PLLCFGR bis! ;   \ HSI16 clock selected as PLL entry  ok.
+   ok.
+\ set PLL as system clock with hclk = n MHz, (see case)  ok.
+\ actual hclk after reset = 16 MHz from HSI16  ok.
+: pllSysClk ( n -- )  ok.
+ dup case  ok.
+  32 of %0011 16 %00 vco 1 waitState! endof  ok.
+  36 of %0011 54 %10 vco 1 waitState! endof  ok.
+  40 of %0011 80 %11 vco 2 waitState! endof  ok.
+  48 of %0011 48 %01 vco 3 waitState! endof  ok.
+\  64 of %0011 32 %00 vco 3 waitState! endof  ok.
+\  72 of %0011 36 %00 vco 3 waitState! endof  ok.
+  80 of %0011 80 %01 vco 3 waitState! endof  ok.
+  100 of %0011 50 %00 vco 4 waitState! endof  ok.
+  120 of %0011 60 %00 vco 4 waitState! endof  ok.
+  160 of %0011 80 %00 vco 4 waitState! endof  ok.
+  170 of %0011 85 %00 vco 4 waitState! endof  ok.
+  2drop cr ." wrong MHz" exit  ok.
+ endcase  ok.
+   ok.
+ 1000000 * hclk !     \ save new system clock variable   ok.
+  ok.
+ 24 bit RCC.CR bis!     \ PLL enable  ok.
+ begin 25 bit RCC.CR bit@ until  \ wait for PLL ready flag  ok.
+  ok.
+ %11 RCC.CFGR bis!      \ 11: PLL selected as system clock  ok.
+ begin %11 2 lshift RCC.CFGR bit@ until \ PLL used as system clock  ok.
+  ok.
+ 115200 baud USART2 $0C + ! ;  \ Set Baud rate divider for 115200 Baud @ n MHz  ok.
+  ok.
+   ok.
+\ full speed clock  ok.
+: 170MHz ( -- )  ok.
+ 170 pllSysClk ;  ok.
+ \  ok.
+\  timing functions with Systick-Timer  ok.
+\  ok.
+\  Ralph Sahli, 2022  ok.
+\    ok.
+\  resources used:  ok.
+\   - system timer  ok.
+\   ok.
+  ok.
+  ok.
+\   requires lib_pll.txt  ok.
+  ok.
+$E000E010 constant STK_CTRL  ok.
+$E000E014 constant STK_RELOAD      ok.
+$E000E018 constant STK_CURRENT  ok.
+  ok.
+0 variable tick#       \ tick counter of 1 ms ticks  ok.
+  ok.
+\ get MHz from hclk  ok.
+: mhz@ ( -- MHz )  ok.
+ hclk @ 1000000 / ;  ok.
+   ok.
+: systimer-irq-handler  ok.
+ 1 tick# +! ;  ok.
+  ok.
+: disableSystimer ( -- )  ok.
+    0 STK_CTRL ! ;       \ Disable SysTick    ok.
+  ok.
+: init-Systimer ( -- )  ok.
+    disableSystimer       \ Disable SysTick during setup  ok.
+ hclk @ 1000 /        \ 1 ms @ HCLK  ok.
+    1- STK_RELOAD !          \ reload value for 24 bit timer  ok.
+    0 STK_CURRENT !       \ Any write to current clears it  ok.
+ ['] systimer-irq-handler irq-systick !  \ Hook for handler  ok.
+ %111 STK_CTRL ! ;      \ AHB-clock, interrupt enabled, counter enabled  ok.
+  ok.
+: millis ( -- msCount )  ok.
+ tick# @ inline ;  ok.
+  ok.
+: start-timer ( ms -- endTime )  ok.
+ STK_CTRL @ 0= if init-Systimer then  \ initialize if not done  ok.
+ millis + ;  ok.
+  ok.
+: elapsed-ms ( startTime -- startTime ms )   ok.
+ millis over - inline ;  ok.
+  ok.
+: elapsed? ( endTime -- endTime flag )  ok.
+ pause elapsed-ms 0 >= ;  ok.
+  ok.
+: delay-ms ( ms -- )  ok.
+ start-timer   ok.
+ begin  ok.
+  elapsed?   ok.
+ until drop ;  ok.
+  ok.
+\ for uSec timing messurement  ok.
+: preload-usTimer ( preload -- )  ok.
+    disableSystimer       \ Disable SysTick during setup  ok.
+    STK_RELOAD !          \ reload value for 24 bit timer  ok.
+    0 STK_CURRENT !       \ Any write to current clears it  ok.
+ %001 STK_CTRL ! ;      \ AHB/8-clock, counter enabled  ok.
+  ok.
+: elapsed-us ( -- us )  ok.
+ $FFFFFF STK_CURRENT @ -  ok.
+ 3 lshift mhz@ /       \ time in us @ hclk MHz   ok.
+ 16 bit STK_CTRL bit@ if  ok.
+  cr ." systick overflow!" cr  ok.
+ then  ok.
+    disableSystimer ;  ok.
+   ok.
+: delay-us ( us -- )  ok.
+    mhz@ * 3 rshift preload-usTimer   \ ticks @ AHB/8-clock  ok.
+ begin  ok.
+  16 bit STK_CTRL @ and  ok.
+ until  ok.
+ disableSystimer ;  ok.
+  ok.
+\ --------------------- speed tests -------------------  ok.
+  ok.
+\ Switch to 170 MHz through the PLL, then time with SysTick interrupts  ok.
+hclk @ . 16000000  ok.
+170MHz  ok.
+
+[chip] SYSCLK is 170 MHz, but above 150 MHz the G431 needs range 1 boost mode (PWR_CR5.R1MODE = 0). Out of spec; real chips may misbehave.
+hclk @ . 170000000  ok.
+init-Systimer  ok.
+millis 250 delay-ms millis swap - . 250  ok.

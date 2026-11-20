@@ -1,0 +1,122 @@
+name: CI
+
+on:
+  push:
+    branches: [main, "milestone-*"]
+    tags: ["v*"]
+  pull_request:
+  workflow_dispatch:
+
+jobs:
+  emulator:
+    name: Emulator tests
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+
+      - uses: actions/setup-python@v6
+        with:
+          python-version: "3.12"
+
+      - name: Install tools
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y gcc-arm-none-eabi binutils-arm-none-eabi cmake ninja-build clang
+          python -m pip install unicorn==2.1.4
+
+      - name: Generated chip data is up to date
+        run: |
+          python3 tools/gen_g431.py data/svd/STM32G431xx.svd data/chip/STM32G431RB.json emu/gen/g431_data.c
+          git diff --exit-code emu/gen/
+
+      - name: Exception model, instruction set against Unicorn, Stellaris transcripts
+        env:
+          CC: clang
+          REQUIRE_UNICORN: 1
+        run: tests/run_host_tests.sh build/host
+
+  android:
+    name: Android APK
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+
+      - uses: actions/setup-java@v5
+        with:
+          distribution: temurin
+          java-version: 17
+
+      - uses: gradle/actions/setup-gradle@v5
+
+      - name: Unit tests and debug APK
+        run: ./gradlew --no-daemon testDebugUnitTest assembleDebug
+
+      - uses: actions/upload-artifact@v5
+        with:
+          name: solderless-debug
+          path: app/build/outputs/apk/debug/*.apk
+          if-no-files-found: error
+
+      # A signed release APK when the signing secrets are set (see README).
+      - name: Release signing key
+        env:
+          SIGNING_KEYSTORE_BASE64: ${{ secrets.SIGNING_KEYSTORE_BASE64 }}
+        run: |
+          if [ -n "$SIGNING_KEYSTORE_BASE64" ]; then
+            echo "$SIGNING_KEYSTORE_BASE64" | base64 -d > "$RUNNER_TEMP/release.jks"
+            echo "SIGNING_KEYSTORE=$RUNNER_TEMP/release.jks" >> "$GITHUB_ENV"
+            echo "Signing with the release key."
+          else
+            echo "::notice::No SIGNING_KEYSTORE_BASE64 secret; the release APK stays unsigned. See README."
+          fi
+
+      - name: Release APK
+        env:
+          SIGNING_STORE_PASSWORD: ${{ secrets.SIGNING_STORE_PASSWORD }}
+          SIGNING_KEY_ALIAS: ${{ secrets.SIGNING_KEY_ALIAS }}
+          SIGNING_KEY_PASSWORD: ${{ secrets.SIGNING_KEY_PASSWORD }}
+        run: |
+          ./gradlew --no-daemon assembleRelease
+          [ -n "$SIGNING_KEYSTORE" ] || exit 0
+          mkdir -p out
+          cp app/build/outputs/apk/release/app-release.apk out/solderless.apk
+          bt=$(ls -d "$ANDROID_HOME"/build-tools/* | sort -V | tail -1)
+          "$bt/apksigner" verify --print-certs out/solderless.apk
+
+      - uses: actions/upload-artifact@v5
+        if: env.SIGNING_KEYSTORE != ''
+        with:
+          name: solderless-release
+          path: out/solderless.apk
+          if-no-files-found: error
+
+  publish:
+    name: Publish release
+    if: startsWith(github.ref, 'refs/tags/v')
+    needs: [emulator, android]
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v5
+
+      - uses: actions/download-artifact@v5
+        with:
+          name: solderless-release
+          path: out
+
+      - name: Publish the APK
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          apk="out/solderless-${GITHUB_REF_NAME}.apk"
+          mv out/solderless.apk "$apk"
+          if gh release view "$GITHUB_REF_NAME" -R "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
+            gh release upload "$GITHUB_REF_NAME" "$apk" --clobber -R "$GITHUB_REPOSITORY"
+          elif [ -f "docs/releases/${GITHUB_REF_NAME}.md" ]; then
+            gh release create "$GITHUB_REF_NAME" "$apk" -R "$GITHUB_REPOSITORY" \
+              --title "Solderless $GITHUB_REF_NAME" --notes-file "docs/releases/${GITHUB_REF_NAME}.md"
+          else
+            gh release create "$GITHUB_REF_NAME" "$apk" -R "$GITHUB_REPOSITORY" \
+              --title "Solderless $GITHUB_REF_NAME" --generate-notes
+          fi
