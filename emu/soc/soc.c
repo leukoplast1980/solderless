@@ -119,6 +119,7 @@ static void dispatch_event(struct sl_soc *s, int ev)
         if (ev >= EV_USART_TX0 && ev <= EV_USART_TX_LAST) usart_tx_event(s, ev - EV_USART_TX0);
         else if (ev >= EV_TIM0 && ev <= EV_TIM_LAST) tim_event(s, ev - EV_TIM0);
         else if (ev >= EV_ADC0 && ev <= EV_ADC_LAST) adc_event(s, ev - EV_ADC0);
+        else if (ev >= EV_I2C0 && ev <= EV_I2C_LAST) i2c_event(s, ev - EV_I2C0);
         break;
     }
 }
@@ -246,6 +247,8 @@ static void periph_reset_one(struct sl_soc *s, int pi)
     if (a >= 0) adc_reset(s, a);
     if (pi == s->pi_dac1) dac_reset(s);
     if (pi == s->pi_exti) exti_reset(s);
+    int c = i2c_index_of_periph(s, pi);
+    if (c >= 0) i2c_reset(s, c);
     board_af_outputs_changed(s);
 }
 
@@ -285,6 +288,8 @@ static uint32_t periph_read(struct sl_soc *s, int pi, uint32_t off, int effects)
     if (a >= 0) return adc_read(s, a, off, effects);
     if (pi == s->pi_dac1) return dac_read(s, off);
     if (pi == s->pi_exti) return exti_read(s, off);
+    int c = i2c_index_of_periph(s, pi);
+    if (c >= 0) return i2c_read(s, c, off, effects);
     if (pi == s->pi_dbgmcu && off == 0) return 0x20016468u;   /* IDCODE: G431/G441, rev Z */
     return s->regs[pi][off / 4];
 }
@@ -304,6 +309,8 @@ static void periph_write(struct sl_soc *s, int pi, uint32_t off, uint32_t v, uin
     if (a >= 0) { adc_write(s, a, off, v, mask); return; }
     if (pi == s->pi_dac1) { dac_write(s, off, v, mask); return; }
     if (pi == s->pi_exti) { exti_write(s, off, v, mask); return; }
+    int c = i2c_index_of_periph(s, pi);
+    if (c >= 0) { i2c_write(s, c, off, v, mask); return; }
     uint32_t wm = s->wmask[pi][off / 4] & mask;
     s->regs[pi][off / 4] = (s->regs[pi][off / 4] & ~wm) | (v & wm);
 }
@@ -500,6 +507,7 @@ void soc_init(struct sl_soc *s)
     usart_init(s);
     tim_init(s);
     adc_init(s);
+    i2c_init(s);
     board_init(s);
     soc_reset(s, 1);
 }
@@ -520,6 +528,7 @@ void soc_reset(struct sl_soc *s, int power_on)
     for (int i = 0; i < SL_NUM_ADC; i++) if (s->adc[i].pi >= 0) adc_reset(s, i);
     dac_reset(s);
     exti_reset(s);
+    for (int i = 0; i < SL_NUM_I2C; i++) if (s->i2c[i].pi >= 0) i2c_reset(s, i);
     update_clock_gates(s);
     s->term_rx_busy = 0;
     s->idle_poll = 0;

@@ -132,6 +132,43 @@ static int directive(const char *line)
         return 0;
     }
     if (!strcmp(cmd, "input") && n >= 3) { sl_board_input(vm, atoi(a1), atoi(a2)); return 0; }
+    if (!strcmp(cmd, "attach") && n >= 4 && !strcmp(a2, "oled") && nboard + 2 <= SL_MAX_ATTACH) {
+        /* #!attach N oled SCL SDA [addr=0x3D] [pull=OHM]: an SSD1306 I2C module, 4.7 kohm pull-ups on board */
+        char a4[16] = "";
+        sscanf(line + 2, "%*s %*s %*s %*s %15s", a4);
+        int scl = parse_pin(a3), sda = parse_pin(a4);
+        if (scl < 0 || sda < 0) return 1;
+        int addr = 0x3C, pull = 4700;
+        const char *q = strstr(line, "addr=");
+        if (q) addr = (int)strtol(q + 5, NULL, 0);
+        q = strstr(line, "pull=");
+        if (q) pull = atoi(q + 5);
+        for (int k = 0; k < 2; k++) {
+            sl_attach *a = &board[nboard++];
+            memset(a, 0, sizeof *a);
+            a->part = atoi(a1); a->kind = SL_ATT_DEVICE; a->dev = SL_DEV_SSD1306; a->addr = addr;
+            a->role = k ? SL_SIG_SDA : SL_SIG_SCL; a->pin = k ? sda : scl; a->r_ohm = pull;
+        }
+        sl_board_set(vm, board, nboard);
+        return 0;
+    }
+    if (!strcmp(cmd, "oled") && n >= 2) {
+        /* #!oled N: the display as half blocks, two pixel rows per line, then its state */
+        static uint8_t px[128 * 64];
+        char text[1024];
+        if (!sl_device_read(vm, atoi(a1), px, sizeof px, text, sizeof text)) { printf("no such part\n"); return 0; }
+        static const char *const cell[4] = { " ", "\xE2\x96\x80", "\xE2\x96\x84", "\xE2\x96\x88" };   /* space, upper, lower, full */
+        printf("+--------------------------------------------------------------------------------------------------------------------------------+\n");
+        for (int y = 0; y < 64; y += 2) {
+            putchar('|');
+            for (int x = 0; x < 128; x++) fputs(cell[px[y * 128 + x] | px[(y + 1) * 128 + x] << 1], stdout);
+            puts("|");
+        }
+        printf("+--------------------------------------------------------------------------------------------------------------------------------+\n");
+        fputs(text, stdout);
+        fflush(stdout);
+        return 0;
+    }
     if (!strcmp(cmd, "attach") && n >= 4 && nboard < SL_MAX_ATTACH) {
         sl_attach *a = &board[nboard];
         memset(a, 0, sizeof *a);

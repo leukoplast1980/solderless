@@ -16,6 +16,7 @@
 
 #include <stdint.h>
 #include "../include/sl/solderless.h"
+#include "../parts/parts.h"
 
 struct sl_soc;
 
@@ -54,6 +55,19 @@ struct sl_pin_state {
     uint64_t trace_t;
 };
 
+/* A bus part: its signals' pins and its controller's state */
+#define SL_MAX_DEV 8
+struct sl_dev {
+    int part, kind, addr;
+    int pin[SL_SIG_COUNT];      /* pin slot per signal, -1 if not wired */
+    int selected;               /* addressed in the I2C transfer going on */
+    int sda_low;                /* holds SDA low (bit-banged bus: acknowledge, or a 0 it sends) */
+    /* Pin-level I2C decoder, for bit-banged drivers */
+    int dec_phase, dec_bits, dec_read, dec_ack, dec_scl, dec_sda;
+    uint8_t dec_byte;
+    union { struct ssd1306 oled; } m;
+};
+
 #define SL_TRACE_RING 65536
 
 #define SL_AUDIO_RING 8192
@@ -67,6 +81,8 @@ struct sl_board {
     uint32_t audio_head, audio_tail;
     sl_audio_event trace[SL_TRACE_RING];
     uint32_t trace_head, trace_tail;
+    struct sl_dev dev[SL_MAX_DEV];
+    int ndev;
 };
 
 void board_trace_pins(struct sl_soc *s, const int *slots, int n);
@@ -90,5 +106,19 @@ int board_pin_level(struct sl_soc *s, int port, int pin);
 int board_pin_mv(struct sl_soc *s, int port, int pin);
 /* Called when the firmware reads IDR: checks floating inputs it relies on. */
 void board_idr_read(struct sl_soc *s, int port);
+
+/* Bus parts (bus.c). The on-chip I2C peripherals call these with the pins
+ * their SCL and SDA are on; addr is 7-bit; scl_hz the clock they run. */
+int bus_i2c_start(struct sl_soc *s, int scl, int sda, int addr, int read, uint32_t scl_hz, const char *who);
+int bus_i2c_write(struct sl_soc *s, int scl, int sda, uint8_t b);
+uint8_t bus_i2c_read(struct sl_soc *s, int scl, int sda, int ack);
+void bus_i2c_stop(struct sl_soc *s, int scl, int sda);
+/* Is something on the board on this pin pulled up, as an idle I2C line needs? */
+int bus_pin_pulled_up(struct sl_soc *s, int slot);
+/* Board side */
+void bus_set(struct sl_soc *s);                       /* rebuild the parts from the attachments */
+void bus_pin_changed(struct sl_soc *s, int slot);     /* a pin's level changed: the bit-bang decoder */
+int bus_pin_held_low(struct sl_soc *s, int slot);     /* a part holds this line low */
+size_t bus_device_read(struct sl_soc *s, int part, uint8_t *px, size_t len, char *text, size_t tlen);
 
 #endif

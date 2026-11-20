@@ -108,6 +108,10 @@ static void chip_driver(struct sl_soc *s, int slot, struct drivers *d, struct sl
         } else if (!strcmp(kind, "usart") && !strcmp(e->signal, "TX")) {
             add(d, G_CHIP, SL_VDD_MV);                    /* idle line; bytes go to the terminal directly */
             p->chip_drives = 1;
+        } else if (!strcmp(kind, "i2c") && (!strcmp(e->signal, "SCL") || !strcmp(e->signal, "SDA"))) {
+            /* Open drain: an idle I2C line is released, the pull-ups hold it high; the
+             * bytes go to the parts directly. Push-pull drives it high. */
+            if (!od) { add(d, G_CHIP, SL_VDD_MV); p->chip_drives = 1; }
         }
     } else if (mode == 3) {
         int mv, g;
@@ -200,9 +204,11 @@ static void resolve(struct sl_soc *s, int slot, int edges)
             add(&d, 1e6 / rth, (int)(SL_VDD_MV * x + 0.5));
             break;
         }
+        case SL_ATT_DEVICE: if (a->a.r_ohm > 0) add(&d, 1e6 / a->a.r_ohm, SL_VDD_MV); break;   /* the module's pull-up */
         default: break;
         }
     }
+    if (bus_pin_held_low(s, slot)) add(&d, G_CHIP, 0);      /* a bus part pulls the line low */
 
     int old_level = p->level, old_float = p->floating;
     p->shorted = d.nstrong >= 2 && d.strong_max - d.strong_min > 1000;
@@ -249,6 +255,7 @@ static void resolve(struct sl_soc *s, int slot, int edges)
     }
     if (edges && !p->floating && !p->pwm && !p->undefined && (p->level != old_level || old_float)) {
         exti_gpio(s, port, bit, p->level);
+        bus_pin_changed(s, slot);
         /* Input capture: a pin in alternate-function mode routed to a timer channel */
         int af = gpio_pin_af(s, port, bit);
         const struct sl_af_info *e = af >= 0 ? af_entry(port, bit, af) : 0;
@@ -410,6 +417,7 @@ void board_set(struct sl_soc *s, const sl_attach *att, int n)
             }
     }
     B->natt = n;
+    bus_set(s);
     for (int slot = 0; slot < SL_PIN_SLOTS; slot++) { B->pin[slot].used = 0; B->pin[slot].audio = 0; B->pin[slot].last_mv = -2; }
     for (int i = 0; i < n; i++)
         if (att[i].pin >= 0 && att[i].pin < SL_PIN_SLOTS) {

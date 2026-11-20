@@ -112,7 +112,15 @@ enum {
     SL_ATT_PULL,        /* resistor r_ohm to 3V3 (to_vcc) or GND */
     SL_ATT_POT,         /* wiper of a potentiometer of r_ohm between 3V3 and GND */
     SL_ATT_AUDIO,       /* piezo or speaker stage: listens, does not load the pin */
+    SL_ATT_DEVICE,      /* a signal of a bus part (dev): role is its SL_SIG_*, r_ohm the module's own pull-up (0: none) */
 };
+
+/* Bus parts */
+enum {
+    SL_DEV_SSD1306 = 1, /* 128 x 64 OLED controller, I2C; addr 0x3C or 0x3D */
+};
+/* Signals of bus parts, as sl_attach.role */
+enum { SL_SIG_SCL = 0, SL_SIG_SDA = 1, SL_SIG_COUNT = 8 };
 
 typedef struct {
     int part;           /* the app's part number; inputs address parts by it */
@@ -123,6 +131,8 @@ typedef struct {
     int r_ohm;
     int vf_mv;
     int bounce_us;
+    int dev;            /* SL_ATT_DEVICE: SL_DEV_* */
+    int addr;           /* SL_ATT_DEVICE: the I2C address its strap pins select */
 } sl_attach;
 
 /* Replaces the whole board. */
@@ -151,6 +161,13 @@ typedef struct {
 
 /* Reads the board and starts a new averaging window. */
 void sl_board_read(sl_vm *vm, sl_board_state *out);
+
+/* A bus part as the user sees it. A display: its pixels as they are lit
+ * now, one byte per pixel, row by row (SSD1306: 128 x 64, 0 or 1; the
+ * contrast is in the text). Text: lines of "name\tvalue", what the part's
+ * controller holds (on/off, modes, the last access). Returns the number of
+ * pixels written; 0 if the part is not on the board. */
+size_t sl_device_read(sl_vm *vm, int part, uint8_t *pixels, size_t len, char *text, size_t tlen);
 
 /* Sound: every change on a pin with an SL_ATT_AUDIO part, timestamped in
  * emulated time. A level (mV) for edges and DAC samples, or a PWM setting

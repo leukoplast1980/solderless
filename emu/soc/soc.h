@@ -35,6 +35,7 @@
 #define SL_NUM_USART      5             /* USART1, USART2, USART3, UART4, LPUART1 */
 #define SL_NUM_TIM        10            /* TIM1-4, TIM6-8, TIM15-17 */
 #define SL_NUM_ADC        2
+#define SL_NUM_I2C        3             /* I2C1, I2C2, I2C3 */
 
 /* Scheduled events */
 enum {
@@ -45,6 +46,7 @@ enum {
     EV_BOARD,
     EV_TIM0, EV_TIM_LAST = EV_TIM0 + SL_NUM_TIM - 1,
     EV_ADC0, EV_ADC_LAST = EV_ADC0 + SL_NUM_ADC - 1,
+    EV_I2C0, EV_I2C_LAST = EV_I2C0 + SL_NUM_I2C - 1,
     EV_COUNT
 };
 
@@ -85,6 +87,18 @@ struct sl_adc {
     uint64_t t_next;            /* start of the conversion in progress */
     uint64_t reg_on_at, cal_until, rdy_at;
     uint32_t dr;
+};
+
+struct sl_i2c {
+    const char *name;
+    int pi, irq_ev, irq_er;
+    uint32_t isr;               /* ISR flags (BUSY and DIR computed) */
+    int state;                  /* I2C_* in i2c.c */
+    int read, addr, nbytes, count, reload, autoend, stop_req;
+    int scl, sda;               /* pin slots of this transfer */
+    uint8_t txdr, rxdr, shift, pending;
+    uint64_t bit_ps;            /* one SCL period */
+    uint32_t scl_hz;
 };
 
 struct sl_idle {
@@ -152,6 +166,7 @@ struct sl_soc {
     struct sl_tim tim[SL_NUM_TIM];
     struct sl_adc adc[SL_NUM_ADC];
     uint32_t dac_dhr[2], dac_dor[2];
+    struct sl_i2c i2c[SL_NUM_I2C];
 
     /* The breadboard */
     struct sl_board board;
@@ -262,6 +277,14 @@ void adc_write(struct sl_soc *s, int idx, uint32_t off, uint32_t v, uint32_t mas
 void adc_event(struct sl_soc *s, int idx);
 void adc_poll_hint(struct sl_soc *s, int idx);
 
+void i2c_init(struct sl_soc *s);
+void i2c_reset(struct sl_soc *s, int idx);
+int i2c_index_of_periph(struct sl_soc *s, int pi);
+uint32_t i2c_read(struct sl_soc *s, int idx, uint32_t off, int effects);
+void i2c_write(struct sl_soc *s, int idx, uint32_t off, uint32_t v, uint32_t mask);
+void i2c_event(struct sl_soc *s, int idx);
+uint32_t rcc_i2c_kernel_hz(struct sl_soc *s, int idx);
+
 void dac_reset(struct sl_soc *s);
 uint32_t dac_read(struct sl_soc *s, uint32_t off);
 void dac_write(struct sl_soc *s, uint32_t off, uint32_t v, uint32_t mask);
@@ -273,6 +296,7 @@ enum {
     LOG_FLASH_KEY, LOG_BAUD, LOG_OVERRUN, LOG_LOCKUP, LOG_HSE, LOG_LSE, LOG_BDCR,
     LOG_USART_LOST, LOG_PLL_SRC, LOG_BUS_ERROR,
     LOG_FLOATING, LOG_UNDEFINED, LOG_SHORT, LOG_PIN_CURRENT, LOG_TIMER, LOG_ADC, LOG_ADC_PIN,
+    LOG_I2C_SPEED, LOG_I2C_CLASH, LOG_I2C_PINS, LOG_I2C_PULLUP, LOG_I2C_PUSHPULL, LOG_I2C_NACK,
 };
 
 #endif

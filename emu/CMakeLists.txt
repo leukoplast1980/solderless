@@ -18,7 +18,10 @@ set(SL_SOURCES
   soc/tim.c
   soc/adc.c
   soc/dac.c
+  soc/i2c.c
   board/board.c
+  board/bus.c
+  parts/ssd1306.c
   soc/vm.c
   gen/g431_data.c
 )

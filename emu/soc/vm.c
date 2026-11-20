@@ -719,6 +719,20 @@ void sl_board_input(sl_vm *vm, int part, int value)
 
 static void board_read_fn(sl_vm *vm, void *arg) { board_read(vm->soc, arg); }
 
+struct device_io { int part; uint8_t *px; size_t len; char *text; size_t tlen; size_t n; };
+static void device_fn(sl_vm *vm, void *arg)
+{
+    struct device_io *io = arg;
+    io->n = bus_device_read(vm->soc, io->part, io->px, io->len, io->text, io->tlen);
+}
+
+size_t sl_device_read(sl_vm *vm, int part, uint8_t *pixels, size_t len, char *text, size_t tlen)
+{
+    struct device_io io = { part, pixels, len, text, tlen, 0 };
+    run_on_vm(vm, device_fn, &io);
+    return io.n;
+}
+
 void sl_board_read(sl_vm *vm, sl_board_state *out)
 {
     run_on_vm(vm, board_read_fn, out);
