@@ -70,6 +70,7 @@ class BoardController(
     private val potSlider: Slider = activity.findViewById(R.id.potSlider)
     /** The pot whose slider is open, or -1 */
     private var openPot = -1
+    private var bottomInset = 0
 
     init {
         makeDraggable()
@@ -100,9 +101,13 @@ class BoardController(
     }
 
     /** Called often: [boardVisible] while the Board tab shows. */
-    fun refresh(boardVisible: Boolean, overlayAllowed: Boolean) {
+    /** [bottomInset]: the height of the bar along the bottom of the shown tab (the
+     * Console's input line, the Editor's buttons), which the card and the pot's
+     * slider stay above. */
+    fun refresh(boardVisible: Boolean, overlayAllowed: Boolean, bottomInset: Int = 0) {
         val anyPinned = vm.board.parts.any { it.pinnedOverTabs }
         pinned.visibility = if (!boardVisible && overlayAllowed && anyPinned) View.VISIBLE else View.GONE
+        this.bottomInset = bottomInset
         showPotStrip()
         if (view.board !== vm.board) { view.board = vm.board; rebuildPinned() }
         if (!boardVisible && pinned.visibility != View.VISIBLE) return
@@ -623,14 +628,19 @@ class BoardController(
             if (potSlider.value.toInt() != v) potSlider.value = v.toFloat()
         }
         val vis = if (show) View.VISIBLE else View.GONE
-        if (potStrip.visibility != vis) {
-            potStrip.visibility = vis
-            potStrip.post {
-                val lp = pinned.layoutParams as FrameLayout.LayoutParams
-                lp.bottomMargin = dp(12) + if (show) potStrip.height else 0
-                pinned.layoutParams = lp
-            }
-        }
+        if (potStrip.visibility != vis) potStrip.visibility = vis
+        placeOverlays()
+    }
+
+    /** The slider just above the tab's bottom bar, the card above both */
+    private fun placeOverlays() {
+        val sp = potStrip.layoutParams as FrameLayout.LayoutParams
+        if (sp.bottomMargin != bottomInset) { sp.bottomMargin = bottomInset; potStrip.layoutParams = sp }
+        val stripH = if (potStrip.visibility == View.VISIBLE) potStrip.height else 0
+        if (potStrip.visibility == View.VISIBLE && stripH == 0) { potStrip.post { placeOverlays() }; return }
+        val want = bottomInset + stripH + dp(12)
+        val lp = pinned.layoutParams as FrameLayout.LayoutParams
+        if (lp.bottomMargin != want) { lp.bottomMargin = want; pinned.layoutParams = lp }
     }
 
     /** -/+ by 1 %; held down, they keep going */

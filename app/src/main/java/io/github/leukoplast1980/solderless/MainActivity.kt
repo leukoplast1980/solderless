@@ -117,9 +117,15 @@ class MainActivity : AppCompatActivity() {
         }
     }
 
+    /** The tallest bar along the bottom of the shown panes (the Console's input line, the Editor's buttons) */
+    private fun bottomBars(): Int = listOf(
+        findViewById<View>(R.id.input).parent as View,
+        findViewById<View>(R.id.editorSend).parent.parent as View,
+    ).filter { it.isShown }.maxOfOrNull { it.height } ?: 0
+
     private val boardRefresh = object : Runnable {
         override fun run() {
-            boardCtl.refresh(screen == Screen.BOARD, screen != Screen.BOARD)
+            boardCtl.refresh(screen == Screen.BOARD, screen != Screen.BOARD, bottomBars())
             handler.postDelayed(this, BOARD_MS)
         }
     }
