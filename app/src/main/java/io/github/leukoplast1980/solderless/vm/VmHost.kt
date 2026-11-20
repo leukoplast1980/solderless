@@ -64,6 +64,9 @@ class VmHost private constructor(context: Context) {
     /** The chip's pins and functions, for the Board tab and the recommender */
     val chip: ChipPins
 
+    /** Plays the board's piezo and speaker (created when first needed) */
+    private var audioOut: AudioOut? = null
+
     /** The breadboard of the current project */
     @Volatile var board: Breadboard = Breadboard()
         private set
@@ -196,15 +199,13 @@ class VmHost private constructor(context: Context) {
         updateAudio()
     }
 
-    private val audio by lazy { AudioOut(handle) }
-
     /** Sound plays while the app is in front and the board has a piezo or speaker. */
     private fun updateAudio() {
         val wanted = foreground && board.parts.any {
             it.type == io.github.leukoplast1980.solderless.board.PartType.PIEZO ||
                 it.type == io.github.leukoplast1980.solderless.board.PartType.SPEAKER
         }
-        if (wanted) audio.start() else audio.stop()
+        if (wanted) (audioOut ?: AudioOut(handle).also { audioOut = it }).start() else audioOut?.stop()
     }
 
     /** Pause button of the Registers view. */
