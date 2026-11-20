@@ -49,6 +49,9 @@ class VmHost private constructor(context: Context) {
     val stellaris: Stellaris
     val handle: Long
 
+    /** Checksums of the memory parts' contents as last saved (declared before init, which loads the board) */
+    private val memorySums = HashMap<Int, Long>()
+
     @Volatile var project: Projects.Project
         private set
 
@@ -266,8 +269,6 @@ class VmHost private constructor(context: Context) {
     // ------------------------------------------------------------------
     // Memory parts (W25Q): their contents are kept with the project, as
     // the 4 KB sectors that are not all FF
-
-    private val memorySums = HashMap<Int, Long>()
 
     private fun memoryFile(partId: Int) = File(projects.dir(project.name), "flash-part$partId.bin")
 
