@@ -54,12 +54,8 @@ class BoardProbeTest {
         // Light the LED on PD2 from Forth
         val lines = listOf("\$48000C00 constant GPIOD", "%1000 \$4002104C bis!", "%11 4 lshift GPIOD bic!  %01 4 lshift GPIOD bis!", "%100 GPIOD \$18 + !")
         for (line in lines) {
-            scenario.onActivity { a ->
-                val input = a.findViewById<EditText>(R.id.input)
-                input.setText(line)
-                input.onEditorAction(EditorInfo.IME_ACTION_SEND)
-            }
-            Thread.sleep(600)
+            val r = vm.sendLineChecked(line, 5000)
+            Log.i(TAG, "sent: $line -> $r")
         }
         Thread.sleep(500)
 

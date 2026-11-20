@@ -409,8 +409,8 @@ class BoardView @JvmOverloads constructor(context: Context, attrs: AttributeSet?
         val y2 = pinY["PA2"] ?: return
         val y3 = pinY["PA3"] ?: return
         val (x0, sg) = padX("PA2")
-        val bx = x0 + sg * dp(44f)
-        val bw = dp(96f)
+        val bx = x0 + sg * dp(30f)
+        val bw = dp(76f)
         val t = minOf(y2, y3) - dp(16f); val b = maxOf(y2, y3) + dp(30f)
         if (pinSide["PA3"] == pinSide["PA2"]) {
             wire(c, wireColour("PA2"), false, x0, y2, bx, y2)
