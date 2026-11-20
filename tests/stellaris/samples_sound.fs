@@ -164,6 +164,7 @@ $40000800 constant speaker2-timer  \ TIM4
   1 1 lshift $4002104C bis!                       \ RCC AHB2ENR: clock for GPIOB
   %11 speaker2-pin 2* lshift speaker2-port bic!   \ MODER: clear the two bits
   %10 speaker2-pin 2* lshift speaker2-port bis!   \ MODER: 10 = alternate function
+  1 speaker2-pin lshift speaker2-port 4 + bic!    \ OTYPER: push-pull
   $F speaker2-pin 4 * lshift speaker2-port $20 + bic! \ AFRL: clear the four bits
   speaker2-af speaker2-pin 4 * lshift speaker2-port $20 + bis! \ AFRL: AF2 = TIM4 CH1
   1 2 lshift $40021058 bis!                       \ RCC APB1ENR1: clock for TIM4
@@ -209,6 +210,7 @@ $40014400 constant piezo-timer  \ TIM16
   1 1 lshift $4002104C bis!                       \ RCC AHB2ENR: clock for GPIOB
   %11 piezo-pin 2* lshift piezo-port bic!         \ MODER: clear the two bits
   %10 piezo-pin 2* lshift piezo-port bis!         \ MODER: 10 = alternate function
+  1 piezo-pin lshift piezo-port 4 + bic!          \ OTYPER: push-pull
   $F piezo-pin 8 - 4 * lshift piezo-port $24 + bic! \ AFRH: clear the four bits
   piezo-af piezo-pin 8 - 4 * lshift piezo-port $24 + bis! \ AFRH: AF1 = TIM16 CH1
   1 17 lshift $40021060 bis!                      \ RCC APB2ENR: clock for TIM16

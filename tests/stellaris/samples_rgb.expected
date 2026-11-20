@@ -41,14 +41,17 @@ $48000000 constant rgb-blue-port  \ GPIOA  ok.
   1 0 lshift $4002104C bis!                       \ RCC AHB2ENR: clock for GPIOA  ok.
   %11 rgb-red-pin 2* lshift rgb-red-port bic!     \ MODER: clear the two bits  ok.
   %10 rgb-red-pin 2* lshift rgb-red-port bis!     \ MODER: 10 = alternate function  ok.
+  1 rgb-red-pin lshift rgb-red-port 4 + bic!      \ OTYPER: push-pull  ok.
   $F rgb-red-pin 8 - 4 * lshift rgb-red-port $24 + bic! \ AFRH: clear the four bits  ok.
   rgb-red-af rgb-red-pin 8 - 4 * lshift rgb-red-port $24 + bis! \ AFRH: AF6 = TIM1 CH1  ok.
   %11 rgb-green-pin 2* lshift rgb-green-port bic! \ MODER: clear the two bits  ok.
   %10 rgb-green-pin 2* lshift rgb-green-port bis! \ MODER: 10 = alternate function  ok.
+  1 rgb-green-pin lshift rgb-green-port 4 + bic!  \ OTYPER: push-pull  ok.
   $F rgb-green-pin 8 - 4 * lshift rgb-green-port $24 + bic! \ AFRH: clear the four bits  ok.
   rgb-green-af rgb-green-pin 8 - 4 * lshift rgb-green-port $24 + bis! \ AFRH: AF6 = TIM1 CH2  ok.
   %11 rgb-blue-pin 2* lshift rgb-blue-port bic!   \ MODER: clear the two bits  ok.
   %10 rgb-blue-pin 2* lshift rgb-blue-port bis!   \ MODER: 10 = alternate function  ok.
+  1 rgb-blue-pin lshift rgb-blue-port 4 + bic!    \ OTYPER: push-pull  ok.
   $F rgb-blue-pin 8 - 4 * lshift rgb-blue-port $24 + bic! \ AFRH: clear the four bits  ok.
   rgb-blue-af rgb-blue-pin 8 - 4 * lshift rgb-blue-port $24 + bis! \ AFRH: AF6 = TIM1 CH3  ok.
   1 11 lshift $40021060 bis!                      \ RCC APB2ENR: clock for TIM1  ok.
@@ -120,14 +123,17 @@ $48000800 constant rgb2-blue-port  \ GPIOC  ok.
   1 2 lshift $4002104C bis!                       \ RCC AHB2ENR: clock for GPIOC  ok.
   %11 rgb2-red-pin 2* lshift rgb2-red-port bic!   \ MODER: clear the two bits  ok.
   %10 rgb2-red-pin 2* lshift rgb2-red-port bis!   \ MODER: 10 = alternate function  ok.
+  1 rgb2-red-pin lshift rgb2-red-port 4 + bic!    \ OTYPER: push-pull  ok.
   $F rgb2-red-pin 4 * lshift rgb2-red-port $20 + bic! \ AFRL: clear the four bits  ok.
   rgb2-red-af rgb2-red-pin 4 * lshift rgb2-red-port $20 + bis! \ AFRL: AF2 = TIM3 CH1  ok.
   %11 rgb2-green-pin 2* lshift rgb2-green-port bic! \ MODER: clear the two bits  ok.
   %10 rgb2-green-pin 2* lshift rgb2-green-port bis! \ MODER: 10 = alternate function  ok.
+  1 rgb2-green-pin lshift rgb2-green-port 4 + bic! \ OTYPER: push-pull  ok.
   $F rgb2-green-pin 4 * lshift rgb2-green-port $20 + bic! \ AFRL: clear the four bits  ok.
   rgb2-green-af rgb2-green-pin 4 * lshift rgb2-green-port $20 + bis! \ AFRL: AF2 = TIM3 CH2  ok.
   %11 rgb2-blue-pin 2* lshift rgb2-blue-port bic! \ MODER: clear the two bits  ok.
   %10 rgb2-blue-pin 2* lshift rgb2-blue-port bis! \ MODER: 10 = alternate function  ok.
+  1 rgb2-blue-pin lshift rgb2-blue-port 4 + bic!  \ OTYPER: push-pull  ok.
   $F rgb2-blue-pin 8 - 4 * lshift rgb2-blue-port $24 + bic! \ AFRH: clear the four bits  ok.
   rgb2-blue-af rgb2-blue-pin 8 - 4 * lshift rgb2-blue-port $24 + bis! \ AFRH: AF2 = TIM3 CH3  ok.
   1 1 lshift $40021058 bis!                       \ RCC APB1ENR1: clock for TIM3  ok.
@@ -199,10 +205,13 @@ $48000400 constant rgb3-blue-port  \ GPIOB  ok.
   1 1 lshift $4002104C bis!                       \ RCC AHB2ENR: clock for GPIOB  ok.
   %11 rgb3-red-pin 2* lshift rgb3-red-port bic!   \ MODER: clear the two bits  ok.
   %01 rgb3-red-pin 2* lshift rgb3-red-port bis!   \ MODER: 01 = output  ok.
+  1 rgb3-red-pin lshift rgb3-red-port 4 + bic!    \ OTYPER: push-pull  ok.
   %11 rgb3-green-pin 2* lshift rgb3-green-port bic! \ MODER: clear the two bits  ok.
   %01 rgb3-green-pin 2* lshift rgb3-green-port bis! \ MODER: 01 = output  ok.
+  1 rgb3-green-pin lshift rgb3-green-port 4 + bic! \ OTYPER: push-pull  ok.
   %11 rgb3-blue-pin 2* lshift rgb3-blue-port bic! \ MODER: clear the two bits  ok.
   %01 rgb3-blue-pin 2* lshift rgb3-blue-port bis! \ MODER: 01 = output  ok.
+  1 rgb3-blue-pin lshift rgb3-blue-port 4 + bic!  \ OTYPER: push-pull  ok.
   rgb3-off ;  ok.
   ok.
 \ Red, green, blue in turn until a key is pressed  ok.
@@ -219,12 +228,12 @@ rgb2-init 0 20 100 rgb2-colour  ok.
 rgb3-init 1 0 1 rgb3-colour  ok.
 10 ms  ok.
 #!pins
-PA8 alternate 3300 mV high  LED 1: 0.059 mA
+PA8 alternate 3300 mV high  LED 1: 0.054 mA
 PA9 alternate PWM 1000.000 Hz duty 5/1000  LED 2: 0.016 mA
 PA10 alternate 0 mV low  LED 3: 0.000 mA
-PB10 output    3300 mV high  LED 7: 0.036 mA
+PB10 output    3300 mV high  LED 7: 0.032 mA
 PB11 output    0 mV low  LED 8: 0.000 mA
-PB12 output    3300 mV high  LED 9: 0.025 mA
+PB12 output    3300 mV high  LED 9: 0.022 mA
 PC6 alternate 3300 mV high  LED 4: 4.466 mA
 PC7 alternate PWM 1000.000 Hz duty 9/1000  LED 5: 3.097 mA
 PC8 alternate 0 mV low  LED 6: 3.122 mA

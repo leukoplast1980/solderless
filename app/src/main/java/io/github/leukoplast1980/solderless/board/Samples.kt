@@ -113,10 +113,12 @@ object Samples {
     }
 
     /** MODER for one pin: 00 input, 01 output, 10 alternate function, 11 analog */
-    private fun mode(c: Code, base: String, bits: String, what: String) {
+    private fun mode(c: Code, base: String, bits: String, what: String, pushPull: Boolean = true) {
         if (bits == "00") { c.add("  %11 $base-pin 2* lshift $base-port bic!", "MODER: 00 = $what"); return }
         if (bits != "11") c.add("  %11 $base-pin 2* lshift $base-port bic!", "MODER: clear the two bits")
         c.add("  %$bits $base-pin 2* lshift $base-port bis!", "MODER: $bits = $what")
+        // An output drives both levels; the pin may have been open-drain before
+        if (pushPull && (bits == "01" || bits == "10")) c.add("  1 $base-pin lshift $base-port 4 + bic!", "OTYPER: push-pull")
     }
 
     private fun altFunction(c: Code, base: String, pinBit: Int, f: Function) {
@@ -411,7 +413,7 @@ object Samples {
         c.add("  1 ${I2C_CLOCK[f.periph]} lshift $APB1ENR1 bis!", "RCC APB1ENR1: clock for ${f.periph}")
         for ((r, u) in p.pins.withIndex()) {
             val base = "$n-${p.type.roles[r]}"
-            mode(c, base, "10", "alternate function")
+            mode(c, base, "10", "alternate function", pushPull = false)
             c.add("  1 $base-pin lshift $base-port 4 + bis!", "OTYPER: open-drain, as I2C needs")
             altFunction(c, base, bit(chip, u), u.function)
         }

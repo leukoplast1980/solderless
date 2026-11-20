@@ -41,14 +41,17 @@ $48000000 constant rgb-blue-port  \ GPIOA
   1 0 lshift $4002104C bis!                       \ RCC AHB2ENR: clock for GPIOA
   %11 rgb-red-pin 2* lshift rgb-red-port bic!     \ MODER: clear the two bits
   %10 rgb-red-pin 2* lshift rgb-red-port bis!     \ MODER: 10 = alternate function
+  1 rgb-red-pin lshift rgb-red-port 4 + bic!      \ OTYPER: push-pull
   $F rgb-red-pin 8 - 4 * lshift rgb-red-port $24 + bic! \ AFRH: clear the four bits
   rgb-red-af rgb-red-pin 8 - 4 * lshift rgb-red-port $24 + bis! \ AFRH: AF6 = TIM1 CH1
   %11 rgb-green-pin 2* lshift rgb-green-port bic! \ MODER: clear the two bits
   %10 rgb-green-pin 2* lshift rgb-green-port bis! \ MODER: 10 = alternate function
+  1 rgb-green-pin lshift rgb-green-port 4 + bic!  \ OTYPER: push-pull
   $F rgb-green-pin 8 - 4 * lshift rgb-green-port $24 + bic! \ AFRH: clear the four bits
   rgb-green-af rgb-green-pin 8 - 4 * lshift rgb-green-port $24 + bis! \ AFRH: AF6 = TIM1 CH2
   %11 rgb-blue-pin 2* lshift rgb-blue-port bic!   \ MODER: clear the two bits
   %10 rgb-blue-pin 2* lshift rgb-blue-port bis!   \ MODER: 10 = alternate function
+  1 rgb-blue-pin lshift rgb-blue-port 4 + bic!    \ OTYPER: push-pull
   $F rgb-blue-pin 8 - 4 * lshift rgb-blue-port $24 + bic! \ AFRH: clear the four bits
   rgb-blue-af rgb-blue-pin 8 - 4 * lshift rgb-blue-port $24 + bis! \ AFRH: AF6 = TIM1 CH3
   1 11 lshift $40021060 bis!                      \ RCC APB2ENR: clock for TIM1
@@ -120,14 +123,17 @@ $48000800 constant rgb2-blue-port  \ GPIOC
   1 2 lshift $4002104C bis!                       \ RCC AHB2ENR: clock for GPIOC
   %11 rgb2-red-pin 2* lshift rgb2-red-port bic!   \ MODER: clear the two bits
   %10 rgb2-red-pin 2* lshift rgb2-red-port bis!   \ MODER: 10 = alternate function
+  1 rgb2-red-pin lshift rgb2-red-port 4 + bic!    \ OTYPER: push-pull
   $F rgb2-red-pin 4 * lshift rgb2-red-port $20 + bic! \ AFRL: clear the four bits
   rgb2-red-af rgb2-red-pin 4 * lshift rgb2-red-port $20 + bis! \ AFRL: AF2 = TIM3 CH1
   %11 rgb2-green-pin 2* lshift rgb2-green-port bic! \ MODER: clear the two bits
   %10 rgb2-green-pin 2* lshift rgb2-green-port bis! \ MODER: 10 = alternate function
+  1 rgb2-green-pin lshift rgb2-green-port 4 + bic! \ OTYPER: push-pull
   $F rgb2-green-pin 4 * lshift rgb2-green-port $20 + bic! \ AFRL: clear the four bits
   rgb2-green-af rgb2-green-pin 4 * lshift rgb2-green-port $20 + bis! \ AFRL: AF2 = TIM3 CH2
   %11 rgb2-blue-pin 2* lshift rgb2-blue-port bic! \ MODER: clear the two bits
   %10 rgb2-blue-pin 2* lshift rgb2-blue-port bis! \ MODER: 10 = alternate function
+  1 rgb2-blue-pin lshift rgb2-blue-port 4 + bic!  \ OTYPER: push-pull
   $F rgb2-blue-pin 8 - 4 * lshift rgb2-blue-port $24 + bic! \ AFRH: clear the four bits
   rgb2-blue-af rgb2-blue-pin 8 - 4 * lshift rgb2-blue-port $24 + bis! \ AFRH: AF2 = TIM3 CH3
   1 1 lshift $40021058 bis!                       \ RCC APB1ENR1: clock for TIM3
@@ -199,10 +205,13 @@ $48000400 constant rgb3-blue-port  \ GPIOB
   1 1 lshift $4002104C bis!                       \ RCC AHB2ENR: clock for GPIOB
   %11 rgb3-red-pin 2* lshift rgb3-red-port bic!   \ MODER: clear the two bits
   %01 rgb3-red-pin 2* lshift rgb3-red-port bis!   \ MODER: 01 = output
+  1 rgb3-red-pin lshift rgb3-red-port 4 + bic!    \ OTYPER: push-pull
   %11 rgb3-green-pin 2* lshift rgb3-green-port bic! \ MODER: clear the two bits
   %01 rgb3-green-pin 2* lshift rgb3-green-port bis! \ MODER: 01 = output
+  1 rgb3-green-pin lshift rgb3-green-port 4 + bic! \ OTYPER: push-pull
   %11 rgb3-blue-pin 2* lshift rgb3-blue-port bic! \ MODER: clear the two bits
   %01 rgb3-blue-pin 2* lshift rgb3-blue-port bis! \ MODER: 01 = output
+  1 rgb3-blue-pin lshift rgb3-blue-port 4 + bic!  \ OTYPER: push-pull
   rgb3-off ;
 
 \ Red, green, blue in turn until a key is pressed
