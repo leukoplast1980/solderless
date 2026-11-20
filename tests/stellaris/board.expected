@@ -20,7 +20,7 @@ PD2 analog    floating  LED 1: 0.000 mA
 #!pins
 PC0 analog    1650 mV high
 PC13 analog    floating
-PD2 output    3300 mV high  LED 1: 0.122 mA
+PD2 output    3300 mV high  LED 1: 0.117 mA
 \ Button on PC13 to GND, no pull-up yet: floating  ok.
 %100 AHB2ENR bis!  ok.
 %11 26 lshift GPIOC bic!  ok.
@@ -75,12 +75,12 @@ $68 TIM3 $18 + !  1 TIM3 $20 + !  1 TIM3 $14 + !  1 TIM3 !  ok.
 #!attach 6 audio PC6
 #!audio
 PC6 PWM 1000 Hz duty 250/1000
-499 TIM3 $34 + !  ok.
+499 TIM3 $34 + !  10000 wait  ok.
 #!audio
 PC6 PWM 1000 Hz duty 499/1000
 #!pins
 PC0 analog    2046 mV high
-PC6 alternate PWM 1000.000 Hz duty 16/1000  LED 4: 0.072 mA
+PC6 alternate PWM 1000.000 Hz duty 23/1000  LED 4: 0.104 mA
 PC13 input     0 mV low
 PD2 output    3300 mV high  LED 1: 4.516 mA
 \ DAC1 OUT1 on PA4 at half scale  ok.

@@ -123,6 +123,8 @@ static void dispatch_event(struct sl_soc *s, int ev)
     }
 }
 
+static void idle_break(struct sl_soc *s);
+
 void soc_process_events(struct sl_soc *s)
 {
     for (int guard = 0; guard < 1000; guard++) {
@@ -134,6 +136,17 @@ void soc_process_events(struct sl_soc *s)
         if (first < 0) return;
         s->ev[first] = SL_NEVER;
         dispatch_event(s, first);
+        /* Something outside the CPU changed, so a loop that looked idle may
+         * end now: a character arrived, a flag rose. Forget what both idle
+         * checks (register reads, and the CPU's own check of backward
+         * branches) have seen. Without this a loop could be found idle on
+         * state from before the event, and the main loop slept on to the next
+         * event: a character that had just arrived was overwritten by the
+         * next one before the firmware read it. */
+        s->idle_poll = 0;
+        s->cpu.idle_loop = 0;
+        s->cpu.mem_changes++;      /* the CPU's loop check compares this too */
+        idle_break(s);
     }
 }
 
