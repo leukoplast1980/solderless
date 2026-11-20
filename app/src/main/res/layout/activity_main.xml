@@ -244,15 +244,6 @@
                     android:orientation="horizontal"
                     android:paddingStart="8dp">
 
-                    <TextView
-                        android:id="@+id/runState"
-                        android:layout_width="0dp"
-                        android:layout_height="wrap_content"
-                        android:layout_weight="1"
-                        android:fontFamily="monospace"
-                        android:textColor="@color/label"
-                        android:textSize="13sp" />
-
                     <Button
                         android:id="@+id/pause"
                         style="@style/Widget.Material3.Button.TextButton"
@@ -275,6 +266,16 @@
                         android:layout_height="wrap_content"
                         android:text="@string/registers_copy" />
                 </LinearLayout>
+
+                <!-- on its own line: it is long and changes all the time -->
+                <TextView
+                    android:id="@+id/runState"
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:fontFamily="monospace"
+                    android:paddingHorizontal="16dp"
+                    android:textColor="@color/label"
+                    android:textSize="13sp" />
 
                 <ScrollView
                     android:layout_width="match_parent"
