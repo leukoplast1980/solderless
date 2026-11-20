@@ -31,6 +31,12 @@ class RecommenderTest {
         assertTrue(p.why[0].contains("no ADC input, DAC output or timer channel"))
     }
 
+    @Test fun reasonNamesWhatIsGivenUp() {
+        val b = place(Board(), new(PartType.LED, 1))
+        val why = rec.propose(b.parts, new(PartType.LED, 2))!!.why[0]
+        assertTrue(why, why.contains("only ") && !why.contains("()"))
+    }
+
     @Test fun neverReservedPins() {
         var b = Board()
         repeat(20) { b = place(b, new(PartType.LED, b.nextId())) }

@@ -52,6 +52,8 @@ class Recommender(private val chip: ChipPins, hseFitted: Boolean = false, lseFit
         pin.adcChannels.isNotEmpty() -> "ADC"
         pin.timerChannels.isNotEmpty() -> pin.timerChannels.first().toString()
         pin.name == "PB8" -> "BOOT0"
+        pin.hasBusFunction -> pin.af.filter { it.periph.matches(Regex("(I2C|SPI|USART|UART|LPUART)\\d?")) }
+            .map { it.periph }.distinct().joinToString(", ")
         else -> ""
     }
 
@@ -247,7 +249,7 @@ class Recommender(private val chip: ChipPins, hseFitted: Boolean = false, lseFit
         when (val f = u.function) {
             is Function.Gpio -> if (lost == 0.0) "Any ${if (p.needs()[r] == Need.OUTPUT) "output" else "input"} pin works. " +
                 "${u.pin} has no ADC input, DAC output or timer channel that a later part might need."
-                else "${u.pin}: the free pin that gives up the least (${scarcityNote(pin)})."
+                else "${u.pin}: the free pin that gives up the least: only ${scarcityNote(pin)}, which a later part might want."
             is Function.Timer -> "${u.pin} carries $f (AF${f.af}), so the timer drives it as PWM."
             is Function.Adc -> "${u.pin} is ${f.adc} input ${f.channel}."
             is Function.Dac -> "${u.pin} is DAC1 output ${f.channel}; the DAC can play samples."
