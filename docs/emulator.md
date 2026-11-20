@@ -88,8 +88,18 @@ its writable bits, taken from ST's SVD. Behaviour so far:
 - **DAC1**: outputs 1 and 2 on PA4 and PA5 in analog mode, all data
   register alignments, software trigger, the output buffer. Not yet:
   timer triggers, wave generation, DMA, sample and hold.
-- RTC, I2C, SPI, DMA, comparators, op-amps and the rest: registers only,
-  until their milestones.
+- **I2C1-3** as masters: START with the 7-bit address from CR2, the
+  part's acknowledge or NACKF with the automatic STOP, TXIS and TXE,
+  RXNE (the last byte read is not acknowledged), NBYTES with TC, RELOAD
+  with TCR, AUTOEND, repeated START, STOP, the clock stretched while TXDR
+  is empty or RXDR full, interrupts, PE as the software reset. Bytes go
+  out whole on the virtual clock, nine SCL periods each, at the rate
+  TIMINGR gives with the kernel clock chosen in CCIPR. As on the chip, the
+  pins must be in the I2C alternate function and open-drain, and the lines
+  need pull-ups: without them SCL stays low and START waits with BUSY set.
+  Not yet: slave mode, 10-bit addresses, SMBus, timeouts, DMA.
+- RTC, SPI, DMA, comparators, op-amps and the rest: registers only, until
+  their milestones.
 
 ## The breadboard
 
@@ -110,6 +120,26 @@ external pull resistor, the DAC. The net settles at their weighted mean.
   time (2 ms by default) before it settles, as real contacts do.
 - Piezos and speakers listen to their pin: the app plays PWM as a square
   wave and edges and DAC samples as they come, about 80 ms behind.
+- Bus parts sit on the pins of a bus and answer at their address. A
+  module's pull-ups (4.7 kohm each on the common OLED boards) are drivers
+  on SCL and SDA like any other, so two modules on one bus pull harder.
+  The on-chip I2C reaches the parts in whole bytes. Firmware that toggles
+  the pins itself (bit-banged I2C, common in Forth) works too: a decoder
+  on each part watches the nets, takes a START as SDA falling while SCL is
+  high and a bit as SDA when SCL rises, and the part answers by holding
+  SDA low on the net, so the firmware reads its acknowledge and its data
+  through IDR.
+- **SSD1306 OLED** (128x64, I2C at 0x3C or 0x3D): the command set with
+  its arguments, also when a driver sends a command and its arguments in
+  separate transfers; the control byte (Co, D/C); horizontal, vertical
+  and page addressing with the column and page windows; segment remap,
+  COM scan direction and the COM pin configuration; multiplex ratio,
+  display offset and start line; contrast, inverse, entire display on.
+  After power-up its RAM holds noise, and it stays dark until the
+  firmware turns on the charge pump (8D 14) and the display (AF), as the
+  real module does. Reads return the status byte (D6 set while the
+  display is off). Not yet: scrolling (the commands are accepted and the
+  close-up says it is on, but the picture stands still).
 
 ## Time
 
@@ -146,6 +176,10 @@ The console shows these in amber, at most three times each per run:
 - a floating input or one between the thresholds, read by the firmware
 - a short between the chip and a part; more than 20 mA through an LED
 - an advanced timer running with an output enabled but MOE clear
+- I2C: no pull-ups on SCL or SDA, pins that are push-pull or not in the
+  I2C alternate function, SCL faster than the part allows (it does not
+  answer), two parts at one address, an address that was not shifted into
+  bits 7:1 (CR2.SADD, or the first byte of a bit-banged transfer)
 - the ADC without a clock, started before its regulator is ready,
   calibrated while enabled, started before ADRDY; an ADC channel read on a
   pin that is not in analog mode; an ADC overrun

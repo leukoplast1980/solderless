@@ -1,5 +1,7 @@
 \ I2C mistakes the emulator points out: no pull-ups (no START goes out),  ok.
-\ SCL faster than the part allows (it does not answer), push-pull pins.  ok.
+\ SCL faster than the part allows (it does not answer), push-pull pins,  ok.
+\ an address not shifted into SADD[7:1] (and no message for a plain NACK,  ok.
+\ which every bus scan meets).  ok.
 #!attach 1 oled PB8 PB9 pull=0
 $48000400 constant GPIOB  ok.
 $40005400 constant I2C1  ok.
@@ -27,3 +29,8 @@ $3C probe hex. 00000031  ok.
 $3C probe hex. 00000021  ok.
 
 [chip] I2C1: PB8 is push-pull. I2C lines must be open-drain (OTYPER): a part pulls SDA low to answer, and a push-pull pin drives it high at the same time
+%11 8 lshift GPIOB 4 + bis!  ok.
+$3D probe hex. 00000031  ok.
+$1E probe hex. 00000031  ok.
+
+[chip] I2C1: no part answers at 0x1E. The SSD1306 OLED is at 0x3C: if you meant it, the address goes in bits 7:1 of CR2 (SADD), so it is written as 0x78

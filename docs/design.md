@@ -244,8 +244,9 @@ reported), SPI parts by their own chip-select pins.
   a "breathe" button raises CO2 and lets it settle back.
 - **SSD1306**: the full command set (addressing modes, segment and COM remap,
   multiplex ratio, offset, contrast, charge pump, inverse, on/off; scrolling
-  later). I2C with control bytes, SPI with the DC pin, the RES pin. No reads
-  over the serial interfaces, as on the real chip. Drawn pixel for pixel.
+  later). I2C with control bytes, SPI with the DC pin, the RES pin. Over
+  I2C only the status byte reads back; no RAM reads, as on the real chip.
+  Drawn pixel for pixel.
 - **ST7789**: reset, sleep out with its wait, colour mode (16- and 18-bit),
   memory access control (rotation, RGB order), address window, memory write,
   inversion, display on. Backlight pin, dimmable by PWM.

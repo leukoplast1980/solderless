@@ -22,6 +22,9 @@ $48000400 constant GPIOB  ok.
 bb-pins  ok.
 i2c-start $3C 2* byte> . i2c-stop -1  ok.
 i2c-start $3D 2* byte> . i2c-stop 0  ok.
+i2c-start $3C byte> . i2c-stop   \ the address not shifted: the emulator says so 0  ok.
+
+[chip] Address byte 0x3C: no part answers. The SSD1306 OLED is at 0x3C: if you meant it, the address goes in bits 7:1 with R/W in bit 0, so it is sent as 0x78 to write and 0x79 to read
 status hex.  00000040  ok.
 $8D cmd $14 cmd $AF cmd $A5 cmd  ok.
 status hex. 00000000  ok.

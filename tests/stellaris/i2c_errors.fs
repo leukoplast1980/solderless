@@ -1,5 +1,7 @@
 \ I2C mistakes the emulator points out: no pull-ups (no START goes out),
-\ SCL faster than the part allows (it does not answer), push-pull pins.
+\ SCL faster than the part allows (it does not answer), push-pull pins,
+\ an address not shifted into SADD[7:1] (and no message for a plain NACK,
+\ which every bus scan meets).
 #!attach 1 oled PB8 PB9 pull=0
 $48000400 constant GPIOB
 $40005400 constant I2C1
@@ -21,3 +23,6 @@ $3C probe hex.
 0 I2C1 !  $00310F13 I2C1 $10 + !  1 I2C1 !
 %11 8 lshift GPIOB 4 + bic!
 $3C probe hex.
+%11 8 lshift GPIOB 4 + bis!
+$3D probe hex.
+$1E probe hex.

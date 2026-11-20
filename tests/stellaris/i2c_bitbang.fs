@@ -22,6 +22,7 @@ $48000400 constant GPIOB
 bb-pins
 i2c-start $3C 2* byte> . i2c-stop
 i2c-start $3D 2* byte> . i2c-stop
+i2c-start $3C byte> . i2c-stop   \ the address not shifted: the emulator says so
 status hex. 
 $8D cmd $14 cmd $AF cmd $A5 cmd
 status hex.

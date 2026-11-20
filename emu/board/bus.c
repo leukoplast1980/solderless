@@ -108,6 +108,20 @@ static void dev_stop(struct sl_soc *s, struct sl_dev *d)
     d->selected = 0;
 }
 
+/* Nobody answered at addr. A bus scan meets this all the time, so only the
+ * likely mistake is pointed out: the address not shifted into bits 7:1. */
+static void no_answer(struct sl_soc *s, int scl, int sda, int addr, const char *who)
+{
+    for (int i = 0; i < B->ndev; i++) {
+        const struct sl_dev *d = &B->dev[i];
+        if (on_bus(d, scl, sda) && d->addr == addr << 1) {
+            soc_log(s, LOG_I2C_NACK, "%s: no part answers at 0x%02X. The %s is at 0x%02X: if you meant it, the address goes "
+                    "in bits 7:1 of CR2 (SADD), so it is written as 0x%02X", who, addr, dev_name(d->kind), d->addr, d->addr << 1);
+            return;
+        }
+    }
+}
+
 int bus_i2c_start(struct sl_soc *s, int scl, int sda, int addr, int read, uint32_t scl_hz, const char *who)
 {
     int acked = 0, n = 0;
@@ -126,6 +140,7 @@ int bus_i2c_start(struct sl_soc *s, int scl, int sda, int addr, int read, uint32
         acked |= dev_start(s, d, addr, read);
     }
     if (n > 1) soc_log(s, LOG_I2C_CLASH, "Two parts on the bus have address 0x%02X: both answer and their replies collide", addr);
+    if (n == 0) no_answer(s, scl, sda, addr, who);
     return acked;
 }
 
@@ -212,7 +227,14 @@ static void decode(struct sl_soc *s, struct sl_dev *d)
             if (d->dec_bits < 8) break;
             if (d->dec_ack == -1) {         /* the address byte */
                 int ack = dev_start(s, d, d->dec_byte >> 1, d->dec_byte & 1);
-                if (!ack) { d->dec_phase = DEC_SKIP; break; }
+                if (!ack) {
+                    /* the 7-bit address sent as the byte, without the R/W bit below it */
+                    if ((d->dec_byte & 0x7F) == d->addr && d->dec_byte >> 1 != d->addr)
+                        soc_log(s, LOG_I2C_NACK, "Address byte 0x%02X: no part answers. The %s is at 0x%02X: if you meant it, the "
+                                "address goes in bits 7:1 with R/W in bit 0, so it is sent as 0x%02X to write and 0x%02X to read",
+                                d->dec_byte, dev_name(d->kind), d->addr, d->addr << 1, d->addr << 1 | 1);
+                    d->dec_phase = DEC_SKIP; break;
+                }
             } else dev_write(s, d, d->dec_byte);
             hold_sda(s, d, 1);              /* acknowledge */
             d->dec_ack = 0;
