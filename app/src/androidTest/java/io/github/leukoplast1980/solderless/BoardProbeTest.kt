@@ -35,6 +35,62 @@ class BoardProbeTest {
         Log.i(TAG, "screenshot $name")
     }
 
+    private fun selectTab(scenario: ActivityScenario<MainActivity>, name: Int) {
+        scenario.onActivity { a ->
+            val tabs = a.findViewById<TabLayout>(R.id.tabs)
+            for (i in 0 until tabs.tabCount) if (tabs.getTabAt(i)!!.text == a.getString(name)) tabs.getTabAt(i)!!.select()
+        }
+        Thread.sleep(1200)
+    }
+
+    /** Parts pinned over the other tabs: the card on Console, Scope and Registers, and the pot's slider */
+    @Test
+    fun floatingControls() {
+        val ctx = InstrumentationRegistry.getInstrumentation().targetContext
+        val scenario = ActivityScenario.launch(MainActivity::class.java)
+        Thread.sleep(2500)
+        val vm = VmHost.get(ctx)
+        val rec = vm.recommender()
+        var b = Board()
+        for (t in listOf(PartType.LED, PartType.BUTTON, PartType.POT)) {
+            val pr = rec.propose(b.parts, Part(b.nextId(), t, emptyList()))!!
+            b = b.apply(pr)
+        }
+        b = Board(b.parts.map { it.copy(pinnedOverTabs = true) })
+        val pot = b.parts.first { it.type == PartType.POT }
+        scenario.onActivity { vm.setBoard(b) }
+        selectTab(scenario, R.string.tab_repl)
+        screenshot("pinned-console.png")
+
+        val ui = androidx.test.uiautomator.UiDevice.getInstance(InstrumentationRegistry.getInstrumentation())
+        ui.findObject(androidx.test.uiautomator.UiSelector().descriptionStartsWith("pot"))!!.click()
+        Thread.sleep(800)
+        var strip = false
+        scenario.onActivity { a -> strip = a.findViewById<View>(R.id.potStrip).visibility == View.VISIBLE }
+        assertTrue("the pot's slider opens", strip)
+        val plus = ui.findObject(androidx.test.uiautomator.UiSelector().description(ctx.getString(R.string.pot_up)))!!
+        repeat(5) { plus.click(); Thread.sleep(150) }
+        var v = -1
+        scenario.onActivity { a -> v = a.findViewById<io.github.leukoplast1980.solderless.ui.BoardView>(R.id.boardView).potValue[pot.id] ?: -1 }
+        assertEquals("five steps of 1 % up from the middle", 550, v)
+        Thread.sleep(500)
+        screenshot("pinned-pot-open.png")
+
+        for ((tab, shot) in listOf(R.string.tab_scope to "pinned-scope.png", R.string.tab_registers to "pinned-registers.png")) {
+            selectTab(scenario, tab)
+            var shown = false
+            scenario.onActivity { a -> shown = a.findViewById<View>(R.id.pinned).visibility == View.VISIBLE }
+            assertTrue("the card shows over ${ctx.getString(tab)}", shown)
+            screenshot(shot)
+        }
+        selectTab(scenario, R.string.tab_board)
+        var gone = false
+        scenario.onActivity { a -> gone = a.findViewById<View>(R.id.pinned).visibility != View.VISIBLE && a.findViewById<View>(R.id.potStrip).visibility != View.VISIBLE }
+        assertTrue("no card or slider on the Board tab", gone)
+        scenario.onActivity { vm.setBoard(Board()) }
+        scenario.close()
+    }
+
     @Test
     fun boardTab() {
         val ctx = InstrumentationRegistry.getInstrumentation().targetContext

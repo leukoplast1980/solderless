@@ -8,6 +8,13 @@ package io.github.leukoplast1980.solderless.ui
 
 import android.annotation.SuppressLint
 import android.content.Intent
+import android.content.res.ColorStateList
+import android.text.SpannableStringBuilder
+import android.text.Spanned
+import android.text.style.ForegroundColorSpan
+import android.text.style.RelativeSizeSpan
+import android.text.style.TypefaceSpan
+import android.widget.FrameLayout
 import android.graphics.Typeface
 import android.graphics.drawable.GradientDrawable
 import android.view.Gravity
@@ -18,7 +25,6 @@ import android.widget.Button
 import android.widget.HorizontalScrollView
 import android.widget.LinearLayout
 import android.widget.ScrollView
-import android.widget.SeekBar
 import android.widget.TextView
 import androidx.appcompat.app.AppCompatActivity
 import androidx.core.content.ContextCompat
@@ -27,6 +33,7 @@ import com.google.android.material.button.MaterialButton
 import com.google.android.material.chip.Chip
 import com.google.android.material.chip.ChipGroup
 import com.google.android.material.materialswitch.MaterialSwitch
+import com.google.android.material.slider.Slider
 import io.github.leukoplast1980.solderless.R
 import io.github.leukoplast1980.solderless.board.Board
 import io.github.leukoplast1980.solderless.board.ChipPins
@@ -56,8 +63,19 @@ class BoardController(
     private fun dp(v: Int) = (v * d).toInt()
     private val pinnedViews = HashMap<Int, View>()
 
+    // A pinned pot's wide slider: the card holds a small button, the slider opens above the input line
+    private val potStrip: View = activity.findViewById(R.id.potStrip)
+    private val potStripName: TextView = activity.findViewById(R.id.potStripName)
+    private val potStripValue: TextView = activity.findViewById(R.id.potStripValue)
+    private val potSlider: Slider = activity.findViewById(R.id.potSlider)
+    /** The pot whose slider is open, or -1 */
+    private var openPot = -1
+
     init {
         makeDraggable()
+        potSlider.addOnChangeListener { _, v, fromUser -> if (fromUser && openPot >= 0) setPot(openPot, v.toInt()) }
+        stepOnHold(activity.findViewById(R.id.potMinus), -10)
+        stepOnHold(activity.findViewById(R.id.potPlus), 10)
         view.chip = vm.chip
         view.order = settings.headerOrder
         view.autoSpread = settings.boardSpread
@@ -85,6 +103,7 @@ class BoardController(
     fun refresh(boardVisible: Boolean, overlayAllowed: Boolean) {
         val anyPinned = vm.board.parts.any { it.pinnedOverTabs }
         pinned.visibility = if (!boardVisible && overlayAllowed && anyPinned) View.VISIBLE else View.GONE
+        showPotStrip()
         if (view.board !== vm.board) { view.board = vm.board; rebuildPinned() }
         if (!boardVisible && pinned.visibility != View.VISIBLE) return
         vm.readBoard(state)
@@ -520,7 +539,7 @@ class BoardController(
         for (p in vm.board.parts.filter { it.pinnedOverTabs }) {
             val v: View = when (p.type) {
                 PartType.BUTTON -> Button(activity).apply {
-                    text = vm.board.nameOf(p); isAllCaps = false
+                    text = nameAndPins(p); isAllCaps = false
                     setOnTouchListener { b, e ->
                         when (e.actionMasked) {
                             MotionEvent.ACTION_DOWN -> { vm.boardInput(p.id, 1); view.setPressed(p.id, true); b.isPressed = true }
@@ -529,27 +548,108 @@ class BoardController(
                         true
                     }
                 }
-                PartType.POT -> SeekBar(activity).apply {
-                    max = 1000; progress = view.potValue[p.id] ?: 500
-                    setOnSeekBarChangeListener(object : SeekBar.OnSeekBarChangeListener {
-                        override fun onProgressChanged(s: SeekBar, v: Int, user: Boolean) { if (user) { view.potValue[p.id] = v; vm.boardInput(p.id, v) } }
-                        override fun onStartTrackingTouch(s: SeekBar) {}
-                        override fun onStopTrackingTouch(s: SeekBar) {}
-                    })
-                    minimumWidth = dp(140)
+                PartType.POT -> MaterialButton(activity, null, com.google.android.material.R.attr.materialButtonOutlinedStyle).apply {
+                    isAllCaps = false; textSize = 13f
+                    strokeColor = ColorStateList.valueOf(color(R.color.analog))
+                    setTextColor(color(R.color.bar_text))
+                    insetTop = 0; insetBottom = 0; minHeight = dp(40)
+                    contentDescription = activity.getString(R.string.pot_open, vm.board.nameOf(p))
+                    setOnClickListener { openPot = if (openPot == p.id) -1 else p.id; showPotStrip(); updatePotButtons() }
                 }
                 else -> TextView(activity).apply {
                     textSize = 12f; setTextColor(color(R.color.console_text)); gravity = Gravity.CENTER_VERTICAL
                     compoundDrawablePadding = dp(8)
-                    text = vm.board.nameOf(p)
+                    text = nameAndPins(p)
                 }
             }
-            pinned.addView(v, LinearLayout.LayoutParams(ViewGroup.LayoutParams.WRAP_CONTENT, dp(36)))
+            pinned.addView(v, LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, if (p.type == PartType.POT) dp(40) else dp(36))
+                .apply { if (p.type == PartType.POT) topMargin = dp(4) })
             pinnedViews[p.id] = v
+        }
+        if (vm.board.parts.none { it.id == openPot && it.pinnedOverTabs && it.type == PartType.POT }) openPot = -1
+        updatePotButtons()
+        showPotStrip()
+    }
+
+    /** "led  PB5": the name, and its pins small and grey */
+    private fun nameAndPins(p: Part): CharSequence {
+        val sb = SpannableStringBuilder(vm.board.nameOf(p)).append("  ")
+        val at = sb.length
+        sb.append(p.pins.joinToString(" ") { it.pin })
+        sb.setSpan(ForegroundColorSpan(color(R.color.label)), at, sb.length, Spanned.SPAN_EXCLUSIVE_EXCLUSIVE)
+        sb.setSpan(RelativeSizeSpan(0.85f), at, sb.length, Spanned.SPAN_EXCLUSIVE_EXCLUSIVE)
+        sb.setSpan(TypefaceSpan("monospace"), at, sb.length, Spanned.SPAN_EXCLUSIVE_EXCLUSIVE)
+        return sb
+    }
+
+    private fun potValue(id: Int) = view.potValue[id] ?: 500
+    private fun volts(v: Int) = "%.2f V".format(java.util.Locale.ROOT, v * 3.3 / 1000)
+
+    private fun setPot(id: Int, v: Int) {
+        val c = v.coerceIn(0, 1000)
+        view.potValue[id] = c
+        vm.boardInput(id, c)
+        updatePotButtons()
+        showPotStrip()
+    }
+
+    /** The card's pot buttons: name, voltage, and which way the slider is */
+    private fun updatePotButtons() {
+        for (p in vm.board.parts.filter { it.pinnedOverTabs && it.type == PartType.POT }) {
+            val b = pinnedViews[p.id] as? MaterialButton ?: continue
+            val sb = SpannableStringBuilder(vm.board.nameOf(p)).append("   ")
+            val at = sb.length
+            sb.append(volts(potValue(p.id))).append(if (openPot == p.id) " ▾" else " ▴")
+            sb.setSpan(ForegroundColorSpan(color(R.color.analog)), at, sb.length, Spanned.SPAN_EXCLUSIVE_EXCLUSIVE)
+            sb.setSpan(TypefaceSpan("monospace"), at, sb.length, Spanned.SPAN_EXCLUSIVE_EXCLUSIVE)
+            b.text = sb
+            b.setBackgroundColor(if (openPot == p.id) color(R.color.analog_dim) else 0)
+        }
+    }
+
+    /** The wide slider for [openPot], shown while the card is; the card moves up above it */
+    private fun showPotStrip() {
+        val p = vm.board.parts.firstOrNull { it.id == openPot }
+        val show = p != null && pinned.visibility == View.VISIBLE
+        if (show) {
+            val v = potValue(p!!.id)
+            val name = SpannableStringBuilder(vm.board.nameOf(p)).append("  ")
+            val at = name.length
+            name.append(p.pins[0].pin + " · " + p.pins[0].function)
+            name.setSpan(ForegroundColorSpan(color(R.color.label)), at, name.length, Spanned.SPAN_EXCLUSIVE_EXCLUSIVE)
+            name.setSpan(TypefaceSpan("monospace"), at, name.length, Spanned.SPAN_EXCLUSIVE_EXCLUSIVE)
+            if (potStripName.text.toString() != name.toString()) potStripName.text = name
+            potStripValue.text = volts(v) + " · " + (v + 5) / 10 + " %"
+            if (potSlider.value.toInt() != v) potSlider.value = v.toFloat()
+        }
+        val vis = if (show) View.VISIBLE else View.GONE
+        if (potStrip.visibility != vis) {
+            potStrip.visibility = vis
+            potStrip.post {
+                val lp = pinned.layoutParams as FrameLayout.LayoutParams
+                lp.bottomMargin = dp(12) + if (show) potStrip.height else 0
+                pinned.layoutParams = lp
+            }
+        }
+    }
+
+    /** -/+ by 1 %; held down, they keep going */
+    @SuppressLint("ClickableViewAccessibility")
+    private fun stepOnHold(b: View, by: Int) {
+        val step = Runnable { if (openPot >= 0) setPot(openPot, potValue(openPot) + by) }
+        val again = object : Runnable { override fun run() { step.run(); b.postDelayed(this, 70) } }
+        b.setOnClickListener { step.run() }                // also what accessibility services press
+        b.setOnTouchListener { v, e ->
+            when (e.actionMasked) {
+                MotionEvent.ACTION_DOWN -> { v.isPressed = true; step.run(); v.postDelayed(again, 450) }
+                MotionEvent.ACTION_UP, MotionEvent.ACTION_CANCEL -> { v.isPressed = false; v.removeCallbacks(again) }
+            }
+            true
         }
     }
 
     private fun updatePinned() {
+        updatePotButtons()          // the pot may have been turned on the Board meanwhile
         val order = vm.board.attachmentOrder(vm.chip)
         for (p in vm.board.parts.filter { it.pinnedOverTabs }) {
             val v = pinnedViews[p.id] as? TextView ?: continue
@@ -570,11 +670,10 @@ class BoardController(
                         setStroke(1, 0xFF3A4650.toInt())
                     }
                     v.setCompoundDrawablesRelativeWithIntrinsicBounds(dot, null, null, null)
-                    v.text = name
                 }
                 PartType.PIEZO, PartType.SPEAKER -> {
                     val s = vm.chip.gpio(p.pins[0].pin)?.slot ?: continue
-                    v.text = if (state.pwm(s)) "$name  ${state.freqMilliHz(s) / 1000} Hz" else name
+                    v.text = if (state.pwm(s)) SpannableStringBuilder(nameAndPins(p)).append("  ${state.freqMilliHz(s) / 1000} Hz") else nameAndPins(p)
                 }
                 else -> {}
             }

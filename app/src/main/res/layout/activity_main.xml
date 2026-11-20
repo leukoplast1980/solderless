@@ -461,6 +461,94 @@
         </LinearLayout>
     </LinearLayout>
 
+    <!-- A pinned pot's wide slider, opened from the floating card -->
+    <LinearLayout
+        android:id="@+id/potStrip"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:layout_gravity="bottom"
+        android:background="@color/bar_background"
+        android:elevation="4dp"
+        android:orientation="vertical"
+        android:paddingHorizontal="12dp"
+        android:paddingTop="8dp"
+        android:paddingBottom="4dp"
+        android:visibility="gone">
+
+        <LinearLayout
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:orientation="horizontal">
+
+            <TextView
+                android:id="@+id/potStripName"
+                android:layout_width="0dp"
+                android:layout_height="wrap_content"
+                android:layout_weight="1"
+                android:textColor="@color/console_text"
+                android:textSize="13sp" />
+
+            <TextView
+                android:id="@+id/potStripValue"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:fontFamily="monospace"
+                android:textColor="@color/analog"
+                android:textSize="16sp"
+                android:textStyle="bold" />
+        </LinearLayout>
+
+        <LinearLayout
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:gravity="center_vertical"
+            android:orientation="horizontal">
+
+            <Button
+                android:id="@+id/potMinus"
+                style="@style/Widget.Material3.Button.OutlinedButton"
+                android:layout_width="48dp"
+                android:layout_height="48dp"
+                android:contentDescription="@string/pot_down"
+                android:insetTop="2dp"
+                android:insetBottom="2dp"
+                android:minWidth="0dp"
+                android:padding="0dp"
+                android:text="−"
+                android:textSize="20sp" />
+
+            <com.google.android.material.slider.Slider
+                android:id="@+id/potSlider"
+                android:layout_width="0dp"
+                android:layout_height="wrap_content"
+                android:layout_weight="1"
+                android:contentDescription="@string/pot_slider"
+                android:valueFrom="0"
+                android:valueTo="1000"
+                android:stepSize="1"
+                app:labelBehavior="gone"
+                app:thumbColor="@color/bar_text"
+                app:thumbRadius="13dp"
+                app:trackColorActive="@color/analog"
+                app:trackColorInactive="@color/divider"
+                app:trackHeight="8dp"
+                app:haloColor="@color/analog_dim" />
+
+            <Button
+                android:id="@+id/potPlus"
+                style="@style/Widget.Material3.Button.OutlinedButton"
+                android:layout_width="48dp"
+                android:layout_height="48dp"
+                android:contentDescription="@string/pot_up"
+                android:insetTop="2dp"
+                android:insetBottom="2dp"
+                android:minWidth="0dp"
+                android:padding="0dp"
+                android:text="+"
+                android:textSize="20sp" />
+        </LinearLayout>
+    </LinearLayout>
+
     <!-- Pinned parts float over every tab but the Board -->
     <LinearLayout
         android:id="@+id/pinned"
