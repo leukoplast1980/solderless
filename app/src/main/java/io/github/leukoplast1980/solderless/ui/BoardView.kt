@@ -39,7 +39,10 @@ class BoardView @JvmOverloads constructor(context: Context, attrs: AttributeSet?
     var order = HeaderOrder.ADAPTER
         set(v) { field = v; invalidate() }
     var board = Board()
-        set(v) { field = v; attOrder = null; invalidate() }
+        set(v) { field = v; attOrder = null; requestLayout(); invalidate() }
+    /** Spread the header rows when parts need room (a setting) */
+    var autoSpread = true
+        set(v) { field = v; requestLayout(); invalidate() }
     var state: BoardState? = null
     /** A part being proposed: drawn dashed */
     var ghost: Part? = null
@@ -57,7 +60,8 @@ class BoardView @JvmOverloads constructor(context: Context, attrs: AttributeSet?
 
     private val d = resources.displayMetrics.density
     private fun dp(v: Float) = v * d
-    private val rowH get() = dp(19f)
+    private val baseRow get() = dp(19f)
+    private var rowH = 0f
     private val headerW get() = dp(84f)
     private val top get() = dp(8f)
     val bottomPad get() = dp(118f)
@@ -78,27 +82,39 @@ class BoardView @JvmOverloads constructor(context: Context, attrs: AttributeSet?
     private val pinY = HashMap<String, Float>()
     private val pinSide = HashMap<String, Int>()     // +1 left header, -1 right header
     private val hit = ArrayList<Pair<RectF, Part>>()
+    /** A button's label: long-press there for its settings (the contacts press it) */
+    private val hitLabel = ArrayList<Pair<RectF, Part>>()
     private val rowHit = ArrayList<Pair<RectF, ChipPins.Pin>>()
 
     override fun onMeasure(widthMeasureSpec: Int, heightMeasureSpec: Int) {
         val w = MeasureSpec.getSize(widthMeasureSpec)
+        rowH = baseRow
+        if (autoSpread && chip != null) {
+            // Smallest row height at which every part sits next to its pins
+            var r = baseRow
+            while (r < dp(56f)) {
+                computePins(r)
+                val placed = placeParts()
+                val worst = placed.maxOfOrNull { (p, cy, _) -> abs(cy - anchor(p)) } ?: 0f
+                val bottom = placed.maxOfOrNull { (p, cy, _) -> cy + extent(p).second } ?: 0f
+                if (worst <= r * 1.2f && bottom <= top + 32 * r + dp(8f)) break
+                r += dp(1f)
+            }
+            rowH = r
+        }
         setMeasuredDimension(w, (top + 32 * rowH + bottomPad).toInt())
     }
 
-    // ------------------------------------------------------------------
+    /** Pin rows and sides for a row height (the headers draw the same) */
+    private fun computePins(r: Float) {
+        val (left, right) = chip?.headers(order) ?: return
+        for ((i, p) in left.withIndex()) { pinY[p.name] = top + (i + 0.5f) * r; pinSide[p.name] = 1 }
+        for ((i, p) in right.withIndex()) { pinY[p.name] = top + (i + 0.5f) * r; pinSide[p.name] = -1 }
+    }
 
-    override fun onDraw(canvas: Canvas) {
-        val chip = chip ?: return
-        canvas.drawColor(cBg)
-        hit.clear(); rowHit.clear(); pinY.clear(); pinSide.clear()
-        val (left, right) = chip.headers(order)
-        drawHeader(canvas, left, true)
-        drawHeader(canvas, right, false)
-        val used = (board.parts + listOfNotNull(ghost)).flatMap { it.pins }.map { it.pin }.toSet()
-        // The console adapter is always there
-        drawConsole(canvas)
-        // Lay parts out per side, pushed apart vertically
-        val placed = ArrayList<Triple<Part, Float, Int>>()   // part, centre y, side
+    /** Parts per side, each centred on its pins, pushed apart vertically */
+    private fun placeParts(): List<Triple<Part, Float, Int>> {
+        val placed = ArrayList<Triple<Part, Float, Int>>()
         for (side in listOf(1, -1)) {
             val parts = (board.parts + listOfNotNull(ghost)).filter { p -> sideOf(p) == side }
                 .map { it to anchor(it) }.sortedBy { it.second }
@@ -110,7 +126,23 @@ class BoardView @JvmOverloads constructor(context: Context, attrs: AttributeSet?
                 floor = cy + below + dp(6f)
             }
         }
-        for ((p, cy, side) in placed) drawPart(canvas, p, cy, side, p === ghost)
+        return placed
+    }
+
+    // ------------------------------------------------------------------
+
+    override fun onDraw(canvas: Canvas) {
+        val chip = chip ?: return
+        canvas.drawColor(cBg)
+        if (rowH == 0f) rowH = baseRow
+        hit.clear(); hitLabel.clear(); rowHit.clear(); pinY.clear(); pinSide.clear()
+        val (left, right) = chip.headers(order)
+        drawHeader(canvas, left, true)
+        drawHeader(canvas, right, false)
+        val used = (board.parts + listOfNotNull(ghost)).flatMap { it.pins }.map { it.pin }.toSet()
+        // The console adapter is always there
+        drawConsole(canvas)
+        for ((p, cy, side) in placeParts()) drawPart(canvas, p, cy, side, p === ghost)
         if (used.isEmpty() && ghost == null) {
             text.textSize = dp(13f); text.color = cLabel; text.textAlign = Paint.Align.CENTER
             text.typeface = Typeface.DEFAULT
@@ -332,7 +364,8 @@ class BoardView @JvmOverloads constructor(context: Context, attrs: AttributeSet?
                 else { wire(c, gc ?: cLabel, dashed, b, cy, end, cy, end, cy + dp(6f)); gnd(c, end, cy + dp(6f), gc ?: cLabel, dashed) }
                 label(c, "Button", m, cy - dp(19f), 10f, labelCol, bold = true)
                 warnUnder(m, cy + dp(17f), pin0)
-                box.set(x0, cy - dp(28f), end + sg * dp(10f), cy + dp(24f))
+                box.set(x0, cy - dp(16f), end + sg * dp(10f), cy + dp(24f))
+                if (!isGhost) hitLabel += RectF(m - dp(34f), cy - dp(42f), m + dp(34f), cy - dp(16f)) to p
             }
             PartType.POT -> {
                 val px = x0 + sg * dp(58f)
@@ -438,13 +471,14 @@ class BoardView @JvmOverloads constructor(context: Context, attrs: AttributeSet?
     private val gestures = GestureDetector(context, object : GestureDetector.SimpleOnGestureListener() {
         override fun onDown(e: MotionEvent) = true
         override fun onLongPress(e: MotionEvent) {
+            hitLabel.lastOrNull { it.first.contains(e.x, e.y) }?.let { onLongPress(it.second); return }
             val p = partAt(e.x, e.y) ?: return
-            if (p.type == PartType.BUTTON) return            // holding a button is pressing it
+            if (p.type == PartType.BUTTON) return            // holding a button's contacts is pressing it
             dragPart = null
             onLongPress(p)
         }
         override fun onSingleTapUp(e: MotionEvent): Boolean {
-            if (partAt(e.x, e.y) == null) rowHit.firstOrNull { it.first.contains(e.x, e.y) }?.let { onPinTap(it.second) }
+            if (partAt(e.x, e.y) == null && hitLabel.none { it.first.contains(e.x, e.y) }) rowHit.firstOrNull { it.first.contains(e.x, e.y) }?.let { onPinTap(it.second) }
             return true
         }
     })

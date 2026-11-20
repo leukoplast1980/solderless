@@ -142,6 +142,22 @@
                     android:text="@string/header_order_port"
                     android:textColor="@color/console_text" />
             </RadioGroup>
+
+            <com.google.android.material.materialswitch.MaterialSwitch
+                android:id="@+id/boardSpread"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="16dp"
+                android:text="@string/board_spread"
+                android:textColor="@color/bar_text"
+                android:textSize="16sp" />
+
+            <TextView
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:text="@string/board_spread_hint"
+                android:textColor="@color/label"
+                android:textSize="13sp" />
         </LinearLayout>
     </ScrollView>
 </LinearLayout>

@@ -31,7 +31,13 @@ class Settings(context: Context) {
             .getOrDefault(io.github.leukoplast1980.solderless.board.HeaderOrder.ADAPTER)
         set(v) = prefs.edit().putString(HEADER_ORDER, v.name).apply()
 
+    /** The Board tab grows taller when parts need room */
+    var boardSpread: Boolean
+        get() = prefs.getBoolean(BOARD_SPREAD, true)
+        set(v) = prefs.edit().putBoolean(BOARD_SPREAD, v).apply()
+
     companion object {
+        private const val BOARD_SPREAD = "boardSpread"
         private const val HEADER_ORDER = "headerOrder"
         const val MIN_TEXT_SIZE = 10
         const val MAX_TEXT_SIZE = 24

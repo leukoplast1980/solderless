@@ -47,18 +47,18 @@ class BoardController(
     private val openFile: (File) -> Unit,
 ) {
     val view: BoardView = activity.findViewById(R.id.boardView)
-    private val run: TextView = activity.findViewById(R.id.boardRun)
     private val warn: TextView = activity.findViewById(R.id.boardWarn)
     private val pinned: LinearLayout = activity.findViewById(R.id.pinned)
     private val state = BoardState()
     private val d = activity.resources.displayMetrics.density
     private fun dp(v: Int) = (v * d).toInt()
-    private var snapshotAge = 0
     private val pinnedViews = HashMap<Int, View>()
 
     init {
+        makeDraggable()
         view.chip = vm.chip
         view.order = settings.headerOrder
+        view.autoSpread = settings.boardSpread
         view.board = vm.board
         view.onPress = { p, down -> vm.boardInput(p.id, if (down) 1 else 0) }
         view.onPot = { p, v -> vm.boardInput(p.id, v) }
@@ -73,6 +73,7 @@ class BoardController(
     fun reload() {
         view.board = vm.board
         view.order = settings.headerOrder
+        view.autoSpread = settings.boardSpread
         view.potValue.clear()
         rebuildPinned()
     }
@@ -87,12 +88,6 @@ class BoardController(
         if (boardVisible) {
             view.state = state
             view.invalidate()
-            if (snapshotAge-- <= 0) {
-                snapshotAge = 10
-                val s = vm.snapshot()
-                run.text = if (vm.isUserPaused) activity.getString(R.string.board_paused)
-                else activity.getString(R.string.board_running, "%.0f MHz".format(s.sysclk / 1e6))
-            }
             val n = warnings()
             warn.visibility = if (n > 0) View.VISIBLE else View.GONE
             warn.text = activity.getString(R.string.board_warnings, n)
@@ -148,7 +143,7 @@ class BoardController(
 
     private fun color(id: Int) = ContextCompat.getColor(activity, id)
 
-    private fun code(parent: LinearLayout, lines: List<Pair<String, Int>>) {
+    private fun code(parent: LinearLayout, lines: List<Pair<String, Int>>, copy: Boolean = false) {
         val box = LinearLayout(activity).apply {
             orientation = LinearLayout.VERTICAL
             setPadding(dp(12), dp(8), dp(12), dp(8))
@@ -157,7 +152,19 @@ class BoardController(
         for ((l, c) in lines) box.addView(TextView(activity).apply {
             text = l; typeface = Typeface.MONOSPACE; textSize = 11.5f; setTextColor(c)
         })
-        parent.addView(box, LinearLayout.LayoutParams(-1, -2).apply { topMargin = dp(10) })
+        if (!copy) { parent.addView(box, LinearLayout.LayoutParams(-1, -2).apply { topMargin = dp(10) }); return }
+        val row = LinearLayout(activity).apply { orientation = LinearLayout.HORIZONTAL; gravity = Gravity.TOP }
+        row.addView(box, LinearLayout.LayoutParams(0, -2, 1f))
+        row.addView(MaterialButton(activity, null, com.google.android.material.R.attr.materialIconButtonStyle).apply {
+            setIconResource(R.drawable.ic_copy)
+            contentDescription = activity.getString(R.string.copy_code)
+            setOnClickListener {
+                val cm = activity.getSystemService(android.content.ClipboardManager::class.java)
+                cm.setPrimaryClip(android.content.ClipData.newPlainText("wiring.fs", lines.joinToString("\n") { it.first } + "\n"))
+                android.widget.Toast.makeText(activity, R.string.code_copied, android.widget.Toast.LENGTH_SHORT).show()
+            }
+        }, LinearLayout.LayoutParams(dp(48), dp(48)).apply { marginStart = dp(4) })
+        parent.addView(row, LinearLayout.LayoutParams(-1, -2).apply { topMargin = dp(10) })
     }
 
     private fun buttons(parent: LinearLayout, vararg b: Pair<String, () -> Unit>, primaryLast: Boolean = true) {
@@ -254,7 +261,7 @@ class BoardController(
             col.addView(g)
             col.addView(body(activity.getString(R.string.board_other_pins_legend), R.color.syntax_comment))
             val mine = linesFor(board.with(pr.part), pr.part)
-            code(col, mine.map { it to if (it.startsWith("\\")) color(R.color.syntax_comment) else color(R.color.console_text) })
+            code(col, mine.map { it to if (it.startsWith("\\")) color(R.color.syntax_comment) else color(R.color.console_text) }, copy = true)
             buttons(col, activity.getString(android.R.string.cancel) to { dlg.dismiss() },
                 activity.getString(R.string.board_add) to { dlg.dismiss(); setBoard(board.apply(pr)) })
         }
@@ -431,10 +438,38 @@ class BoardController(
     // ------------------------------------------------------------------
     // Pinned parts over the other tabs
 
+    /** The card can be dragged anywhere over the panes; where it was left is kept. */
+    @SuppressLint("ClickableViewAccessibility")
+    private fun makeDraggable() {
+        val prefs = activity.getSharedPreferences("board", android.content.Context.MODE_PRIVATE)
+        pinned.translationX = prefs.getFloat("pinnedX", 0f)
+        pinned.translationY = prefs.getFloat("pinnedY", 0f)
+        var downX = 0f; var downY = 0f; var startTx = 0f; var startTy = 0f
+        pinned.setOnTouchListener { v, e ->
+            val parent = v.parent as View
+            when (e.actionMasked) {
+                MotionEvent.ACTION_DOWN -> { downX = e.rawX; downY = e.rawY; startTx = v.translationX; startTy = v.translationY }
+                MotionEvent.ACTION_MOVE -> {
+                    // The card sits at bottom|end: it can move left and up
+                    v.translationX = (startTx + e.rawX - downX).coerceIn(-(parent.width - v.width).toFloat(), 0f)
+                    v.translationY = (startTy + e.rawY - downY).coerceIn(-(parent.height - v.height).toFloat(), 0f)
+                }
+                MotionEvent.ACTION_UP, MotionEvent.ACTION_CANCEL ->
+                    prefs.edit().putFloat("pinnedX", v.translationX).putFloat("pinnedY", v.translationY).apply()
+            }
+            true
+        }
+    }
+
     @SuppressLint("ClickableViewAccessibility")
     private fun rebuildPinned() {
         pinned.removeAllViews()
         pinnedViews.clear()
+        // A grip shows the card can be moved
+        pinned.addView(TextView(activity).apply {
+            text = "⠿"; textSize = 14f; setTextColor(color(R.color.label)); gravity = Gravity.CENTER
+            contentDescription = activity.getString(R.string.pinned_drag)
+        }, LinearLayout.LayoutParams(-1, dp(20)))
         for (p in vm.board.parts.filter { it.pinnedOverTabs }) {
             val v: View = when (p.type) {
                 PartType.BUTTON -> Button(activity).apply {
