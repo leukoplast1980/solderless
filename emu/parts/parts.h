@@ -70,6 +70,9 @@ struct w25q {
     char last[48];
     uint32_t prog_addr;
     unsigned gen, reads;
+    char runs[400];             /* the "Written" lines, for gen runs_gen */
+    unsigned runs_gen;
+    int runs_valid;
     int msg, unknown;
     uint8_t ignored;
 };

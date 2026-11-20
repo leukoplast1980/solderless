@@ -167,6 +167,24 @@ class RecommenderTest {
         assertEquals("the board survives a save", b, Board.fromJson(b.toJson()))
     }
 
+    @Test fun flashesShareAnSpiBusEachWithItsOwnChipSelect() {
+        var b = place(Board(), new(PartType.FLASH, 1))
+        val first = b.parts[0]
+        assertTrue("CS on a GPIO: ${first.pins}", first.pins[0].function is Function.Gpio)
+        val bus = first.pins.drop(1).map { it.function as Function.Spi }
+        assertEquals(listOf("SCK", "MOSI", "MISO"), bus.map { it.signal })
+        assertEquals(1, bus.map { it.periph }.distinct().size)
+        b = place(b, new(PartType.FLASH, 2))
+        val second = b.parts.first { it.id == 2 }
+        assertEquals("joins the same bus", first.pins.drop(1), second.pins.drop(1))
+        assertTrue("its own chip select", second.pins[0].pin != first.pins[0].pin)
+        for (p in b.parts) assertTrue("never PB8 (BOOT0) for CS", p.pins[0].pin != "PB8")
+        val a = b.attachments(chip)
+        assertEquals(8 * Board.ATT_INTS, a.size)
+        assertEquals(Board.DEV_W25Q, a[8]); assertEquals(0x17, a[9]); assertEquals(5, a[1])   // role SL_SIG_CS
+        assertEquals("the board survives a save", b, Board.fromJson(b.toJson()))
+    }
+
     @Test fun headersInBothOrders() {
         val (l, r) = chip.headers(HeaderOrder.ADAPTER)
         assertEquals(32, l.size); assertEquals(32, r.size)

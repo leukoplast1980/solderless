@@ -73,6 +73,16 @@ class BoardController(
     private val deviceText = HashMap<Int, String>()
     /** The close-up open now: part id, its screen and its rows of state */
     private var closeUp: Triple<Int, OledView, LinearLayout>? = null
+    /** The flash sheet while it is open: its part and what updates it from the state text */
+    private var flashSheet: Pair<Int, (String) -> Unit>? = null
+    /** The flash part a file is being loaded into or saved from */
+    private var flashFilePart = -1
+    private val loadFlashFile = activity.registerForActivityResult(androidx.activity.result.contract.ActivityResultContracts.OpenDocument()) { uri ->
+        if (uri != null) loadFlash(flashFilePart, uri)
+    }
+    private val saveFlashFile = activity.registerForActivityResult(androidx.activity.result.contract.ActivityResultContracts.CreateDocument("application/octet-stream")) { uri ->
+        if (uri != null) saveFlash(flashFilePart, uri)
+    }
 
     /** The pot whose slider is open, or -1 */
     private var openPot = -1
@@ -90,7 +100,13 @@ class BoardController(
         view.onPress = { p, down -> vm.boardInput(p.id, if (down) 1 else 0) }
         view.onPot = { p, v -> vm.boardInput(p.id, v) }
         view.onLongPress = { showSettings(it) }
-        view.onTap = { if (it.type == PartType.OLED) showOled(it) else showSample(it) }
+        view.onTap = {
+            when (it.type) {
+                PartType.OLED -> showOled(it)
+                PartType.FLASH -> showFlash(it)
+                else -> showSample(it)
+            }
+        }
         view.onPinTap = { showPin(it) }
         activity.findViewById<View>(R.id.boardAdd).setOnClickListener { showAdd() }
         activity.findViewById<View>(R.id.boardSupport).setOnClickListener { showSupport() }
@@ -130,6 +146,12 @@ class BoardController(
 
     /** Pixels and state of the displays on the board, for the board, the card and the close-up */
     private fun readDevices() {
+        for (p in vm.board.parts.filter { it.type == PartType.FLASH }) {
+            val text = vm.readDevice(p.id, oledBuf) ?: continue
+            deviceText[p.id] = text
+            if (Regex("Status\tBUSY 1").containsMatchIn(text)) view.deviceBusy += p.id else view.deviceBusy -= p.id
+            flashSheet?.let { (id, update) -> if (id == p.id) update(text) }
+        }
         for (p in vm.board.parts.filter { it.type == PartType.OLED }) {
             val text = vm.readDevice(p.id, oledBuf) ?: continue
             val contrast = Regex("Contrast\t0x([0-9A-F]{2})").find(text)?.groupValues?.get(1)?.toInt(16) ?: 0x7F
@@ -273,6 +295,7 @@ class BoardController(
             PartType.BUTTON to "input with interrupt", PartType.LED to "output or PWM", PartType.RGB_LED to "3 PWM channels, one timer",
             PartType.POT to "ADC input", PartType.SPEAKER to "DAC or PWM, transistor", PartType.PIEZO to "PWM",
             PartType.OLED to "I2C: SCL and SDA",
+            PartType.FLASH to "SPI: CLK, DI, DO, and CS",
         )
         val grid = android.widget.GridLayout(activity).apply { columnCount = 2 }
         for ((t, n) in needs) grid.addView(MaterialButton(activity, null, com.google.android.material.R.attr.materialButtonOutlinedStyle).apply {
@@ -397,6 +420,116 @@ class BoardController(
         return dlg
     }
 
+    /** The flash: its status, what is written where, the hex view, files */
+    private fun showFlash(p: Part): BottomSheetDialog {
+        val dlg = sheet { col, dlg ->
+            title(col, activity.getString(R.string.flash_title),
+                "${p.flashName} · ${p.flashMbit / 8} MB · ${p.spi ?: "SPI"} · CS on ${p.pins.firstOrNull()?.pin ?: "?"}")
+            section(col, activity.getString(R.string.flash_status))
+            val chips = ChipGroup(activity)
+            col.addView(chips)
+            section(col, activity.getString(R.string.flash_written))
+            val written = LinearLayout(activity).apply {
+                orientation = LinearLayout.VERTICAL
+                setPadding(dp(12), dp(8), dp(12), dp(8))
+                background = GradientDrawable().apply { setColor(color(R.color.console_background)); cornerRadius = dp(10).toFloat() }
+            }
+            col.addView(written)
+            col.addView(MaterialButton(activity).apply {
+                text = activity.getString(R.string.flash_open_hex); isAllCaps = false
+                setOnClickListener { openHex(p) }
+            }, LinearLayout.LayoutParams(-1, dp(52)).apply { topMargin = dp(14) })
+            col.addView(body(activity.getString(R.string.flash_note), R.color.label))
+            buttons(col, activity.getString(R.string.flash_load) to { flashFilePart = p.id; loadFlashFile.launch(arrayOf("*/*")) },
+                activity.getString(R.string.flash_save) to { flashFilePart = p.id; saveFlashFile.launch("${vm.board.nameOf(p)}.bin") },
+                activity.getString(R.string.flash_erase_all) to { eraseFlash(p) }, primaryLast = false)
+            buttons(col, activity.getString(R.string.board_sample_code) to { dlg.dismiss(); showSample(p) },
+                activity.getString(R.string.board_part_settings) to { dlg.dismiss(); showSettings(p) }, primaryLast = false)
+            var last = ""
+            val update = { st: String ->
+                if (st != last) {
+                    last = st
+                    val kv = st.trimEnd().lines().filter { '\t' in it }.map { it.split('\t') }
+                    chips.removeAllViews()
+                    kv.firstOrNull { it[0] == "Status" }?.getOrNull(1)?.split(" · ")?.forEach { t ->
+                        chips.addView(Chip(activity).apply {
+                            text = t; typeface = Typeface.MONOSPACE; isClickable = false
+                            if (t == "BUSY 1") setChipStrokeColorResource(R.color.chip_message)
+                        })
+                    }
+                    for (k in listOf("Busy", "Last", "Power")) kv.firstOrNull { it[0] == k }?.getOrNull(1)?.let { t ->
+                        chips.addView(Chip(activity).apply { text = t; isClickable = false; setTextColor(color(R.color.label)) })
+                    }
+                    written.removeAllViews()
+                    for (w in kv.filter { it[0] == "Written" }) written.addView(LinearLayout(activity).apply {
+                        orientation = LinearLayout.HORIZONTAL
+                        addView(TextView(activity).apply { this.text = w.getOrElse(1) { "" }; typeface = Typeface.MONOSPACE; textSize = 12f
+                            setTextColor(color(R.color.console_text)); setPadding(0, dp(3), 0, dp(3)) }, LinearLayout.LayoutParams(0, -2, 1f))
+                        addView(TextView(activity).apply { this.text = w.getOrElse(2) { "" }; typeface = Typeface.MONOSPACE; textSize = 12f
+                            setTextColor(color(R.color.label)); setPadding(dp(8), dp(3), 0, dp(3)) })
+                    })
+                }
+            }
+            flashSheet = p.id to update
+            deviceText[p.id]?.let(update)
+        }
+        dlg.setOnDismissListener { flashSheet = null }
+        return dlg
+    }
+
+    private fun openHex(p: Part) {
+        HexView(activity, activity.getString(R.string.flash_hex_title, p.flashName), vm.memorySize(p),
+            read = { a, n -> vm.readMemory(p.id, a, n) },
+            write = { a, data -> vm.writeMemory(p.id, a, data) }).show()
+    }
+
+    private fun eraseFlash(p: Part) {
+        androidx.appcompat.app.AlertDialog.Builder(activity)
+            .setMessage(activity.getString(R.string.flash_erase_confirm, p.flashName))
+            .setPositiveButton(R.string.flash_erase_all) { _, _ ->
+                val ff = ByteArray(1 shl 16) { 0xFF.toByte() }
+                var a = 0
+                while (a < vm.memorySize(p)) { vm.writeMemory(p.id, a, ff); a += ff.size }
+                Thread { vm.saveFlash() }.start()
+            }
+            .setNegativeButton(android.R.string.cancel, null)
+            .show()
+    }
+
+    /** A file into the flash from address 0, as a programmer would; the rest stays as it is */
+    private fun loadFlash(partId: Int, uri: android.net.Uri) {
+        val p = vm.board.parts.firstOrNull { it.id == partId } ?: return
+        val size = vm.memorySize(p)
+        val n = runCatching {
+            activity.contentResolver.openInputStream(uri)!!.use { inp ->
+                val buf = ByteArray(1 shl 16)
+                var at = 0
+                while (at < size) {
+                    val k = inp.read(buf, 0, minOf(buf.size, size - at))
+                    if (k <= 0) break
+                    vm.writeMemory(p.id, at, buf.copyOf(k))
+                    at += k
+                }
+                at
+            }
+        }.getOrElse { -1 }
+        android.widget.Toast.makeText(activity, if (n < 0) activity.getString(R.string.flash_load_failed)
+            else activity.getString(R.string.flash_loaded, n), android.widget.Toast.LENGTH_SHORT).show()
+        if (n > 0) Thread { vm.saveFlash() }.start()
+    }
+
+    /** The whole chip into a file */
+    private fun saveFlash(partId: Int, uri: android.net.Uri) {
+        val p = vm.board.parts.firstOrNull { it.id == partId } ?: return
+        val ok = runCatching {
+            activity.contentResolver.openOutputStream(uri)!!.use { out ->
+                var a = 0
+                while (a < vm.memorySize(p)) { out.write(vm.readMemory(p.id, a, 1 shl 16)); a += 1 shl 16 }
+            }
+        }.isSuccess
+        android.widget.Toast.makeText(activity, if (ok) R.string.flash_saved else R.string.flash_save_failed, android.widget.Toast.LENGTH_SHORT).show()
+    }
+
     /** A part's sample code, from a tap on the part or its sheet */
     private fun showSample(p: Part): BottomSheetDialog = sheet { col, dlg ->
         val b = vm.board
@@ -417,6 +550,7 @@ class BoardController(
         PartType.SPEAKER -> if (p.dacDrive) "DAC drive" else "PWM drive"
         PartType.PIEZO -> "passive"
         PartType.OLED -> "SSD1306 · ${p.i2c ?: "I2C"} · address " + "0x%02X".format(java.util.Locale.ROOT, p.i2cAddr)
+        PartType.FLASH -> "${p.flashName} · ${p.flashMbit / 8} MB · ${p.spi ?: "SPI"}"
     }
 
     private fun showRewire(pr: Recommender.Proposal, pin: String?) {
@@ -485,6 +619,11 @@ class BoardController(
                     "GPIO${'A' + (vm.chip.gpio(p.pins[0].pin)?.port ?: 0)}_PUPDR = ${if (p.toVcc) "10" else "01"} for ${p.pins[0].pin}.", R.color.label))
             }
             PartType.SPEAKER -> choice(col, "Driven by", listOf("DAC", "PWM"), if (p.dacDrive) 0 else 1) { update(p.copy(dacDrive = it == 0)) }
+            PartType.FLASH -> {
+                choice(col, "Chip", listOf("W25Q32 · 4 MB", "W25Q64 · 8 MB", "W25Q128 · 16 MB"), listOf(32, 64, 128).indexOf(p.flashMbit)) {
+                    update(p.copy(flashMbit = listOf(32, 64, 128)[it])) }
+                col.addView(body(activity.getString(R.string.flash_size_note), R.color.label))
+            }
             PartType.OLED -> choice(col, "Address (the SA0 pad)", listOf("0x3C · to GND", "0x3D · to 3V3"), if (p.i2cAddr == 0x3D) 1 else 0) {
                 update(p.copy(i2cAddr = if (it == 1) 0x3D else 0x3C)) }
             else -> {}

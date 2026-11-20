@@ -14,6 +14,7 @@ enum class PartType(val prefix: String, val title: String, val roles: List<Strin
     SPEAKER("speaker", "Speaker", listOf("")),
     PIEZO("piezo", "Piezo buzzer", listOf("")),
     OLED("oled", "OLED display", listOf("scl", "sda")),
+    FLASH("flash", "SPI flash", listOf("cs", "clk", "di", "do")),
 }
 
 enum class LedColour(val title: String, val vfMv: Int, val argb: Long) {
@@ -22,7 +23,7 @@ enum class LedColour(val title: String, val vfMv: Int, val argb: Long) {
 }
 
 /** What a part's pin has to be able to do */
-enum class Need { OUTPUT, INPUT, INPUT_EXTI, PWM, ADC, DAC_OR_PWM, I2C_SCL, I2C_SDA }
+enum class Need { OUTPUT, INPUT, INPUT_EXTI, PWM, ADC, DAC_OR_PWM, I2C_SCL, I2C_SDA, CS, SPI_SCK, SPI_MOSI, SPI_MISO }
 
 /** A chip pin given to one role of a part, and the function it is used with. */
 data class PinUse(val pin: String, val function: Function)
@@ -36,6 +37,8 @@ sealed class Function {
     data class Dac(val channel: Int) : Function() { override fun toString() = "DAC1 OUT$channel" }
     /** An I2C peripheral's SCL or SDA, in alternate function [af] */
     data class I2c(val periph: String, val signal: String, val af: Int) : Function() { override fun toString() = "$periph $signal" }
+    /** An SPI peripheral's SCK, MOSI or MISO, in alternate function [af] */
+    data class Spi(val periph: String, val signal: String, val af: Int) : Function() { override fun toString() = "$periph $signal" }
 }
 
 data class Part(
@@ -54,6 +57,7 @@ data class Part(
     val dacDrive: Boolean = true,           // speaker on a DAC output, else PWM
     val pinnedOverTabs: Boolean = false,
     val i2cAddr: Int = 0x3C,                // OLED: 0x3C, or 0x3D with its SA0 strap to 3V3
+    val flashMbit: Int = 64,                // W25Q32, W25Q64, W25Q128
 ) {
     fun needs(): List<Need> = when (type) {
         PartType.BUTTON -> listOf(if (interrupt) Need.INPUT_EXTI else Need.INPUT)
@@ -63,10 +67,18 @@ data class Part(
         PartType.SPEAKER -> listOf(if (dacDrive) Need.DAC_OR_PWM else Need.PWM)
         PartType.PIEZO -> listOf(Need.PWM)
         PartType.OLED -> listOf(Need.I2C_SCL, Need.I2C_SDA)
+        PartType.FLASH -> listOf(Need.CS, Need.SPI_SCK, Need.SPI_MOSI, Need.SPI_MISO)
     }
 
     /** The I2C peripheral a bus part is on, if it is */
     val i2c: String? get() = (pins.firstOrNull()?.function as? Function.I2c)?.periph
+
+    /** The SPI peripheral an SPI part is on */
+    val spi: String? get() = pins.firstNotNullOfOrNull { (it.function as? Function.Spi)?.periph }
+
+    /** W25Q: the JEDEC capacity byte (0x16 32 Mbit, 0x17 64, 0x18 128) and the name */
+    val flashCap: Int get() = when (flashMbit) { 32 -> 0x16; 128 -> 0x18; else -> 0x17 }
+    val flashName: String get() = "W25Q$flashMbit"
 
     fun vfMv(role: Int): Int = when (type) {
         PartType.RGB_LED -> if (role == 0) 1900 else 3000
@@ -124,6 +136,11 @@ object Passives {
         )
         PartType.OLED -> listOf(Passive(p.id, 0, "on the module", "4.7 kΩ × 2", 4700,
             "pull-ups on SCL and SDA: I2C lines are open-drain, something has to pull them high"))
+        PartType.FLASH -> listOf(
+            Passive(p.id, 0, "wire", "WP to 3V3", 0, "write protect: low would lock the status registers"),
+            Passive(p.id, 0, "wire", "HOLD to 3V3", 0, "hold: low would pause the chip in the middle of a transfer"),
+            Passive(p.id, 0, "capacitor", "100 nF", 0, "decoupling, from VCC to GND, close to the chip"),
+        )
         else -> emptyList()
     }
 

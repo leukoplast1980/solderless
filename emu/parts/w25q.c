@@ -346,24 +346,33 @@ size_t w25q_text(struct w25q *w, uint64_t now, char *out, size_t len)
         if (w->last_ps) ADD("Last\t%s · %.3g s\n", w->last, (double)w->last_ps / 1e12);
         else ADD("Last\t%s\n", w->last);
     }
-    /* Written areas: runs of bytes that are not FF, close ones merged */
-    int runs = 0, more = 0;
-    uint32_t a = 0, b = 0;
-    int open = 0;
-    for (uint32_t sct = 0; sct < w->size / 4096; sct++) {
-        if (!w->used[sct]) continue;
-        const uint8_t *p = w->mem + sct * 4096u;
-        for (uint32_t k = 0; k < 4096; k++) {
-            if (p[k] == 0xFF) continue;
-            uint32_t x = sct * 4096u + k;
-            if (open && x <= b + 64) { b = x; continue; }
-            if (open) { if (runs < 6) ADD("Written\t%06X–%06X\t%u bytes\n", a, b, b - a + 1); else more++; runs++; }
-            a = b = x; open = 1;
+    /* Written areas: runs of bytes that are not FF, close ones merged;
+     * worked out again only after the contents changed */
+    if (!w->runs_valid || w->runs_gen != w->gen) {
+        size_t m = 0, cap = sizeof w->runs;
+        int runs = 0, more = 0, open = 0;
+        uint32_t a = 0, b = 0;
+#define RUN(...) do { if (m < cap) { int k_ = snprintf(w->runs + m, cap - m, __VA_ARGS__); if (k_ > 0) m += (size_t)k_; } } while (0)
+        for (uint32_t sct = 0; sct < w->size / 4096; sct++) {
+            if (!w->used[sct]) continue;
+            const uint8_t *p = w->mem + sct * 4096u;
+            for (uint32_t k = 0; k < 4096; k++) {
+                if (p[k] == 0xFF) continue;
+                uint32_t x = sct * 4096u + k;
+                if (open && x <= b + 64) { b = x; continue; }
+                if (open) { if (runs < 6) RUN("Written\t%06X–%06X\t%u bytes\n", a, b, b - a + 1); else more++; runs++; }
+                a = b = x; open = 1;
+            }
         }
+        if (open) { if (runs < 6) RUN("Written\t%06X–%06X\t%u bytes\n", a, b, b - a + 1); else more++; runs++; }
+        if (more) RUN("Written\tand %d more\t\n", more);
+        if (!runs) RUN("Written\tnothing yet: every byte reads FF\t\n");
+#undef RUN
+        w->runs[cap - 1] = 0;
+        w->runs_gen = w->gen;
+        w->runs_valid = 1;
     }
-    if (open) { if (runs < 6) ADD("Written\t%06X–%06X\t%u bytes\n", a, b, b - a + 1); else more++; runs++; }
-    if (more) ADD("Written\tand %d more\t\n", more);
-    if (!runs) ADD("Written\tnothing yet: every byte reads FF\t\n");
+    ADD("%s", w->runs);
 #undef ADD
     return n;
 }

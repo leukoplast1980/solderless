@@ -19,6 +19,12 @@ object Samples {
     /** RCC enable bit of each I2C */
     private val I2C_CLOCK = mapOf("I2C1" to 21, "I2C2" to 22, "I2C3" to 30)
 
+    /** RCC enable of each SPI: register, its name, bit */
+    private val SPI_CLOCK = mapOf(
+        "SPI1" to Triple(APB2ENR, "APB2ENR", 12), "SPI2" to Triple(APB1ENR1, "APB1ENR1", 14),
+        "SPI3" to Triple(APB1ENR1, "APB1ENR1", 15),
+    )
+
     /** RCC enable bit of each timer: register, its name, bit */
     private val TIMER_CLOCK = mapOf(
         "TIM2" to Triple(APB1ENR1, "APB1ENR1", 0), "TIM3" to Triple(APB1ENR1, "APB1ENR1", 1),
@@ -85,6 +91,7 @@ object Samples {
             PartType.PIEZO, PartType.SPEAKER ->
                 if (p.pins[0].function is Function.Dac) dacTone(c, n, chip, p) else pwmTone(c, n, chip, p)
             PartType.OLED -> oled(c, n, chip, p)
+            PartType.FLASH -> flash(c, n, chip, p)
         }
         return c.text()
     }
@@ -100,6 +107,8 @@ object Samples {
         PartType.PIEZO -> "piezo buzzer on ${p.pins[0].pin} (${p.pins[0].function})"
         PartType.OLED -> "OLED display, SSD1306 128 × 64, on ${p.i2c}: SCL ${p.pins[0].pin}, SDA ${p.pins[1].pin}, address " +
             "$%02X".format(java.util.Locale.ROOT, p.i2cAddr)
+        PartType.FLASH -> "${p.flashName} flash, ${p.flashMbit / 8} MB, on ${p.spi}: CS ${p.pins[0].pin}, CLK ${p.pins[1].pin}, " +
+            "DI ${p.pins[2].pin}, DO ${p.pins[3].pin}"
     }
 
     // ---- pieces --------------------------------------------------------
@@ -125,6 +134,7 @@ object Samples {
         val (af, what) = when (f) {
             is Function.Timer -> f.af to "${f.timer} CH${f.channel}"
             is Function.I2c -> f.af to "${f.periph} ${f.signal}"
+            is Function.Spi -> f.af to "${f.periph} ${f.signal}"
             else -> return
         }
         val (shift, off, reg) = if (pinBit < 8) Triple("$base-pin 4 *", "\$20", "AFRL") else Triple("$base-pin 8 - 4 *", "\$24", "AFRH")
@@ -448,6 +458,55 @@ object Samples {
         c.add("  $n-init  $n? 0= if exit then")
         c.add("  begin $n-clear $n-frame $n-ball $n-show $n-move key? until ;")
         tryIt(c, "$n-init 10 20 $n-pixel $n-show   or   $n-demo (Enter stops it)")
+    }
+
+    private fun flash(c: Code, n: String, chip: ChipPins, p: Part) {
+        val f = p.pins[1].function as? Function.Spi ?: return
+        val sp = "$n-spi"
+        val (reg, regName, clockBit) = SPI_CLOCK.getValue(f.periph)
+        c.add(": $n-sr ( -- u ) $sp 8 + @ ;", "${f.periph} SR")
+        c.add(": >$n> ( b -- b )", "one byte out, one byte in")
+        c.add("  begin $n-sr 2 and until  $sp \$C + c!", "wait for TXE; c! writes one frame")
+        c.add("  begin $n-sr 1 and until  $sp \$C + c@ ;", "wait for RXNE: the byte that came back")
+        c.add(": $n-on ( c -- )", "CS low, then the command byte")
+        c.add("  1 $n-cs-pin lshift 16 lshift $n-cs-port \$18 + !  >$n> drop ;")
+        c.add(": $n-off ( -- ) 1 $n-cs-pin lshift $n-cs-port \$18 + ! ;", "CS high: the command ends here")
+        c.add(": >$n-addr ( a -- )", "24-bit address, high byte first")
+        c.add("  dup 16 rshift >$n> drop  dup 8 rshift >$n> drop  >$n> drop ;")
+        c.add(": $n-status ( -- u ) 5 $n-on 0 >$n> $n-off ;", "status register 1: BUSY bit 0, WEL bit 1")
+        c.add(": $n-wait ( -- ) begin $n-status 1 and 0= until ;", "until a program or erase is done")
+        c.add(": $n-wren ( -- ) 6 $n-on $n-off ;", "write enable, before every program and erase")
+        c.add(": $n-id ( -- )", "JEDEC ID: EF Winbond, 40, then the size")
+        c.add("  \$9F $n-on  0 >$n> hex. 0 >$n> hex. 0 >$n> hex.  $n-off ;")
+        c.add(": $n-read ( a addr u -- )", "u bytes from the flash at a to memory at addr")
+        c.add("  rot 3 $n-on >$n-addr")
+        c.add("  0 ?do 0 >$n> over i + c! loop drop $n-off ;")
+        c.add(": $n-write ( addr u a -- )", "u bytes to the flash at a, within one 256-byte page")
+        c.add("  $n-wren 2 $n-on >$n-addr")
+        c.add("  0 ?do dup i + c@ >$n> drop loop drop $n-off $n-wait ;", "it programs when CS goes high")
+        c.add(": $n-erase ( a -- )", "the 4 KB sector around a, back to FF")
+        c.add("  $n-wren \$20 $n-on >$n-addr $n-off $n-wait ;", "takes about 45 ms")
+        c.gap()
+        c.add(": $n-init ( -- )")
+        gpioClocks(c, chip, p.pins)
+        c.add("  1 $clockBit lshift $reg bis!", "RCC $regName: clock for ${f.periph}")
+        c.add("  $n-off", "CS high before it becomes an output")
+        for ((r, u) in p.pins.withIndex()) {
+            val base = "$n-${p.type.roles[r]}"
+            if (r == 0) mode(c, base, "01", "output")
+            else { mode(c, base, "10", "alternate function"); altFunction(c, base, bit(chip, u), u.function) }
+        }
+        c.add("  \$1700 $sp 4 + !", "CR2: 8-bit frames, RXNE after one byte (FRXTH)")
+        c.add("  \$354 $sp ! ;", "CR1: master, SCK = 16 MHz / 8, SSM and SSI (CS is a GPIO), on")
+        c.gap()
+        c.add("\\ Erase a sector, write a line, read it back")
+        c.add(": $n-hello s\" Hello from Forth\" ;")
+        c.add("64 buffer: $n-buf")
+        c.add(": $n-demo ( -- )")
+        c.add("  $n-init $n-id cr")
+        c.add("  0 $n-erase  $n-hello 0 $n-write")
+        c.add("  0 $n-buf 16 $n-read  $n-buf 16 type ;")
+        tryIt(c, "$n-init $n-id   or   $n-demo")
     }
 
     private val SCALE = "523 494 440 392 349 330 294 262"

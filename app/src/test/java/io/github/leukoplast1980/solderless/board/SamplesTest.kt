@@ -28,6 +28,11 @@ class SamplesTest {
         return PinUse(pin, Function.I2c(f.periph, signal, f.af))
     }
 
+    private fun spi(pin: String, signal: String): PinUse {
+        val f = chip.gpio(pin)!!.spi(signal).first()
+        return PinUse(pin, Function.Spi(f.periph, signal, f.af))
+    }
+
     /** One board with every variant; the names are led, led2, ... in id order */
     val board = Board(listOf(
         Part(1, PartType.LED, listOf(gpio("PB5"))),
@@ -47,6 +52,8 @@ class SamplesTest {
         Part(15, PartType.PIEZO, listOf(tim("PB8", "TIM16"))),
         Part(16, PartType.OLED, listOf(i2c("PB8", "SCL"), i2c("PB9", "SDA"))),
         Part(17, PartType.OLED, listOf(i2c("PC8", "SCL"), i2c("PC9", "SDA")), i2cAddr = 0x3D),
+        Part(18, PartType.FLASH, listOf(gpio("PA4"), spi("PA5", "SCK"), spi("PA7", "MOSI"), spi("PA6", "MISO"))),
+        Part(19, PartType.FLASH, listOf(gpio("PB12"), spi("PB13", "SCK"), spi("PB15", "MOSI"), spi("PB14", "MISO")), flashMbit = 32),
     ))
 
     @Test fun everySampleIsTestedOnTheEmulator() {
@@ -79,6 +86,7 @@ class SamplesTest {
             Part(1, PartType.SPEAKER, emptyList()), Part(1, PartType.SPEAKER, emptyList(), dacDrive = false),
             Part(1, PartType.PIEZO, emptyList()),
             Part(1, PartType.OLED, emptyList()),
+            Part(1, PartType.FLASH, emptyList()),
         )
         var n = 0
         for ((vi, v) in variants.withIndex()) for (o in rec.options(emptyList(), v, 0)) {

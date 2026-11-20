@@ -54,6 +54,8 @@ data class Board(val parts: List<Part> = emptyList()) {
             PartType.SPEAKER, PartType.PIEZO -> att(p.id, r, u.pin, ATT_AUDIO, false, 0, 0, 0)
             // role 0 SCL, 1 SDA, as SL_SIG_*; 4.7 kohm pull-ups on the module
             PartType.OLED -> att(p.id, r, u.pin, ATT_DEVICE, false, 4700, 0, 0, DEV_SSD1306, p.i2cAddr)
+            // roles CS, CLK, DI, DO as SL_SIG_CS, SCK, MOSI, MISO; WP and HOLD tied high
+            PartType.FLASH -> att(p.id, FLASH_SIG[r], u.pin, ATT_DEVICE, false, 0, 0, 0, DEV_W25Q, p.flashCap)
         }
         return out.toIntArray()
     }
@@ -68,7 +70,8 @@ data class Board(val parts: List<Part> = emptyList()) {
             .put("colour", p.colour.name).put("sizeMm", p.sizeMm).put("currentMa", p.currentMa)
             .put("activeHigh", p.activeHigh).put("dimmable", p.dimmable).put("toVcc", p.toVcc)
             .put("externalPull", p.externalPull).put("bounceUs", p.bounceUs).put("interrupt", p.interrupt)
-            .put("dacDrive", p.dacDrive).put("pinned", p.pinnedOverTabs).put("i2cAddr", p.i2cAddr))
+            .put("dacDrive", p.dacDrive).put("pinned", p.pinnedOverTabs).put("i2cAddr", p.i2cAddr)
+            .put("flashMbit", p.flashMbit))
     }).toString(1)
 
     companion object {
@@ -79,6 +82,9 @@ data class Board(val parts: List<Part> = emptyList()) {
         const val ATT_AUDIO = 5
         const val ATT_DEVICE = 6
         const val DEV_SSD1306 = 1
+        const val DEV_W25Q = 2
+        /** sl_attach.role of a flash's roles: SL_SIG_CS, SCK, MOSI, MISO */
+        val FLASH_SIG = intArrayOf(5, 2, 3, 4)
         /** ints per attachment, in sl_attach's field order */
         const val ATT_INTS = 10
 
@@ -90,6 +96,7 @@ data class Board(val parts: List<Part> = emptyList()) {
                 is Function.Adc -> o.put("fn", "adc").put("adc", f.adc).put("ch", f.channel)
                 is Function.Dac -> o.put("fn", "dac").put("ch", f.channel)
                 is Function.I2c -> o.put("fn", "i2c").put("periph", f.periph).put("signal", f.signal).put("af", f.af)
+                is Function.Spi -> o.put("fn", "spi").put("periph", f.periph).put("signal", f.signal).put("af", f.af)
             }
             return o
         }
@@ -99,6 +106,7 @@ data class Board(val parts: List<Part> = emptyList()) {
             "adc" -> Function.Adc(o.getString("adc"), o.getInt("ch"))
             "dac" -> Function.Dac(o.getInt("ch"))
             "i2c" -> Function.I2c(o.getString("periph"), o.getString("signal"), o.getInt("af"))
+            "spi" -> Function.Spi(o.getString("periph"), o.getString("signal"), o.getInt("af"))
             else -> Function.Gpio
         })
 
@@ -117,7 +125,7 @@ data class Board(val parts: List<Part> = emptyList()) {
                     toVcc = o.optBoolean("toVcc", false), externalPull = o.optBoolean("externalPull", false),
                     bounceUs = o.optInt("bounceUs", 2000), interrupt = o.optBoolean("interrupt", true),
                     dacDrive = o.optBoolean("dacDrive", true), pinnedOverTabs = o.optBoolean("pinned", false),
-                    i2cAddr = o.optInt("i2cAddr", 0x3C),
+                    i2cAddr = o.optInt("i2cAddr", 0x3C), flashMbit = o.optInt("flashMbit", 64),
                 )
             })
         }

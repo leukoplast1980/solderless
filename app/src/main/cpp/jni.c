@@ -265,12 +265,26 @@ JNIEXPORT jstring JNICALL FN(deviceRead)(JNIEnv *env, jclass cls, jlong h, jint 
     (void)cls;
     static uint8_t buf[128 * 64];
     char text[1024];
+    text[0] = 0;
     size_t n = sl_device_read(VM(h), part, buf, sizeof buf, text, sizeof text);
-    if (!n) return NULL;
+    if (!n && !text[0]) return NULL;           /* not on the board */
     jsize len = (*env)->GetArrayLength(env, px);
     if ((size_t)len > n) len = (jsize)n;
-    (*env)->SetByteArrayRegion(env, px, 0, len, (const jbyte *)buf);
+    if (len > 0) (*env)->SetByteArrayRegion(env, px, 0, len, (const jbyte *)buf);
     return (*env)->NewStringUTF(env, text);
+}
+
+/* A memory part's contents: len bytes at addr into or out of buf */
+JNIEXPORT jint JNICALL FN(deviceMem)(JNIEnv *env, jclass cls, jlong h, jint part, jint addr, jbyteArray buf, jint len, jboolean write)
+{
+    (void)cls;
+    jsize cap = (*env)->GetArrayLength(env, buf);
+    if (len > cap) len = cap;
+    if (len <= 0) return 0;
+    jbyte *b = (*env)->GetByteArrayElements(env, buf, NULL);
+    size_t n = sl_device_mem(VM(h), part, (uint32_t)addr, (uint8_t *)b, (size_t)len, write ? 1 : 0);
+    (*env)->ReleaseByteArrayElements(env, buf, b, write ? JNI_ABORT : 0);
+    return (jint)n;
 }
 
 JNIEXPORT void JNICALL FN(boardInput)(JNIEnv *env, jclass cls, jlong h, jint part, jint value)

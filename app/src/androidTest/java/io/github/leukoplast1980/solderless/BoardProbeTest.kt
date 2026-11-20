@@ -101,6 +101,63 @@ class BoardProbeTest {
 
     private fun ui() = androidx.test.uiautomator.UiDevice.getInstance(InstrumentationRegistry.getInstrumentation())
 
+    /** A W25Q on SPI: its sample writes and reads back, the sheet shows it, the hex view edits a byte */
+    @Test
+    fun flash() {
+        val ctx = InstrumentationRegistry.getInstrumentation().targetContext
+        val scenario = ActivityScenario.launch(MainActivity::class.java)
+        Thread.sleep(2500)
+        val vm = VmHost.get(ctx)
+        val rec = vm.recommender()
+        var b = Board()
+        for (t in listOf(PartType.FLASH, PartType.LED)) b = b.apply(rec.propose(b.parts, Part(b.nextId(), t, emptyList()))!!)
+        val flash = b.parts.first { it.type == PartType.FLASH }
+        Log.i(TAG, "flash on ${flash.pins}")
+        scenario.onActivity { vm.setBoard(b) }
+        val sample = io.github.leukoplast1980.solderless.board.Samples.forPart(b, vm.chip, flash)
+        for (line in sample.lines().filter { it.isNotBlank() })
+            assertEquals(line, io.github.leukoplast1980.solderless.forth.LineResult.OK, vm.sendLineChecked(line, 5000))
+        assertEquals(io.github.leukoplast1980.solderless.forth.LineResult.OK, vm.sendLineChecked("flash-demo", 15000))
+        val got = String(vm.readMemory(flash.id, 0, 16))
+        assertEquals("Hello from Forth", got)
+        selectTab(scenario, R.string.tab_board)
+        Thread.sleep(800)
+        screenshot("flash-board.png")
+
+        var at: android.graphics.RectF? = null
+        val loc = IntArray(2)
+        scenario.onActivity { a ->
+            val bv = a.findViewById<io.github.leukoplast1980.solderless.ui.BoardView>(R.id.boardView)
+            bv.partBounds(flash.id)?.let { r -> bv.requestRectangleOnScreen(android.graphics.Rect(r.left.toInt(), r.top.toInt(), r.right.toInt(), r.bottom.toInt()), true) }
+        }
+        Thread.sleep(500)
+        scenario.onActivity { a ->
+            val bv = a.findViewById<io.github.leukoplast1980.solderless.ui.BoardView>(R.id.boardView)
+            at = bv.partBounds(flash.id); bv.getLocationOnScreen(loc)
+        }
+        assertTrue("flash drawn", at != null)
+        ui().click(loc[0] + at!!.centerX().toInt(), loc[1] + at!!.centerY().toInt())
+        Thread.sleep(1500)
+        screenshot("flash-sheet.png")
+        val open = ui().findObject(androidx.test.uiautomator.By.text(ctx.getString(R.string.flash_open_hex)))
+        assertTrue("the sheet is open", open != null)
+        open.click()
+        Thread.sleep(1500)
+        // byte 000000: 48 'H' becomes 4A 'J'
+        ui().findObject(androidx.test.uiautomator.By.desc(ctx.getString(R.string.hex_byte, "000000"))).click()
+        ui().findObject(androidx.test.uiautomator.By.text("4")).click()
+        ui().findObject(androidx.test.uiautomator.By.text("A")).click()
+        Thread.sleep(600)
+        screenshot("flash-hex.png")
+        ui().findObject(androidx.test.uiautomator.By.text(ctx.getString(R.string.hex_apply, 1))).click()
+        Thread.sleep(800)
+        assertEquals("Jello from Forth", String(vm.readMemory(flash.id, 0, 16)))
+        InstrumentationRegistry.getInstrumentation().uiAutomation.performGlobalAction(android.accessibilityservice.AccessibilityService.GLOBAL_ACTION_BACK)
+        Thread.sleep(600)
+        scenario.onActivity { vm.setBoard(Board()) }
+        scenario.close()
+    }
+
     /** Parts pinned over the other tabs: the card on Console, Scope and Registers, and the pot's slider */
     @Test
     fun floatingControls() {

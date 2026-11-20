@@ -9,6 +9,7 @@ import io.github.leukoplast1980.solderless.board.Board as Breadboard
 import io.github.leukoplast1980.solderless.board.ChipPins
 import io.github.leukoplast1980.solderless.board.Recommender
 import io.github.leukoplast1980.solderless.board.Wiring
+import io.github.leukoplast1980.solderless.board.PartType
 import java.io.File
 import android.content.Context
 import android.util.Log
@@ -121,9 +122,10 @@ class VmHost private constructor(context: Context) {
     /** An image whose write failed; written next time unless flash changed again. */
     private var unsaved: ByteArray? = null
 
-    /** Writes the flash image to the project if it changed. */
+    /** Writes the flash image to the project if it changed, and the contents of memory parts. */
     @Synchronized
     fun saveFlash() {
+        saveDeviceMemories()
         val image = NativeVm.copyFlashIfDirty(handle) ?: unsaved ?: return
         try {
             projects.writeFlash(project.name, image)
@@ -230,6 +232,8 @@ class VmHost private constructor(context: Context) {
     private fun loadBoard() {
         board = runCatching { Breadboard.fromJson(boardFile().readText()) }.getOrDefault(Breadboard())
         NativeVm.boardSet(handle, board.attachments(chip))
+        memorySums.clear()
+        for (p in board.parts) if (p.type == PartType.FLASH) loadDeviceMemory(p)
         if (!wiringFile().isFile && board.parts.isNotEmpty()) writeWiring()
         updateAudio()
     }
@@ -241,11 +245,95 @@ class VmHost private constructor(context: Context) {
 
     /** Replaces the board: saved with the project, wiring.fs rewritten, the chip sees it at once. */
     @Synchronized fun setBoard(b: Breadboard) {
+        val before = board
         board = b
         runCatching { boardFile().writeText(b.toJson()) }.onFailure { Log.w(TAG, "cannot save the board", it) }
         writeWiring()
         NativeVm.boardSet(handle, b.attachments(chip))
+        // A new flash part starts from its saved contents; a removed one's file goes with it.
+        // One whose size changed is a new chip: the emulator starts it erased.
+        for (p in b.parts) if (p.type == PartType.FLASH) {
+            val old = before.parts.firstOrNull { it.id == p.id && it.type == PartType.FLASH }
+            if (old == null) loadDeviceMemory(p)
+            else if (old.flashMbit != p.flashMbit) { memoryFile(p.id).delete(); memorySums.remove(p.id) }
+        }
+        for (p in before.parts) if (p.type == PartType.FLASH && b.parts.none { it.id == p.id && it.type == PartType.FLASH }) {
+            memoryFile(p.id).delete(); memorySums.remove(p.id)
+        }
         updateAudio()
+    }
+
+    // ------------------------------------------------------------------
+    // Memory parts (W25Q): their contents are kept with the project, as
+    // the 4 KB sectors that are not all FF
+
+    private val memorySums = HashMap<Int, Long>()
+
+    private fun memoryFile(partId: Int) = File(projects.dir(project.name), "flash-part$partId.bin")
+
+    /** Size in bytes of a memory part, 0 if it is none */
+    fun memorySize(p: io.github.leukoplast1980.solderless.board.Part): Int =
+        if (p.type == PartType.FLASH) p.flashMbit * 131072 else 0
+
+    fun readMemory(partId: Int, addr: Int, len: Int): ByteArray {
+        val b = ByteArray(len)
+        val n = NativeVm.deviceMem(handle, partId, addr, b, len, false)
+        return if (n == len) b else b.copyOf(maxOf(0, n))
+    }
+
+    fun writeMemory(partId: Int, addr: Int, data: ByteArray): Int = NativeVm.deviceMem(handle, partId, addr, data, data.size, true)
+
+    private fun loadDeviceMemory(p: io.github.leukoplast1980.solderless.board.Part) {
+        val f = memoryFile(p.id)
+        if (!f.isFile) return
+        runCatching {
+            java.io.DataInputStream(f.inputStream().buffered()).use { inp ->
+                if (inp.readInt() != MEM_MAGIC) return
+                val sector = ByteArray(4096)
+                while (inp.available() > 0) {
+                    val at = inp.readInt()
+                    inp.readFully(sector)
+                    if (at in 0 until memorySize(p)) writeMemory(p.id, at, sector)
+                }
+            }
+            memorySums[p.id] = memorySum(p)
+        }.onFailure { Log.w(TAG, "cannot read ${f.name}", it) }
+    }
+
+    private fun memorySum(p: io.github.leukoplast1980.solderless.board.Part): Long {
+        val crc = java.util.zip.CRC32()
+        val chunk = 1 shl 16
+        var a = 0
+        while (a < memorySize(p)) { crc.update(readMemory(p.id, a, chunk)); a += chunk }
+        return crc.value
+    }
+
+    private fun saveDeviceMemories() {
+        for (p in board.parts) {
+            if (p.type != PartType.FLASH) continue
+            val sum = memorySum(p)
+            if (memorySums[p.id] == sum) continue
+            val f = memoryFile(p.id)
+            runCatching {
+                val tmp = File(f.path + ".tmp")
+                java.io.DataOutputStream(tmp.outputStream().buffered()).use { out ->
+                    out.writeInt(MEM_MAGIC)
+                    val chunk = 1 shl 16
+                    var a = 0
+                    while (a < memorySize(p)) {
+                        val b = readMemory(p.id, a, chunk)
+                        for (s in 0 until b.size / 4096) {
+                            if ((0 until 4096).all { b[s * 4096 + it] == 0xFF.toByte() }) continue
+                            out.writeInt(a + s * 4096)
+                            out.write(b, s * 4096, 4096)
+                        }
+                        a += chunk
+                    }
+                }
+                if (!tmp.renameTo(f)) throw IOException("rename")
+                memorySums[p.id] = sum
+            }.onFailure { Log.w(TAG, "cannot save ${f.name}", it) }
+        }
     }
 
     /** A button pressed (1) or released (0), or a pot's wiper in per mille */
@@ -312,6 +400,7 @@ class VmHost private constructor(context: Context) {
 
     companion object {
         private const val TAG = "VmHost"
+        private const val MEM_MAGIC = 0x534C464C   // "SLFL": a memory part's sectors
 
         /** Mecrisp-Stellaris' input buffer (Maximaleeingabe): longer lines are cut off. */
         const val MAX_LINE_BYTES = 200

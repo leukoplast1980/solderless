@@ -43,6 +43,9 @@ class ChipPins(json: String) {
         /** I2C functions: (I2C1, SCL, af 4) */
         fun i2c(signal: String): List<AltFunction> = af.filter { it.periph.startsWith("I2C") && it.signal == signal }
 
+        /** SPI functions: (SPI1, SCK, af 5) */
+        fun spi(signal: String): List<AltFunction> = af.filter { it.periph.startsWith("SPI") && it.signal == signal }
+
         val hasBusFunction get() = af.any { it.periph.matches(Regex("(I2C|SPI|USART|UART|LPUART)\\d?")) }
     }
 
@@ -98,6 +101,7 @@ class ChipPins(json: String) {
             "TIM8" to 0x40013400L, "TIM15" to 0x40014000L, "TIM16" to 0x40014400L, "TIM17" to 0x40014800L,
             "ADC1" to 0x50000000L, "ADC2" to 0x50000100L, "DAC1" to 0x50000800L,
             "I2C1" to 0x40005400L, "I2C2" to 0x40005800L, "I2C3" to 0x40007800L,
+            "SPI1" to 0x40013000L, "SPI2" to 0x40003800L, "SPI3" to 0x40003C00L,
         )
 
         fun gpioBase(port: Int) = 0x48000000L + 0x400L * port

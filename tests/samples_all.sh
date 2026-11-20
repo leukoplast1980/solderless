@@ -23,6 +23,7 @@ one() {
                 v8) echo "#!attach $i switch $p vcc"; echo "#!attach 9 pull $p";;
                 v9) echo "#!attach $i pot $p"; echo "#!input $i 300";;
                 v13) [ $i = 1 ] && echo "#!attach 1 oled $(echo $pins | tr ' ' '\n' | head -1) $(echo $pins | tr ' ' '\n' | tail -1)";;
+                v14) [ $i = 1 ] && echo "#!attach 1 flash $pins";;
                 *) echo "#!attach $i audio $p";;
             esac
             i=$((i + 1))

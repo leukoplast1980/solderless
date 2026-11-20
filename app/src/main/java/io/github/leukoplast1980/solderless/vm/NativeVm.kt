@@ -54,6 +54,8 @@ object NativeVm {
     @JvmStatic external fun boardInput(handle: Long, part: Int, value: Int)
     /** A bus part: its pixels (one byte each) into [pixels]; its controller's state as "name\tvalue" lines, null if absent */
     @JvmStatic external fun deviceRead(handle: Long, part: Int, pixels: ByteArray): String?
+    /** A memory part (W25Q): [len] bytes at [addr] read into or written from [buf], as a programmer would. Returns the count. */
+    @JvmStatic external fun deviceMem(handle: Long, part: Int, addr: Int, buf: ByteArray, len: Int, write: Boolean): Int
     /** Fills [out] (at least [BoardState.SIZE] ints); starts a new averaging window. */
     @JvmStatic external fun boardRead(handle: Long, out: IntArray)
     /** Sound events of piezo and speaker pins; see jni.c audioRead for the layout. */

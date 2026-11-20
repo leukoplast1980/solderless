@@ -135,6 +135,7 @@ class BoardView @JvmOverloads constructor(context: Context, attrs: AttributeSet?
         PartType.LED -> dp(92f)
         PartType.BUTTON -> dp(86f)
         PartType.PIEZO, PartType.SPEAKER -> dp(72f)
+        PartType.FLASH -> dp(124f)
     }
 
     /** Parts placement moved off their pins to keep clear of the other side or the
@@ -281,6 +282,7 @@ class BoardView @JvmOverloads constructor(context: Context, attrs: AttributeSet?
         PartType.RGB_LED -> dp(52f) to dp(52f)
         PartType.POT -> dp(42f) to dp(42f)
         PartType.OLED -> dp(56f) to dp(52f)
+        PartType.FLASH -> dp(58f) to dp(50f)
         else -> dp(26f) to dp(24f)
     }
 
@@ -503,6 +505,7 @@ class BoardView @JvmOverloads constructor(context: Context, attrs: AttributeSet?
                 box.set(x0, rows[0] - dp(30f), x0 + sg * dp(120f), rows[2] + dp(26f))
             }
             PartType.OLED -> drawOled(c, p, cy, x0, sg, isGhost, box)
+            PartType.FLASH -> drawFlash(c, p, cy, x0, sg, isGhost, box)
         }
         box.sort()
         if (!isGhost) hit += box to p
@@ -554,6 +557,64 @@ class BoardView @JvmOverloads constructor(context: Context, attrs: AttributeSet?
             c.drawBitmap(oledBitmap, null, RectF(sx0, sy0, sx1, sy0 + sh), pixelPaint)
         }
         label(c, "OLED " + "0x%02X".format(java.util.Locale.ROOT, p.i2cAddr), (l + r) / 2, top - dp(5f), 9.5f, gc ?: cText, bold = true)
+        box.set(x0, top - dp(18f), far, bottom + dp(4f))
+        if (!isGhost) hitLabel += RectF(l, top - dp(20f), r, bottom) to p
+    }
+
+    /** Parts that report being busy (a flash erasing or programming) */
+    val deviceBusy = HashSet<Int>()
+
+    /** A W25Q module: VCC and GND, then its four signals in the order their header
+     * pins come, so no two wires cross; the chip itself in the middle */
+    private fun drawFlash(c: Canvas, p: Part, cy: Float, x0: Float, sg: Int, isGhost: Boolean, box: RectF) {
+        val gc = if (isGhost) cHigh else null
+        val near = x0 + sg * dp(30f)
+        val far = near + sg * dp(92f)
+        val top = cy - dp(44f); val bottom = cy + dp(44f)
+        val l = minOf(near, far); val r = maxOf(near, far)
+        fill.color = 0xFF14324A.toInt()
+        if (!isGhost) c.drawRoundRect(RectF(l, top, r, bottom), dp(6f), dp(6f), fill)
+        setStroke(gc ?: 0xFF4A6A86.toInt(), isGhost, 1.4f)
+        c.drawRoundRect(RectF(l, top, r, bottom), dp(6f), dp(6f), stroke)
+        val names = listOf("CS", "CLK", "DI", "DO")
+        val roles = p.pins.indices.sortedBy { pinY[p.pins[it].pin] ?: 0f }
+        val ys = (0 until 6).map { cy - dp(32.5f) + it * dp(13f) }
+        val rowOf = HashMap<Int, Float>()
+        roles.forEachIndexed { i, role -> rowOf[role] = ys[i + 2] }
+        text.typeface = Typeface.MONOSPACE
+        val al = if (sg > 0) Paint.Align.LEFT else Paint.Align.RIGHT
+        for ((i, n) in listOf("VCC", "GND").withIndex()) {
+            fill.color = 0xFFC9A24A.toInt(); c.drawCircle(near, ys[i], dp(3f), fill)
+            label(c, n, near + sg * dp(6f), ys[i] + dp(2.5f), 6.5f, 0xFFB9C9D9.toInt(), al)
+        }
+        // each wire turns in a column of its own, as for the RGB LED
+        fun py(role: Int) = pinY[p.pins[role].pin] ?: cy
+        val jog = HashMap<Int, Float>()
+        roles.filter { rowOf[it]!! - py(it) > 0.5f }.sortedByDescending { py(it) }.forEachIndexed { k, role -> jog[role] = 6f + 5f * k }
+        roles.filter { rowOf[it]!! - py(it) < -0.5f }.sortedBy { py(it) }.forEachIndexed { k, role -> jog[role] = 6f + 5f * k }
+        for (role in roles) {
+            val y = rowOf[role]!!
+            fill.color = 0xFFC9A24A.toInt(); c.drawCircle(near, y, dp(3f), fill)
+            label(c, names[role], near + sg * dp(6f), y + dp(2.5f), 6.5f, 0xFFB9C9D9.toInt(), al)
+            val pin = p.pins[role].pin
+            feed(c, pin, near, y, isGhost, gc ?: if (role == 0) wireColour(pin) else cBus, jog[role] ?: 9f)
+        }
+        // the chip: an SO-8 body with its legs
+        val bx0 = minOf(near + sg * dp(34f), near + sg * dp(84f)); val bx1 = maxOf(near + sg * dp(34f), near + sg * dp(84f))
+        val by0 = cy - dp(22f); val by1 = cy + dp(22f)
+        fill.color = 0xFF9AA4AA.toInt()
+        for (k in 0 until 4) {
+            val ly = by0 + dp(7f) + k * dp(10f)
+            c.drawRect(bx0 - dp(4f), ly - dp(1.5f), bx0, ly + dp(1.5f), fill)
+            c.drawRect(bx1, ly - dp(1.5f), bx1 + dp(4f), ly + dp(1.5f), fill)
+        }
+        fill.color = 0xFF1B2024.toInt(); c.drawRoundRect(RectF(bx0, by0, bx1, by1), dp(2f), dp(2f), fill)
+        fill.color = 0xFF3A4246.toInt(); c.drawCircle(bx0 + dp(5f), by0 + dp(5f), dp(1.8f), fill)
+        val cx = (bx0 + bx1) / 2
+        label(c, "W25Q", cx, cy - dp(2f), 8f, gc ?: 0xFFD8E0D0.toInt(), bold = true)
+        label(c, "${p.flashMbit}JV", cx, cy + dp(9f), 7f, gc ?: 0xFF8A9690.toInt())
+        if (!isGhost && p.id in deviceBusy) label(c, "busy", (l + r) / 2, bottom + dp(13f), 8.5f, cWarn, bold = true)
+        label(c, "Flash · ${p.flashName}", (l + r) / 2, top - dp(5f), 9.5f, gc ?: cText, bold = true)
         box.set(x0, top - dp(18f), far, bottom + dp(4f))
         if (!isGhost) hitLabel += RectF(l, top - dp(20f), r, bottom) to p
     }

@@ -292,6 +292,10 @@ int spi_pin_out(struct sl_soc *s, int pi, const char *sig, int *level)
 {
     int i = spi_index_of_periph(s, pi);
     if (i < 0) return 0;
+    /* SPI2 and SPI3 list their pins under the I2S names too */
+    if (!strcmp(sig, "I2S_CK")) sig = "SCK";
+    else if (!strcmp(sig, "I2S_SD")) sig = "MOSI";
+    else if (!strcmp(sig, "I2S_WS")) sig = "NSS";
     uint32_t cr1 = regs(s, i)[CR1 / 4], cr2 = regs(s, i)[CR2 / 4];
     if (!(cr1 & CR1_MSTR)) return 0;
     if (!strcmp(sig, "NSS")) {

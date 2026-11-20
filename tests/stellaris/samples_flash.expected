@@ -1,0 +1,193 @@
+\ The sample code the Board tab gives for SPI flash, as generated  ok.
+\ (SamplesTest checks that it still matches): a W25Q64 on SPI1, a W25Q32 on SPI2.  ok.
+#!attach 1 flash PA4 PA5 PA7 PA6
+#!attach 2 flash PB12 PB13 PB15 PB14 size=32
+  ok.
+\ flash: W25Q64 flash, 8 MB, on SPI1: CS PA4, CLK PA5, DI PA7, DO PA6  ok.
+\ Paste all of it into the console, or put it in a file after wiring.fs.  ok.
+  ok.
+\ PA4 (pin 18) → W25Q64 CS; WP and HOLD → 3V3, VCC → 3V3, GND → GND, 100 nF from VCC to GND  ok.
+$48000000 constant flash-cs-port  \ GPIOA  ok.
+4 constant flash-cs-pin  ok.
+\ PA5 (pin 19) → W25Q64 CLK  ok.
+$48000000 constant flash-clk-port  \ GPIOA  ok.
+5 constant flash-clk-pin  ok.
+$40013000 constant flash-spi  \ SPI1  ok.
+5 constant flash-clk-af  ok.
+\ PA7 (pin 21) → W25Q64 DI (data into the flash)  ok.
+$48000000 constant flash-di-port  \ GPIOA  ok.
+7 constant flash-di-pin  ok.
+5 constant flash-di-af  ok.
+\ PA6 (pin 20) ← W25Q64 DO (data out of the flash)  ok.
+$48000000 constant flash-do-port  \ GPIOA  ok.
+6 constant flash-do-pin  ok.
+5 constant flash-do-af  ok.
+  ok.
+\ ms: wait n milliseconds, counted by SysTick at 16 MHz  ok.
+\ (lib_systick uses SysTick too: with it loaded, use its delay-ms)  ok.
+: ms ( n -- )  ok.
+  15999 $E000E014 !  0 $E000E018 !  5 $E000E010 ! \ SysTick: wrap every 16000 cycles  ok.
+  0 ?do begin $E000E010 @ $10000 and until loop   \ count the wraps  ok.
+  0 $E000E010 ! ;                                 \ SysTick off again  ok.
+  ok.
+: flash-sr ( -- u ) flash-spi 8 + @ ;             \ SPI1 SR  ok.
+: >flash> ( b -- b )                              \ one byte out, one byte in  ok.
+  begin flash-sr 2 and until  flash-spi $C + c!   \ wait for TXE; c! writes one frame  ok.
+  begin flash-sr 1 and until  flash-spi $C + c@ ; \ wait for RXNE: the byte that came back  ok.
+: flash-on ( c -- )                               \ CS low, then the command byte  ok.
+  1 flash-cs-pin lshift 16 lshift flash-cs-port $18 + !  >flash> drop ;  ok.
+: flash-off ( -- ) 1 flash-cs-pin lshift flash-cs-port $18 + ! ; \ CS high: the command ends here  ok.
+: >flash-addr ( a -- )                            \ 24-bit address, high byte first  ok.
+  dup 16 rshift >flash> drop  dup 8 rshift >flash> drop  >flash> drop ;  ok.
+: flash-status ( -- u ) 5 flash-on 0 >flash> flash-off ; \ status register 1: BUSY bit 0, WEL bit 1  ok.
+: flash-wait ( -- ) begin flash-status 1 and 0= until ; \ until a program or erase is done  ok.
+: flash-wren ( -- ) 6 flash-on flash-off ;        \ write enable, before every program and erase  ok.
+: flash-id ( -- )                                 \ JEDEC ID: EF Winbond, 40, then the size  ok.
+  $9F flash-on  0 >flash> hex. 0 >flash> hex. 0 >flash> hex.  flash-off ;  ok.
+: flash-read ( a addr u -- )                      \ u bytes from the flash at a to memory at addr  ok.
+  rot 3 flash-on >flash-addr  ok.
+  0 ?do 0 >flash> over i + c! loop drop flash-off ;  ok.
+: flash-write ( addr u a -- )                     \ u bytes to the flash at a, within one 256-byte page  ok.
+  flash-wren 2 flash-on >flash-addr  ok.
+  0 ?do dup i + c@ >flash> drop loop drop flash-off flash-wait ; \ it programs when CS goes high  ok.
+: flash-erase ( a -- )                            \ the 4 KB sector around a, back to FF  ok.
+  flash-wren $20 flash-on >flash-addr flash-off flash-wait ; \ takes about 45 ms  ok.
+  ok.
+: flash-init ( -- )  ok.
+  1 0 lshift $4002104C bis!                       \ RCC AHB2ENR: clock for GPIOA  ok.
+  1 12 lshift $40021060 bis!                      \ RCC APB2ENR: clock for SPI1  ok.
+  flash-off                                       \ CS high before it becomes an output  ok.
+  %11 flash-cs-pin 2* lshift flash-cs-port bic!   \ MODER: clear the two bits  ok.
+  %01 flash-cs-pin 2* lshift flash-cs-port bis!   \ MODER: 01 = output  ok.
+  1 flash-cs-pin lshift flash-cs-port 4 + bic!    \ OTYPER: push-pull  ok.
+  %11 flash-clk-pin 2* lshift flash-clk-port bic! \ MODER: clear the two bits  ok.
+  %10 flash-clk-pin 2* lshift flash-clk-port bis! \ MODER: 10 = alternate function  ok.
+  1 flash-clk-pin lshift flash-clk-port 4 + bic!  \ OTYPER: push-pull  ok.
+  $F flash-clk-pin 4 * lshift flash-clk-port $20 + bic! \ AFRL: clear the four bits  ok.
+  flash-clk-af flash-clk-pin 4 * lshift flash-clk-port $20 + bis! \ AFRL: AF5 = SPI1 SCK  ok.
+  %11 flash-di-pin 2* lshift flash-di-port bic!   \ MODER: clear the two bits  ok.
+  %10 flash-di-pin 2* lshift flash-di-port bis!   \ MODER: 10 = alternate function  ok.
+  1 flash-di-pin lshift flash-di-port 4 + bic!    \ OTYPER: push-pull  ok.
+  $F flash-di-pin 4 * lshift flash-di-port $20 + bic! \ AFRL: clear the four bits  ok.
+  flash-di-af flash-di-pin 4 * lshift flash-di-port $20 + bis! \ AFRL: AF5 = SPI1 MOSI  ok.
+  %11 flash-do-pin 2* lshift flash-do-port bic!   \ MODER: clear the two bits  ok.
+  %10 flash-do-pin 2* lshift flash-do-port bis!   \ MODER: 10 = alternate function  ok.
+  1 flash-do-pin lshift flash-do-port 4 + bic!    \ OTYPER: push-pull  ok.
+  $F flash-do-pin 4 * lshift flash-do-port $20 + bic! \ AFRL: clear the four bits  ok.
+  flash-do-af flash-do-pin 4 * lshift flash-do-port $20 + bis! \ AFRL: AF5 = SPI1 MISO  ok.
+  $1700 flash-spi 4 + !                           \ CR2: 8-bit frames, RXNE after one byte (FRXTH)  ok.
+  $354 flash-spi ! ;                              \ CR1: master, SCK = 16 MHz / 8, SSM and SSI (CS is a GPIO), on  ok.
+  ok.
+\ Erase a sector, write a line, read it back  ok.
+: flash-hello s" Hello from Forth" ;  ok.
+64 buffer: flash-buf  ok.
+: flash-demo ( -- )  ok.
+  flash-init flash-id cr  ok.
+  0 flash-erase  flash-hello 0 flash-write  ok.
+  0 flash-buf 16 flash-read  flash-buf 16 type ;  ok.
+  ok.
+\ Try it: flash-init flash-id   or   flash-demo  ok.
+  ok.
+\ flash2: W25Q32 flash, 4 MB, on SPI2: CS PB12, CLK PB13, DI PB15, DO PB14  ok.
+\ Paste all of it into the console, or put it in a file after wiring.fs.  ok.
+  ok.
+\ PB12 (pin 34) → W25Q32 CS; WP and HOLD → 3V3, VCC → 3V3, GND → GND, 100 nF from VCC to GND  ok.
+$48000400 constant flash2-cs-port  \ GPIOB  ok.
+12 constant flash2-cs-pin  ok.
+\ PB13 (pin 35) → W25Q32 CLK  ok.
+$48000400 constant flash2-clk-port  \ GPIOB  ok.
+13 constant flash2-clk-pin  ok.
+$40003800 constant flash2-spi  \ SPI2  ok.
+5 constant flash2-clk-af  ok.
+\ PB15 (pin 37) → W25Q32 DI (data into the flash)  ok.
+$48000400 constant flash2-di-port  \ GPIOB  ok.
+15 constant flash2-di-pin  ok.
+5 constant flash2-di-af  ok.
+\ PB14 (pin 36) ← W25Q32 DO (data out of the flash)  ok.
+$48000400 constant flash2-do-port  \ GPIOB  ok.
+14 constant flash2-do-pin  ok.
+5 constant flash2-do-af  ok.
+  ok.
+\ ms: wait n milliseconds, counted by SysTick at 16 MHz  ok.
+\ (lib_systick uses SysTick too: with it loaded, use its delay-ms)  ok.
+: ms ( n -- ) Redefine ms.  ok.
+  15999 $E000E014 !  0 $E000E018 !  5 $E000E010 ! \ SysTick: wrap every 16000 cycles  ok.
+  0 ?do begin $E000E010 @ $10000 and until loop   \ count the wraps  ok.
+  0 $E000E010 ! ;                                 \ SysTick off again  ok.
+  ok.
+: flash2-sr ( -- u ) flash2-spi 8 + @ ;           \ SPI2 SR  ok.
+: >flash2> ( b -- b )                             \ one byte out, one byte in  ok.
+  begin flash2-sr 2 and until  flash2-spi $C + c! \ wait for TXE; c! writes one frame  ok.
+  begin flash2-sr 1 and until  flash2-spi $C + c@ ; \ wait for RXNE: the byte that came back  ok.
+: flash2-on ( c -- )                              \ CS low, then the command byte  ok.
+  1 flash2-cs-pin lshift 16 lshift flash2-cs-port $18 + !  >flash2> drop ;  ok.
+: flash2-off ( -- ) 1 flash2-cs-pin lshift flash2-cs-port $18 + ! ; \ CS high: the command ends here  ok.
+: >flash2-addr ( a -- )                           \ 24-bit address, high byte first  ok.
+  dup 16 rshift >flash2> drop  dup 8 rshift >flash2> drop  >flash2> drop ;  ok.
+: flash2-status ( -- u ) 5 flash2-on 0 >flash2> flash2-off ; \ status register 1: BUSY bit 0, WEL bit 1  ok.
+: flash2-wait ( -- ) begin flash2-status 1 and 0= until ; \ until a program or erase is done  ok.
+: flash2-wren ( -- ) 6 flash2-on flash2-off ;     \ write enable, before every program and erase  ok.
+: flash2-id ( -- )                                \ JEDEC ID: EF Winbond, 40, then the size  ok.
+  $9F flash2-on  0 >flash2> hex. 0 >flash2> hex. 0 >flash2> hex.  flash2-off ;  ok.
+: flash2-read ( a addr u -- )                     \ u bytes from the flash at a to memory at addr  ok.
+  rot 3 flash2-on >flash2-addr  ok.
+  0 ?do 0 >flash2> over i + c! loop drop flash2-off ;  ok.
+: flash2-write ( addr u a -- )                    \ u bytes to the flash at a, within one 256-byte page  ok.
+  flash2-wren 2 flash2-on >flash2-addr  ok.
+  0 ?do dup i + c@ >flash2> drop loop drop flash2-off flash2-wait ; \ it programs when CS goes high  ok.
+: flash2-erase ( a -- )                           \ the 4 KB sector around a, back to FF  ok.
+  flash2-wren $20 flash2-on >flash2-addr flash2-off flash2-wait ; \ takes about 45 ms  ok.
+  ok.
+: flash2-init ( -- )  ok.
+  1 1 lshift $4002104C bis!                       \ RCC AHB2ENR: clock for GPIOB  ok.
+  1 14 lshift $40021058 bis!                      \ RCC APB1ENR1: clock for SPI2  ok.
+  flash2-off                                      \ CS high before it becomes an output  ok.
+  %11 flash2-cs-pin 2* lshift flash2-cs-port bic! \ MODER: clear the two bits  ok.
+  %01 flash2-cs-pin 2* lshift flash2-cs-port bis! \ MODER: 01 = output  ok.
+  1 flash2-cs-pin lshift flash2-cs-port 4 + bic!  \ OTYPER: push-pull  ok.
+  %11 flash2-clk-pin 2* lshift flash2-clk-port bic! \ MODER: clear the two bits  ok.
+  %10 flash2-clk-pin 2* lshift flash2-clk-port bis! \ MODER: 10 = alternate function  ok.
+  1 flash2-clk-pin lshift flash2-clk-port 4 + bic! \ OTYPER: push-pull  ok.
+  $F flash2-clk-pin 8 - 4 * lshift flash2-clk-port $24 + bic! \ AFRH: clear the four bits  ok.
+  flash2-clk-af flash2-clk-pin 8 - 4 * lshift flash2-clk-port $24 + bis! \ AFRH: AF5 = SPI2 SCK  ok.
+  %11 flash2-di-pin 2* lshift flash2-di-port bic! \ MODER: clear the two bits  ok.
+  %10 flash2-di-pin 2* lshift flash2-di-port bis! \ MODER: 10 = alternate function  ok.
+  1 flash2-di-pin lshift flash2-di-port 4 + bic!  \ OTYPER: push-pull  ok.
+  $F flash2-di-pin 8 - 4 * lshift flash2-di-port $24 + bic! \ AFRH: clear the four bits  ok.
+  flash2-di-af flash2-di-pin 8 - 4 * lshift flash2-di-port $24 + bis! \ AFRH: AF5 = SPI2 MOSI  ok.
+  %11 flash2-do-pin 2* lshift flash2-do-port bic! \ MODER: clear the two bits  ok.
+  %10 flash2-do-pin 2* lshift flash2-do-port bis! \ MODER: 10 = alternate function  ok.
+  1 flash2-do-pin lshift flash2-do-port 4 + bic!  \ OTYPER: push-pull  ok.
+  $F flash2-do-pin 8 - 4 * lshift flash2-do-port $24 + bic! \ AFRH: clear the four bits  ok.
+  flash2-do-af flash2-do-pin 8 - 4 * lshift flash2-do-port $24 + bis! \ AFRH: AF5 = SPI2 MISO  ok.
+  $1700 flash2-spi 4 + !                          \ CR2: 8-bit frames, RXNE after one byte (FRXTH)  ok.
+  $354 flash2-spi ! ;                             \ CR1: master, SCK = 16 MHz / 8, SSM and SSI (CS is a GPIO), on  ok.
+  ok.
+\ Erase a sector, write a line, read it back  ok.
+: flash2-hello s" Hello from Forth" ;  ok.
+64 buffer: flash2-buf  ok.
+: flash2-demo ( -- )  ok.
+  flash2-init flash2-id cr  ok.
+  0 flash2-erase  flash2-hello 0 flash2-write  ok.
+  0 flash2-buf 16 flash2-read  flash2-buf 16 type ;  ok.
+  ok.
+\ Try it: flash2-init flash2-id   or   flash2-demo  ok.
+  ok.
+flash-demo 000000EF 00000040 00000017 
+Hello from Forth ok.
+flash2-init flash2-id 000000EF 00000040 00000016  ok.
+flash2-hello 32 flash2-write  32 flash2-buf 16 flash2-read  flash2-buf 16 type Hello from Forth ok.
+#!flash 1 0 16
+Bus	SPI · CS PA4 · CLK PA5 · DI PA7 · DO PA6
+Chip	W25Q64 · 8 MB · JEDEC EF 40 17
+Status	BUSY 0 · WEL 0 · BP 000
+Last	page program at 000000 · 16 bytes · 0.0007 s
+Written	000000–00000F	16 bytes
+48 65 6C 6C 6F 20 66 72 6F 6D 20 46 6F 72 74 68
+#!flash 2 32 16
+Bus	SPI · CS PB12 · CLK PB13 · DI PB15 · DO PB14
+Chip	W25Q32 · 4 MB · JEDEC EF 40 16
+Status	BUSY 0 · WEL 0 · BP 000
+Last	page program at 000020 · 16 bytes · 0.0007 s
+Written	000020–00002F	16 bytes
+48 65 6C 6C 6F 20 66 72 6F 6D 20 46 6F 72 74 68
