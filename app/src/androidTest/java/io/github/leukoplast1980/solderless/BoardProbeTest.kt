@@ -106,7 +106,7 @@ class BoardProbeTest {
         var shown = false
         scenario.onActivity { a -> shown = a.findViewById<View>(R.id.scopePane).visibility == View.VISIBLE }
         assertTrue("Scope pane shows", shown)
-        scenario.onActivity { a -> a.findViewById<View>(R.id.scopeHold).performClick() }
+        scenario.onActivity { a -> a.findViewById<View>(R.id.scopeW5s).performClick(); a.findViewById<View>(R.id.scopeHold).performClick() }
         Thread.sleep(500)
         screenshot("scope.png")
         scenario.onActivity { vm.setBoard(Board()) }

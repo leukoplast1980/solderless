@@ -81,12 +81,13 @@ class ScopeView @JvmOverloads constructor(context: Context, attrs: AttributeSet?
         // time axis
         line.color = 0xFF3A4650.toInt(); line.strokeWidth = dp(1f); line.pathEffect = null
         c.drawLine(labelW, y + dp(2f), right, y + dp(2f), line)
-        for (k in 0..4) {
-            val xx = labelW + (right - labelW) * k / 4
+        val steps = if (right - labelW < dp(260f)) 2 else 4
+        for (k in 0..steps) {
+            val xx = labelW + (right - labelW) * k / steps
             c.drawLine(xx, y + dp(2f), xx, y + dp(7f), line)
-            val tt = -windowNs + windowNs * k / 4
-            label(c, if (k == 4 && triggerNs < 0) "now" else span(tt + (if (triggerNs >= 0) endNs - triggerNs else 0)), xx, y + dp(19f), 9f, cLabel,
-                if (k == 0) Paint.Align.LEFT else if (k == 4) Paint.Align.RIGHT else Paint.Align.CENTER)
+            val tt = -windowNs + windowNs * k / steps
+            label(c, if (k == steps && triggerNs < 0) "now" else span(tt + (if (triggerNs >= 0) endNs - triggerNs else 0)), xx, y + dp(19f), 9f, cLabel,
+                if (k == 0) Paint.Align.LEFT else if (k == steps) Paint.Align.RIGHT else Paint.Align.CENTER)
         }
         // trigger and cursors
         if (triggerNs in (endNs - windowNs)..endNs) {
@@ -184,8 +185,14 @@ class ScopeView @JvmOverloads constructor(context: Context, attrs: AttributeSet?
         }
         if (!ch.analog && measure.isEmpty()) measure = digitalMeasure(ev, start)
         label(c, ch.pin, dp(10f), top + dp(18f), 12f, cText, Paint.Align.LEFT, true)
-        label(c, ch.label, dp(10f), top + dp(32f), 10.5f, cLabel, Paint.Align.LEFT)
-        label(c, measure, dp(10f), top + dp(46f), 9.5f, colour, Paint.Align.LEFT)
+        label(c, fit(ch.label, 10.5f), dp(10f), top + dp(32f), 10.5f, cLabel, Paint.Align.LEFT)
+        label(c, fit(measure, 9.5f), dp(10f), top + dp(46f), 9.5f, colour, Paint.Align.LEFT)
+    }
+
+    /** Text cut with an ellipsis to the label column */
+    private fun fit(s: String, size: Float): String {
+        val tp = android.text.TextPaint(text).apply { textSize = dp(size) }
+        return android.text.TextUtils.ellipsize(s, tp, labelW - dp(14f), android.text.TextUtils.TruncateAt.END).toString()
     }
 
     /** Frequency and duty from the rising edges in the window */
@@ -260,11 +267,12 @@ class ScopeView @JvmOverloads constructor(context: Context, attrs: AttributeSet?
         fun span(ns: Long): String {
             val a = abs(ns)
             val s = if (ns < 0) "−" else ""
+            fun g(v: Double) = java.math.BigDecimal(v).round(java.math.MathContext(3)).stripTrailingZeros().toPlainString()
             return when {
                 a == 0L -> "0"
-                a >= 1_000_000_000 -> s + "%.3g s".format(a / 1e9)
-                a >= 1_000_000 -> s + "%.3g ms".format(a / 1e6)
-                else -> s + "%.3g µs".format(a / 1e3)
+                a >= 1_000_000_000 -> s + g(a / 1e9) + " s"
+                a >= 1_000_000 -> s + g(a / 1e6) + " ms"
+                else -> s + g(a / 1e3) + " µs"
             }
         }
     }
