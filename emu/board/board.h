@@ -48,7 +48,13 @@ struct sl_pin_state {
     uint64_t t_last, high_acc, win_start;
     int audio;                  /* a piezo or speaker listens */
     int last_mv; uint32_t last_freq, last_duty;
+    /* The scope */
+    int traced, trace_busy;
+    int trace_mv; uint32_t trace_freq, trace_duty;
+    uint64_t trace_t;
 };
+
+#define SL_TRACE_RING 65536
 
 #define SL_AUDIO_RING 8192
 
@@ -59,7 +65,12 @@ struct sl_board {
     uint64_t rng;
     sl_audio_event audio[SL_AUDIO_RING];
     uint32_t audio_head, audio_tail;
+    sl_audio_event trace[SL_TRACE_RING];
+    uint32_t trace_head, trace_tail;
 };
+
+void board_trace_pins(struct sl_soc *s, const int *slots, int n);
+size_t board_trace_read(struct sl_soc *s, sl_audio_event *out, size_t max);
 
 size_t board_audio_read(struct sl_soc *s, sl_audio_event *out, size_t max);
 

@@ -18,6 +18,13 @@
     <string name="tab_editor">Editor</string>
     <string name="tab_registers">Registers</string>
     <string name="tab_board">Board</string>
+    <string name="tab_scope">Scope</string>
+    <string name="scope_hold">Hold</string>
+    <string name="scope_held">‖ Held</string>
+    <string name="scope_trigger">Trigger</string>
+    <string name="scope_trigger_off">Off: free running</string>
+    <string name="scope_cursor_hint">Tap again for cursor B. Long-press clears.</string>
+    <string name="scope_show">Show on the scope</string>
     <string name="header_order">Pins on the Board tab</string>
     <string name="header_order_adapter">Adapter order: 1–32 down the left, 64–33 down the right, as on an LQFP64-to-DIP adapter</string>
     <string name="header_order_port">By port: PA and PB on the left; PC, PD, PF and the supply pins on the right</string>

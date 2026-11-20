@@ -56,4 +56,8 @@ object NativeVm {
     @JvmStatic external fun boardRead(handle: Long, out: IntArray)
     /** Sound events of piezo and speaker pins; see jni.c audioRead for the layout. */
     @JvmStatic external fun audioRead(handle: Long, out: IntArray): Int
+    /** The pins the scope watches (slots); their state is recorded at once. */
+    @JvmStatic external fun tracePins(handle: Long, slots: IntArray)
+    /** The scope's events; same layout as [audioRead]. Called from the UI thread only. */
+    @JvmStatic external fun traceRead(handle: Long, out: IntArray): Int
 }

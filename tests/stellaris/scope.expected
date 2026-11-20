@@ -1,0 +1,21 @@
+\ The scope: a bouncing button on PC13, traced  ok.
+#!attach 2 switch PC13 bounce=2000
+#!trace PC13
+#!scope
++0 us PC13 -1 mV
+$48000800 constant GPIOC  ok.
+%100 $4002104C bis!  ok.
+%11 26 lshift GPIOC bic!  ok.
+%01 26 lshift GPIOC $0C + bis!  ok.
+#!scope
++0 us PC13 3300 mV
+#!input 2 1
+: wait 0 do loop ; 20000 wait  ok.
+#!scope
++0 us PC13 0 mV
++172 us PC13 3300 mV
++543 us PC13 0 mV
++787 us PC13 3300 mV
++970 us PC13 0 mV
++1287 us PC13 3300 mV
++1428 us PC13 0 mV

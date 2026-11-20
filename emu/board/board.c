@@ -115,6 +115,71 @@ static void chip_driver(struct sl_soc *s, int slot, struct drivers *d, struct sl
     }
 }
 
+/* ---------------------------------------------------------------------- */
+/* The scope                                                              */
+/* ---------------------------------------------------------------------- */
+
+static void trace_push(struct sl_soc *s, int slot, uint64_t t_ps, int busy)
+{
+    struct sl_pin_state *p = &B->pin[slot];
+    uint32_t next = (B->trace_head + 1) % SL_TRACE_RING;
+    if (next == B->trace_tail) return;                  /* full: the reader is behind */
+    sl_audio_event *e = &B->trace[B->trace_head];
+    e->time_ns = t_ps / 1000u;
+    e->kind = (p->trace_freq ? SL_AUDIO_PWM : SL_AUDIO_LEVEL) | (slot << 8) | (busy ? SL_TRACE_BUSY : 0);
+    e->a = p->trace_freq ? p->trace_freq : (uint32_t)p->trace_mv;
+    e->b = p->trace_duty;
+    B->trace_head = next;
+}
+
+/* A traced pin changed (or force: record it anyway). */
+static void trace_note(struct sl_soc *s, int slot, uint64_t now, int force)
+{
+    struct sl_pin_state *p = &B->pin[slot];
+    int mv = p->floating ? -1 : p->mv;
+    uint32_t f = p->pwm ? p->pwm_freq_mhz : 0, du = p->pwm ? p->pwm_duty_q16 : 0;
+    if (!force && mv == p->trace_mv && f == p->trace_freq && du == p->trace_duty) return;
+    p->trace_mv = mv; p->trace_freq = f; p->trace_duty = du;
+    if (!force && now - p->trace_t < 1000000u) {         /* within 1 us of the last event */
+        p->trace_busy = 1;
+        return;
+    }
+    trace_push(s, slot, now, p->trace_busy);
+    p->trace_busy = 0;
+    p->trace_t = now;
+}
+
+void board_trace_pins(struct sl_soc *s, const int *slots, int n)
+{
+    uint64_t now = soc_now_ps(s);
+    for (int i = 0; i < SL_PIN_SLOTS; i++) B->pin[i].traced = 0;
+    for (int i = 0; i < n; i++)
+        if (slots[i] >= 0 && slots[i] < SL_PIN_SLOTS) {
+            B->pin[slots[i]].traced = 1;
+            trace_note(s, slots[i], now, 1);
+        }
+}
+
+size_t board_trace_read(struct sl_soc *s, sl_audio_event *out, size_t max)
+{
+    /* A burst that ended: record where the pin settled */
+    uint64_t now = soc_now_ps(s);
+    for (int i = 0; i < SL_PIN_SLOTS; i++) {
+        struct sl_pin_state *p = &B->pin[i];
+        if (p->traced && p->trace_busy && now - p->trace_t >= 1000000u) {
+            trace_push(s, i, now, 1);
+            p->trace_busy = 0;
+            p->trace_t = now;
+        }
+    }
+    size_t n = 0;
+    while (n < max && B->trace_tail != B->trace_head) {
+        out[n++] = B->trace[B->trace_tail];
+        B->trace_tail = (B->trace_tail + 1) % SL_TRACE_RING;
+    }
+    return n;
+}
+
 static void resolve(struct sl_soc *s, int slot, int edges)
 {
     struct sl_pin_state *p = &B->pin[slot];
@@ -159,6 +224,7 @@ static void resolve(struct sl_soc *s, int slot, int edges)
     uint64_t now = soc_now_ps(s);
     integrate(p, now);
     p->duty_q16 = p->pwm ? p->pwm_duty_q16 : (!p->floating && p->level ? 0x10000u : 0);
+    if (p->traced) trace_note(s, slot, now, 0);
     if (p->audio) {
         uint32_t f = p->pwm ? p->pwm_freq_mhz : 0, du = p->pwm ? p->pwm_duty_q16 : 0;
         int mv = p->floating ? 0 : p->mv;

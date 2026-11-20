@@ -166,6 +166,14 @@ typedef struct {
 /* Drains up to max events; *now_ns gets the emulated time now. */
 size_t sl_audio_read(sl_vm *vm, sl_audio_event *out, size_t max, uint64_t *now_ns);
 
+/* The scope: the same events for the pins it watches (port * 16 + bit).
+ * Setting the pins records their state at once. Edges closer than 1 us on
+ * one pin are not recorded one by one: the next event carries
+ * SL_TRACE_BUSY, meaning the pin toggled fast since the previous one. */
+#define SL_TRACE_BUSY 0x10000
+void sl_trace_pins(sl_vm *vm, const int *slots, int n);
+size_t sl_trace_read(sl_vm *vm, sl_audio_event *out, size_t max, uint64_t *now_ns);
+
 #ifdef __cplusplus
 }
 #endif

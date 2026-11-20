@@ -96,6 +96,28 @@ static int directive(const char *line)
     if (n < 1) return 1;
     if (!strcmp(cmd, "clear")) { nboard = 0; sl_board_set(vm, board, 0); return 0; }
     if (!strcmp(cmd, "pins")) { print_pins(); return 0; }
+    if (!strcmp(cmd, "trace")) {
+        int slots[16], k = 0;
+        char tmp[256]; strncpy(tmp, line + 8, sizeof tmp - 1); tmp[sizeof tmp - 1] = 0;
+        for (char *t = strtok(tmp, " "); t && k < 16; t = strtok(NULL, " ")) slots[k++] = parse_pin(t);
+        sl_trace_pins(vm, slots, k);
+        return 0;
+    }
+    if (!strcmp(cmd, "scope")) {
+        sl_audio_event ev[256];
+        uint64_t now;
+        size_t m = sl_trace_read(vm, ev, 256, &now);
+        uint64_t t0 = m ? ev[0].time_ns : 0;
+        for (size_t i = 0; i < m; i++) {
+            int slot = (ev[i].kind >> 8) & 255;
+            printf("+%llu us P%c%d%s ", (unsigned long long)((ev[i].time_ns - t0) / 1000), 'A' + slot / 16, slot % 16,
+                   (ev[i].kind & SL_TRACE_BUSY) ? " (fast)" : "");
+            if ((ev[i].kind & 255) == SL_AUDIO_PWM) printf("PWM %u Hz duty %u/1000\n", ev[i].a / 1000, (ev[i].b * 1000 + 0x8000) >> 16);
+            else printf("%d mV\n", (int)ev[i].a);
+        }
+        fflush(stdout);
+        return 0;
+    }
     if (!strcmp(cmd, "audio")) {
         sl_audio_event ev[64];
         uint64_t now;

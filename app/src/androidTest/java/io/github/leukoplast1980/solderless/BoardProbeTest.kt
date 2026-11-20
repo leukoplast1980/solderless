@@ -93,6 +93,22 @@ class BoardProbeTest {
         screenshot("board-support.png")
         InstrumentationRegistry.getInstrumentation().uiAutomation.performGlobalAction(android.accessibilityservice.AccessibilityService.GLOBAL_ACTION_BACK)
         Thread.sleep(800)
+        // The scope: blink the LED from Forth, press the bouncing button
+        vm.sendLineChecked(": blink 6 0 do %100 GPIOD \$14 + xor! 300000 0 do loop loop ;", 5000)
+        vm.sendLineChecked("blink", 10000)
+        val button = b.parts.first { it.type == PartType.BUTTON }
+        vm.boardInput(button.id, 1); Thread.sleep(150); vm.boardInput(button.id, 0)
+        scenario.onActivity { a ->
+            val tabs = a.findViewById<TabLayout>(R.id.tabs)
+            for (i in 0 until tabs.tabCount) if (tabs.getTabAt(i)!!.text == a.getString(R.string.tab_scope)) tabs.getTabAt(i)!!.select()
+        }
+        Thread.sleep(1500)
+        var shown = false
+        scenario.onActivity { a -> shown = a.findViewById<View>(R.id.scopePane).visibility == View.VISIBLE }
+        assertTrue("Scope pane shows", shown)
+        scenario.onActivity { a -> a.findViewById<View>(R.id.scopeHold).performClick() }
+        Thread.sleep(500)
+        screenshot("scope.png")
         scenario.onActivity { vm.setBoard(Board()) }
     }
 

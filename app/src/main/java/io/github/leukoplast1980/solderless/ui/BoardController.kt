@@ -425,6 +425,10 @@ class BoardController(
                 setOnClickListener { dlg.dismiss(); showSettings(p) }
             })
         }
+        if (pin.isGpio && vm.board.parts.none { p -> p.pins.any { it.pin == pin.name } })
+            switch(col, activity.getString(R.string.scope_show), pin.name in ScopeController.extraPins(activity, vm.project.name)) {
+                ScopeController.setWatched(activity, vm.project.name, pin.name, it)
+            }
         if (pin.af.isNotEmpty()) {
             section(col, "Alternate functions")
             col.addView(body(pin.af.joinToString("\n") { "AF${it.af}  ${it.name}" }, mono = true))

@@ -730,3 +730,31 @@ size_t sl_audio_read(sl_vm *vm, sl_audio_event *out, size_t max, uint64_t *now_n
     if (now_ns) *now_ns = io.now;
     return io.n;
 }
+
+struct trace_pins_io { const int *slots; int n; };
+static void trace_pins_fn(sl_vm *vm, void *arg)
+{
+    struct trace_pins_io *io = arg;
+    board_trace_pins(vm->soc, io->slots, io->n);
+}
+
+void sl_trace_pins(sl_vm *vm, const int *slots, int n)
+{
+    struct trace_pins_io io = { slots, n };
+    run_on_vm(vm, trace_pins_fn, &io);
+}
+
+static void trace_fn(sl_vm *vm, void *arg)
+{
+    struct audio_io *io = arg;
+    io->n = board_trace_read(vm->soc, io->out, io->max);
+    io->now = soc_now_ps(vm->soc) / 1000u;
+}
+
+size_t sl_trace_read(sl_vm *vm, sl_audio_event *out, size_t max, uint64_t *now_ns)
+{
+    struct audio_io io = { out, max, 0, 0 };
+    run_on_vm(vm, trace_fn, &io);
+    if (now_ns) *now_ns = io.now;
+    return io.n;
+}

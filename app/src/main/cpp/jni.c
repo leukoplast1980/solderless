@@ -309,3 +309,36 @@ JNIEXPORT jint JNICALL FN(audioRead)(JNIEnv *env, jclass cls, jlong h, jintArray
     (*env)->SetIntArrayRegion(env, out, 0, (jsize)(2 + 5 * n), v);
     return (jint)n;
 }
+
+JNIEXPORT void JNICALL FN(tracePins)(JNIEnv *env, jclass cls, jlong h, jintArray slots)
+{
+    (void)cls;
+    jsize n = (*env)->GetArrayLength(env, slots);
+    if (n > SL_PIN_SLOTS) n = SL_PIN_SLOTS;
+    jint v[SL_PIN_SLOTS];
+    (*env)->GetIntArrayRegion(env, slots, 0, n, v);
+    int s[SL_PIN_SLOTS];
+    for (jsize i = 0; i < n; i++) s[i] = v[i];
+    sl_trace_pins(VM(h), s, (int)n);
+}
+
+/* Same layout as audioRead */
+JNIEXPORT jint JNICALL FN(traceRead)(JNIEnv *env, jclass cls, jlong h, jintArray out)
+{
+    (void)cls;
+    jsize len = (*env)->GetArrayLength(env, out);
+    size_t max = len > 2 ? (size_t)(len - 2) / 5 : 0;
+    if (max > 4096) max = 4096;
+    static sl_audio_event ev[4096];
+    static jint v[2 + 5 * 4096];
+    uint64_t now = 0;
+    size_t n = sl_trace_read(VM(h), ev, max, &now);
+    v[0] = (jint)(uint32_t)now; v[1] = (jint)(uint32_t)(now >> 32);
+    for (size_t i = 0; i < n; i++) {
+        jint *x = v + 2 + 5 * i;
+        x[0] = (jint)(uint32_t)ev[i].time_ns; x[1] = (jint)(uint32_t)(ev[i].time_ns >> 32);
+        x[2] = ev[i].kind; x[3] = (jint)ev[i].a; x[4] = (jint)ev[i].b;
+    }
+    (*env)->SetIntArrayRegion(env, out, 0, (jsize)(2 + 5 * n), v);
+    return (jint)n;
+}
