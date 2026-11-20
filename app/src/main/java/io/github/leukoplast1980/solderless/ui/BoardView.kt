@@ -54,6 +54,8 @@ class BoardView @JvmOverloads constructor(context: Context, attrs: AttributeSet?
     var onPress: (Part, Boolean) -> Unit = { _, _ -> }
     var onPot: (Part, Int) -> Unit = { _, _ -> }
     var onLongPress: (Part) -> Unit = {}
+    /** A tap on a part that does not react to touch (not a button or a pot), or on a button's label */
+    var onTap: (Part) -> Unit = {}
     var onPinTap: (ChipPins.Pin) -> Unit = {}
     /** Last known pot positions (per mille), drawn and dragged */
     val potValue = HashMap<Int, Int>()
@@ -498,10 +500,15 @@ class BoardView @JvmOverloads constructor(context: Context, attrs: AttributeSet?
             onLongPress(p)
         }
         override fun onSingleTapUp(e: MotionEvent): Boolean {
+            hitLabel.lastOrNull { it.first.contains(e.x, e.y) }?.let { onTap(it.second); return true }
+            partAt(e.x, e.y)?.let { p -> if (p.type != PartType.BUTTON && p.type != PartType.POT) onTap(p); return true }
             if (partAt(e.x, e.y) == null && hitLabel.none { it.first.contains(e.x, e.y) }) rowHit.firstOrNull { it.first.contains(e.x, e.y) }?.let { onPinTap(it.second) }
             return true
         }
     })
+
+    /** Where a part is drawn, in view coordinates (for the UI probe) */
+    fun partBounds(id: Int): RectF? = hit.lastOrNull { it.second.id == id }?.first?.let { RectF(it) }
 
     private fun partAt(x: Float, y: Float): Part? = hit.lastOrNull { it.first.contains(x, y) }?.second
 

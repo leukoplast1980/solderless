@@ -1,0 +1,185 @@
+\ The sample code the Board tab gives for LEDs, as generated (SamplesTest  ok.
+\ checks that it still matches): GPIO, both polarities, and timer PWM.  ok.
+#!attach 1 led PB5 r=270 vf=1900
+#!attach 2 led PB6 r=270 vf=2100 vcc
+#!attach 3 led PC6 r=270 vf=1900
+#!attach 4 led PA8 r=270 vf=1900 vcc
+  ok.
+\ led: red LED, lit while PB5 is high  ok.
+\ Paste all of it into the console, or put it in a file after wiring.fs.  ok.
+  ok.
+\ PB5 (pin 58) → 270 Ω → red LED → GND  ok.
+$48000400 constant led-port  \ GPIOB  ok.
+5 constant led-pin  ok.
+  ok.
+\ ms: wait n milliseconds, counted by SysTick at 16 MHz  ok.
+\ (lib_systick uses SysTick too: with it loaded, use its delay-ms)  ok.
+: ms ( n -- )  ok.
+  15999 $E000E014 !  0 $E000E018 !  5 $E000E010 ! \ SysTick: wrap every 16000 cycles  ok.
+  0 ?do begin $E000E010 @ $10000 and until loop   \ count the wraps  ok.
+  0 $E000E010 ! ;                                 \ SysTick off again  ok.
+  ok.
+: led-on ( -- )  ok.
+  1 led-pin lshift led-port $18 + ! ;            \ BSRR: set, the pin goes high  ok.
+: led-off ( -- )  ok.
+  1 led-pin lshift 16 lshift led-port $18 + ! ;  \ BSRR: reset, the pin goes low  ok.
+: led-toggle ( -- )  ok.
+  1 led-pin lshift led-port $14 + xor! ;         \ ODR: flip the pin  ok.
+: led-init ( -- )  ok.
+  1 1 lshift $4002104C bis!                      \ RCC AHB2ENR: clock for GPIOB  ok.
+  led-off                                        \ dark from the start  ok.
+  %11 led-pin 2* lshift led-port bic!            \ MODER: clear the two bits  ok.
+  %01 led-pin 2* lshift led-port bis! ;          \ MODER: 01 = output  ok.
+  ok.
+\ Blink twice a second until a key is pressed  ok.
+: led-blink ( -- )  ok.
+  led-init begin led-toggle 250 ms key? until led-off ;  ok.
+  ok.
+\ Try it: led-init led-on   or   led-blink (Enter stops it)  ok.
+  ok.
+\ led2: green LED, lit while PB6 is low  ok.
+\ Paste all of it into the console, or put it in a file after wiring.fs.  ok.
+  ok.
+\ 3V3 → green LED → 220 Ω → PB6 (pin 59)  ok.
+$48000400 constant led2-port  \ GPIOB  ok.
+6 constant led2-pin  ok.
+  ok.
+\ ms: wait n milliseconds, counted by SysTick at 16 MHz  ok.
+\ (lib_systick uses SysTick too: with it loaded, use its delay-ms)  ok.
+: ms ( n -- ) Redefine ms.  ok.
+  15999 $E000E014 !  0 $E000E018 !  5 $E000E010 ! \ SysTick: wrap every 16000 cycles  ok.
+  0 ?do begin $E000E010 @ $10000 and until loop   \ count the wraps  ok.
+  0 $E000E010 ! ;                                 \ SysTick off again  ok.
+  ok.
+: led2-on ( -- )  ok.
+  1 led2-pin lshift 16 lshift led2-port $18 + ! ; \ BSRR: reset, the pin goes low  ok.
+: led2-off ( -- )  ok.
+  1 led2-pin lshift led2-port $18 + ! ;           \ BSRR: set, the pin goes high  ok.
+: led2-toggle ( -- )  ok.
+  1 led2-pin lshift led2-port $14 + xor! ;        \ ODR: flip the pin  ok.
+: led2-init ( -- )  ok.
+  1 1 lshift $4002104C bis!                       \ RCC AHB2ENR: clock for GPIOB  ok.
+  led2-off                                        \ dark from the start  ok.
+  %11 led2-pin 2* lshift led2-port bic!           \ MODER: clear the two bits  ok.
+  %01 led2-pin 2* lshift led2-port bis! ;         \ MODER: 01 = output  ok.
+  ok.
+\ Blink twice a second until a key is pressed  ok.
+: led2-blink ( -- )  ok.
+  led2-init begin led2-toggle 250 ms key? until led2-off ;  ok.
+  ok.
+\ Try it: led2-init led2-on   or   led2-blink (Enter stops it)  ok.
+  ok.
+\ led3: red LED, lit while PC6 is high, dimmed by TIM3 CH1  ok.
+\ Paste all of it into the console, or put it in a file after wiring.fs.  ok.
+  ok.
+\ PC6 (pin 38) → 270 Ω → red LED → GND  ok.
+$48000800 constant led3-port  \ GPIOC  ok.
+6 constant led3-pin  ok.
+$40000400 constant led3-timer  \ TIM3  ok.
+1 constant led3-ch  ok.
+2 constant led3-af  ok.
+  ok.
+\ ms: wait n milliseconds, counted by SysTick at 16 MHz  ok.
+\ (lib_systick uses SysTick too: with it loaded, use its delay-ms)  ok.
+: ms ( n -- ) Redefine ms.  ok.
+  15999 $E000E014 !  0 $E000E018 !  5 $E000E010 ! \ SysTick: wrap every 16000 cycles  ok.
+  0 ?do begin $E000E010 @ $10000 and until loop   \ count the wraps  ok.
+  0 $E000E010 ! ;                                 \ SysTick off again  ok.
+  ok.
+: led3-init ( -- )  ok.
+  1 2 lshift $4002104C bis!                       \ RCC AHB2ENR: clock for GPIOC  ok.
+  %11 led3-pin 2* lshift led3-port bic!           \ MODER: clear the two bits  ok.
+  %10 led3-pin 2* lshift led3-port bis!           \ MODER: 10 = alternate function  ok.
+  $F led3-pin 4 * lshift led3-port $20 + bic!     \ AFRL: clear the four bits  ok.
+  led3-af led3-pin 4 * lshift led3-port $20 + bis! \ AFRL: AF2 = TIM3 CH1  ok.
+  1 1 lshift $40021058 bis!                       \ RCC APB1ENR1: clock for TIM3  ok.
+  15 led3-timer $28 + !                           \ PSC: 16 MHz / 16, a tick every microsecond  ok.
+  999 led3-timer $2C + !                          \ ARR: 1000 ticks a period, 1 kHz  ok.
+  $FF led3-timer $18 + bic!                       \ CCMR1: clear channel 1  ok.
+  $68 led3-timer $18 + bis!                       \ CCMR1: channel 1 in PWM mode 1, CCR1 preloaded  ok.
+  $F led3-timer $20 + bic!                        \ CCER: clear channel 1  ok.
+  $1 led3-timer $20 + bis!                        \ CCER: CC1E, output on  ok.
+  0 led3-timer $34 + !                            \ CCR1: 0, off  ok.
+  1 led3-timer $14 + !                            \ EGR: UG, load PSC and ARR now  ok.
+  $81 led3-timer bis! ;                           \ CR1: ARPE and CEN, the timer runs  ok.
+: led3-bright ( percent -- )                      \ 0 = off, 100 = full  ok.
+  10 * led3-timer $34 + ! ;                       \ CCR1: lit for this many of the 1000 ticks  ok.
+: led3-on ( -- ) 100 led3-bright ;  ok.
+: led3-off ( -- ) 0 led3-bright ;  ok.
+  ok.
+\ Fade up and down until a key is pressed  ok.
+: led3-fade ( -- )  ok.
+  led3-init  ok.
+  begin  ok.
+    101 0 do i led3-bright 10 ms loop  ok.
+    0 100 do i led3-bright 10 ms -1 +loop  ok.
+  key? until led3-off ;  ok.
+  ok.
+\ Try it: led3-init 30 led3-bright   or   led3-fade (Enter stops it)  ok.
+  ok.
+\ led4: red LED, lit while PA8 is low, dimmed by TIM1 CH1  ok.
+\ Paste all of it into the console, or put it in a file after wiring.fs.  ok.
+  ok.
+\ 3V3 → red LED → 270 Ω → PA8 (pin 42)  ok.
+$48000000 constant led4-port  \ GPIOA  ok.
+8 constant led4-pin  ok.
+$40012C00 constant led4-timer  \ TIM1  ok.
+1 constant led4-ch  ok.
+6 constant led4-af  ok.
+  ok.
+\ ms: wait n milliseconds, counted by SysTick at 16 MHz  ok.
+\ (lib_systick uses SysTick too: with it loaded, use its delay-ms)  ok.
+: ms ( n -- ) Redefine ms.  ok.
+  15999 $E000E014 !  0 $E000E018 !  5 $E000E010 ! \ SysTick: wrap every 16000 cycles  ok.
+  0 ?do begin $E000E010 @ $10000 and until loop   \ count the wraps  ok.
+  0 $E000E010 ! ;                                 \ SysTick off again  ok.
+  ok.
+: led4-init ( -- )  ok.
+  1 0 lshift $4002104C bis!                       \ RCC AHB2ENR: clock for GPIOA  ok.
+  %11 led4-pin 2* lshift led4-port bic!           \ MODER: clear the two bits  ok.
+  %10 led4-pin 2* lshift led4-port bis!           \ MODER: 10 = alternate function  ok.
+  $F led4-pin 8 - 4 * lshift led4-port $24 + bic! \ AFRH: clear the four bits  ok.
+  led4-af led4-pin 8 - 4 * lshift led4-port $24 + bis! \ AFRH: AF6 = TIM1 CH1  ok.
+  1 11 lshift $40021060 bis!                      \ RCC APB2ENR: clock for TIM1  ok.
+  15 led4-timer $28 + !                           \ PSC: 16 MHz / 16, a tick every microsecond  ok.
+  999 led4-timer $2C + !                          \ ARR: 1000 ticks a period, 1 kHz  ok.
+  $FF led4-timer $18 + bic!                       \ CCMR1: clear channel 1  ok.
+  $68 led4-timer $18 + bis!                       \ CCMR1: channel 1 in PWM mode 1, CCR1 preloaded  ok.
+  $F led4-timer $20 + bic!                        \ CCER: clear channel 1  ok.
+  $3 led4-timer $20 + bis!                        \ CCER: CC1E, output on; CC1P, inverted: the LED lights while the pin is low  ok.
+  0 led4-timer $34 + !                            \ CCR1: 0, off  ok.
+  $8000 led4-timer $44 + bis!                     \ BDTR: MOE, outputs on (TIM1 needs it)  ok.
+  1 led4-timer $14 + !                            \ EGR: UG, load PSC and ARR now  ok.
+  $81 led4-timer bis! ;                           \ CR1: ARPE and CEN, the timer runs  ok.
+: led4-bright ( percent -- )                      \ 0 = off, 100 = full  ok.
+  10 * led4-timer $34 + ! ;                       \ CCR1: lit for this many of the 1000 ticks  ok.
+: led4-on ( -- ) 100 led4-bright ;  ok.
+: led4-off ( -- ) 0 led4-bright ;  ok.
+  ok.
+\ Fade up and down until a key is pressed  ok.
+: led4-fade ( -- )  ok.
+  led4-init  ok.
+  begin  ok.
+    101 0 do i led4-bright 10 ms loop  ok.
+    0 100 do i led4-bright 10 ms -1 +loop  ok.
+  key? until led4-off ;  ok.
+  ok.
+\ Try it: led4-init 30 led4-bright   or   led4-fade (Enter stops it)  ok.
+  ok.
+led-init led-on  led2-init led2-on  ok.
+led3-init 25 led3-bright  led4-init 75 led4-bright  ok.
+
+[chip] TIM1 CH1 is enabled, but MOE in TIM1_BDTR is 0: an advanced timer keeps its outputs off until MOE is set
+10 ms  ok.
+#!pins
+PA8 alternate PWM 1000.000 Hz duty 3/1000  LED 4: 4.503 mA
+PB5 output    3300 mV high  LED 1: 0.077 mA
+PB6 output    0 mV low  LED 2: 3.871 mA
+PC6 alternate PWM 1000.000 Hz duty 2/1000  LED 3: 0.009 mA
+led-toggle  led2-off  led4-off  led3-on  ok.
+10 ms  ok.
+#!pins
+PA8 alternate 3300 mV high  LED 4: 0.831 mA
+PB5 output    0 mV low  LED 1: 1.030 mA
+PB6 output    3300 mV high  LED 2: 0.898 mA
+PC6 alternate 3300 mV high  LED 3: 3.568 mA

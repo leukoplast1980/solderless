@@ -33,32 +33,36 @@ object Wiring {
         val sb = StringBuilder()
         sb.append("\\ wiring.fs: the board \"").append(project).append("\", written by Solderless.\n")
         sb.append("\\ It is rewritten when the board changes. Load it before your own code.\n")
-        for (p in b.parts.sortedBy { it.id }) {
-            val n = b.nameOf(p)
-            sb.append('\n')
-            for ((role, u) in p.pins.withIndex()) {
-                val pin = chip.gpio(u.pin) ?: continue
-                val rn = p.type.roles[role]
-                val base = if (rn.isEmpty()) n else "$n-$rn"
-                sb.append("\\ ").append(describe(b, p, chip, role)).append('\n')
-                sb.append(hex(ChipPins.gpioBase(pin.port))).append(" constant ").append(base).append("-port  \\ GPIO")
-                    .append('A' + pin.port).append('\n')
-                sb.append(pin.bit).append(" constant ").append(base).append("-pin\n")
-                when (val f = u.function) {
-                    is Function.Timer -> {
-                        if (role == 0 || p.type != PartType.RGB_LED)
-                            sb.append(hex(ChipPins.BASE[f.timer]!!)).append(" constant ").append(n).append("-timer  \\ ").append(f.timer).append('\n')
-                        sb.append(f.channel).append(" constant ").append(base).append("-ch\n")
-                        sb.append(f.af).append(" constant ").append(base).append("-af\n")
-                    }
-                    is Function.Adc -> {
-                        sb.append(hex(ChipPins.BASE[f.adc]!!)).append(" constant ").append(base).append("-adc  \\ ").append(f.adc).append('\n')
-                        sb.append(f.channel).append(" constant ").append(base).append("-ch\n")
-                    }
-                    is Function.Dac -> sb.append(f.channel).append(" constant ").append(base).append("-dac-ch  \\ DAC1 OUT")
-                        .append(f.channel).append('\n')
-                    is Function.Gpio -> {}
+        for (p in b.parts.sortedBy { it.id }) sb.append('\n').append(partBlock(b, p, chip))
+        return sb.toString()
+    }
+
+    /** A part's block of wiring.fs: a comment and the constants for each of its pins */
+    fun partBlock(b: Board, p: Part, chip: ChipPins): String {
+        val n = b.nameOf(p)
+        val sb = StringBuilder()
+        for ((role, u) in p.pins.withIndex()) {
+            val pin = chip.gpio(u.pin) ?: continue
+            val rn = p.type.roles[role]
+            val base = if (rn.isEmpty()) n else "$n-$rn"
+            sb.append("\\ ").append(describe(b, p, chip, role)).append('\n')
+            sb.append(hex(ChipPins.gpioBase(pin.port))).append(" constant ").append(base).append("-port  \\ GPIO")
+                .append('A' + pin.port).append('\n')
+            sb.append(pin.bit).append(" constant ").append(base).append("-pin\n")
+            when (val f = u.function) {
+                is Function.Timer -> {
+                    if (role == 0 || p.type != PartType.RGB_LED)
+                        sb.append(hex(ChipPins.BASE[f.timer]!!)).append(" constant ").append(n).append("-timer  \\ ").append(f.timer).append('\n')
+                    sb.append(f.channel).append(" constant ").append(base).append("-ch\n")
+                    sb.append(f.af).append(" constant ").append(base).append("-af\n")
                 }
+                is Function.Adc -> {
+                    sb.append(hex(ChipPins.BASE[f.adc]!!)).append(" constant ").append(base).append("-adc  \\ ").append(f.adc).append('\n')
+                    sb.append(f.channel).append(" constant ").append(base).append("-ch\n")
+                }
+                is Function.Dac -> sb.append(f.channel).append(" constant ").append(base).append("-dac-ch  \\ DAC1 OUT")
+                    .append(f.channel).append('\n')
+                is Function.Gpio -> {}
             }
         }
         return sb.toString()
