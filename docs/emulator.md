@@ -98,8 +98,19 @@ its writable bits, taken from ST's SVD. Behaviour so far:
   pins must be in the I2C alternate function and open-drain, and the lines
   need pull-ups: without them SCL stays low and START waits with BUSY set.
   Not yet: slave mode, 10-bit addresses, SMBus, timeouts, DMA.
-- RTC, SPI, DMA, comparators, op-amps and the rest: registers only, until
-  their milestones.
+- **SPI1-3** as masters: the 32-bit transmit and receive FIFOs with the
+  packing rules of DR (an 8-bit access moves one byte, a wider one two, so
+  a word written with `!` in 8-bit mode sends two frames), data sizes of 4
+  to 16 bits, FRXTH (with its reset value RXNE waits for two bytes), TXE,
+  RXNE, BSY and the FIFO levels, overrun, the mode fault when the master
+  sees NSS low (SSM and SSI, or the NSS pin), NSS driven by the SPI with
+  SSOE, CPOL and CPHA, LSBFIRST, SCK from PCLK and BR, interrupts. Frames
+  reach the parts whole, at the end of their time on the wire, so a chip
+  select raised before BSY clears cuts the last byte off, as on the bench.
+  Not yet: slave mode, bidirectional and receive-only modes, CRC, TI mode,
+  NSS pulses, I2S, DMA.
+- RTC, DMA, comparators, op-amps and the rest: registers only, until their
+  milestones.
 
 ## The breadboard
 
@@ -140,6 +151,34 @@ external pull resistor, the DAC. The net settles at their weighted mean.
   real module does. Reads return the status byte (D6 set while the
   display is off). Not yet: scrolling (the commands are accepted and the
   close-up says it is on, but the picture stands still).
+- SPI parts listen while their chip select is low. Firmware that toggles
+  the pins itself works too: the part takes MOSI on the rising edge of SCK
+  and moves its output on the falling edge, driving MISO on the net only
+  while it has something to say. A master in mode 1 or 2, too fast a clock
+  or LSB first garbles the bits, and the console says which.
+- **W25Q32/64/128 flash**: JEDEC, manufacturer, device and unique IDs;
+  read and fast read; write enable, which clears itself after every
+  program, erase and status write; page program that only turns 1s into
+  0s and wraps at the end of its 256-byte page; 4 KB, 32 KB, 64 KB and
+  chip erase; status registers 1-3 with the block protect bits; power-down
+  and reset. Programs and erases take the datasheet's typical times with
+  BUSY set, and the chip ignores everything but the status reads
+  meanwhile. WP and HOLD are tied high. The contents are kept with the
+  project and can be read and edited in a hex view. Not yet: dual and quad
+  modes, suspend, security registers, SFDP.
+- **MAX7219 LED matrix**, a single 8 x 8 module or a chain of four: one long
+  shift register through the chain, latched when CS (LOAD) rises, so the
+  first word sent reaches the chip farthest from DIN; digits, Code B
+  decode, intensity, scan limit, shutdown, display test. At power-up the
+  chips are in shutdown, scan one row and hold noise. Digit 0 is the top
+  row, D7 the left column; the chip at DIN is on the right.
+- **ST7789 colour display**, 240 x 240 or 240 x 320, with DC and RES: the 240 x
+  320 frame memory, of which a 240-row panel shows rows 0-239; hardware and
+  software reset, sleep, display on and off, inversion (these IPS panels
+  show true colours with it on), 12-, 16- and 18-bit pixels (18 after
+  reset), MADCTL, the address window, memory write. Commands sent before
+  the datasheet's wait after a reset or Sleep Out are ignored. Not yet:
+  reads, partial mode, scrolling.
 
 ## Time
 
@@ -176,6 +215,14 @@ The console shows these in amber, at most three times each per run:
 - a floating input or one between the thresholds, read by the firmware
 - a short between the chip and a part; more than 20 mA through an LED
 - an advanced timer running with an output enabled but MOE clear
+- SPI: a mode fault, no pin in SCK or MOSI, a mode, clock or bit order the
+  part does not take, two parts answering on MISO at once, an overrun the
+  firmware then reads
+- the parts: a flash command while busy, a program or erase without write
+  enable or into a protected block, programming over bytes that were not
+  erased; the matrix's 5 V logic and a CS that rises after an odd number of
+  bytes; a display command too soon after a reset, pixels written while it
+  sleeps or is off, in 18-bit colour, or into rows the panel does not show
 - I2C: no pull-ups on SCL or SDA, pins that are push-pull or not in the
   I2C alternate function, SCL faster than the part allows (it does not
   answer), two parts at one address, an address that was not shifted into

@@ -167,7 +167,7 @@ static int directive(const char *line)
             sl_attach *a = &board[nboard++];
             memset(a, 0, sizeof *a);
             a->part = atoi(a1); a->kind = SL_ATT_DEVICE; a->dev = SL_DEV_W25Q; a->addr = cap;
-            a->role = roles[k]; a->pin = pins[k];
+            a->role = roles[k]; a->pin = pins[k]; a->r_ohm = roles[k] == SL_SIG_CS ? 10000 : 0;   /* the module pulls CS up */
         }
         sl_board_set(vm, board, nboard);
         return 0;
@@ -185,7 +185,7 @@ static int directive(const char *line)
             sl_attach *a = &board[nboard++];
             memset(a, 0, sizeof *a);
             a->part = atoi(a1); a->kind = SL_ATT_DEVICE; a->dev = SL_DEV_MAX7219; a->addr = chips;
-            a->role = roles[k]; a->pin = pins[k];
+            a->role = roles[k]; a->pin = pins[k]; a->r_ohm = roles[k] == SL_SIG_CS ? 10000 : 0;
         }
         sl_board_set(vm, board, nboard);
         return 0;
@@ -219,7 +219,7 @@ static int directive(const char *line)
             sl_attach *a = &board[nboard++];
             memset(a, 0, sizeof *a);
             a->part = atoi(a1); a->kind = SL_ATT_DEVICE; a->dev = SL_DEV_ST7789; a->addr = rows;
-            a->role = roles[k]; a->pin = pin;
+            a->role = roles[k]; a->pin = pin; a->r_ohm = roles[k] == SL_SIG_CS || roles[k] == SL_SIG_RES ? 10000 : 0;
         }
         sl_board_set(vm, board, nboard);
         return 0;

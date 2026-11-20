@@ -55,9 +55,11 @@ data class Board(val parts: List<Part> = emptyList()) {
             // role 0 SCL, 1 SDA, as SL_SIG_*; 4.7 kohm pull-ups on the module
             PartType.OLED -> att(p.id, r, u.pin, ATT_DEVICE, false, 4700, 0, 0, DEV_SSD1306, p.i2cAddr)
             // roles CS, CLK, DI, DO as SL_SIG_CS, SCK, MOSI, MISO; WP and HOLD tied high
-            PartType.FLASH -> att(p.id, FLASH_SIG[r], u.pin, ATT_DEVICE, false, 0, 0, 0, DEV_W25Q, p.flashCap)
-            PartType.MATRIX -> att(p.id, FLASH_SIG[r], u.pin, ATT_DEVICE, false, 0, 0, 0, DEV_MAX7219, p.matrixChips)
-            PartType.TFT -> att(p.id, TFT_SIG[r], u.pin, ATT_DEVICE, false, 0, 0, 0, DEV_ST7789, p.tftRows)
+            // CS (and the display's RES) have a 10 kohm pull-up on the module: a part whose
+            // CS pin is not set up yet stays deselected, and that pin cannot be BOOT0
+            PartType.FLASH -> att(p.id, FLASH_SIG[r], u.pin, ATT_DEVICE, false, if (r == 0) 10000 else 0, 0, 0, DEV_W25Q, p.flashCap)
+            PartType.MATRIX -> att(p.id, FLASH_SIG[r], u.pin, ATT_DEVICE, false, if (r == 0) 10000 else 0, 0, 0, DEV_MAX7219, p.matrixChips)
+            PartType.TFT -> att(p.id, TFT_SIG[r], u.pin, ATT_DEVICE, false, if (r == 0 || r == 4) 10000 else 0, 0, 0, DEV_ST7789, p.tftRows)
         }
         return out.toIntArray()
     }

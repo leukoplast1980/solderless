@@ -112,7 +112,8 @@ enum {
     SL_ATT_PULL,        /* resistor r_ohm to 3V3 (to_vcc) or GND */
     SL_ATT_POT,         /* wiper of a potentiometer of r_ohm between 3V3 and GND */
     SL_ATT_AUDIO,       /* piezo or speaker stage: listens, does not load the pin */
-    SL_ATT_DEVICE,      /* a signal of a bus part (dev): role is its SL_SIG_*, r_ohm the module's own pull-up (0: none) */
+    SL_ATT_DEVICE,      /* a signal of a bus part (dev): role is its SL_SIG_*, r_ohm the module's own pull-up (0: none):
+                           I2C modules on SCL and SDA, SPI modules on CS (and a display's RES) */
 };
 
 /* Bus parts */
