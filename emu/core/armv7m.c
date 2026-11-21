@@ -6,7 +6,7 @@
  * Reference Manual (DDI 0403E), chapter A5 (encodings), A7 (instructions)
  * and B1 (exception model). Section names are given where it helps.
  *
- * The DSP extension and the FPU are not implemented yet: their encodings
+ * With the DSP extension. The FPU is not implemented yet: its encodings
  * raise a UsageFault (UNDEFINSTR, or NOCP while CPACR denies access).
  */
 #include "armv7m.h"
@@ -58,6 +58,9 @@ static inline uint32_t sext(uint32_t v, unsigned bits)
     v &= (1u << bits) - 1u;
     return (v ^ m) - m;
 }
+
+static inline int32_t lo16(uint32_t v) { return (int16_t)(v & 0xFFFFu); }
+static inline int32_t hi16(uint32_t v) { return (int16_t)(v >> 16); }
 
 static inline int popcount16(uint32_t v)
 {
@@ -1711,6 +1714,7 @@ static void exec_msr(struct cm_cpu *c, uint32_t rn, uint32_t mask, uint32_t sysm
     uint32_t v = c->r[rn];
     if (!msr_mrs_sysm_ok(sysm)) { undefined(c); return; }
     if (sysm <= 3) {                               /* APSR variants */
+        if (mask & 1u) c->ge = (v >> 16) & 15u;     /* APSR_g (DSP) */
         if (mask & 2u) {
             c->n = v >> 31; c->z = (v >> 30) & 1u; c->c = (v >> 29) & 1u;
             c->v = (v >> 28) & 1u; c->q = (v >> 27) & 1u;
@@ -1837,7 +1841,16 @@ static void dp_plain_imm(struct cm_cpu *c, uint32_t hw1, uint32_t hw2)
     case 0x0C: W(c, rd, (imm16 << 16) | (c->r[rd] & 0xFFFFu)); return;   /* MOVT */
     case 0x10: case 0x12: case 0x18: case 0x1A: {  /* SSAT, USAT */
         uint32_t sh = (hw1 >> 5) & 1u;
-        if ((op & 2u) && imm5 == 0) { undefined(c); return; }   /* SSAT16/USAT16: DSP */
+        if ((op & 2u) && imm5 == 0) {              /* SSAT16, USAT16 */
+            if (hw2 & 0x30u) { undefined(c); return; }
+            uint32_t bits = hw2 & 15u, r = 0;
+            int s1 = 0, s2 = 0;
+            if (op & 8u) r = unsigned_sat(lo16(a), bits, &s1) | (unsigned_sat(hi16(a), bits, &s2) << 16);
+            else r = (signed_sat(lo16(a), bits + 1u, &s1) & 0xFFFFu) | (signed_sat(hi16(a), bits + 1u, &s2) << 16);
+            W(c, rd, r);
+            if (s1 || s2) c->q = 1;
+            return;
+        }
         int t; uint32_t n, dummy;
         decode_imm_shift(sh << 1, imm5, &t, &n);
         int64_t opnd = (int32_t)shift_c(a, t, n, c->c, &dummy);
@@ -1871,6 +1884,120 @@ static void dp_plain_imm(struct cm_cpu *c, uint32_t hw1, uint32_t hw2)
     }
 }
 
+/* ---------------------------------------------------------------------- */
+/* DSP extension (ARMv7E-M)                                                */
+/* ---------------------------------------------------------------------- */
+
+/* A lane of a packed value, sign- or zero-extended */
+static inline int64_t lane(uint32_t v, int at, int w, int sgn)
+{
+    uint32_t x = (v >> at) & ((1u << w) - 1u);
+    return sgn ? (int64_t)(int32_t)sext(x, (unsigned)w) : (int64_t)x;
+}
+
+/* Parallel addition and subtraction, signed and unsigned (A5.3.16) */
+static void parallel(struct cm_cpu *c, uint32_t hw1, uint32_t hw2)
+{
+    uint32_t op1 = (hw1 >> 4) & 7u, op2 = (hw2 >> 4) & 3u, sgn = !((hw2 >> 6) & 1u);
+    uint32_t a = c->r[hw1 & 15u], b = c->r[hw2 & 15u], rd = (hw2 >> 8) & 15u;
+    /* op1: 000 ADD8, 001 ADD16, 010 ASX, 100 SUB8, 101 SUB16, 110 SAX;
+     * op2: 00 plain (sets GE), 01 saturating, 10 halving */
+    if (op2 == 3u || op1 == 3u || op1 == 7u) { undefined(c); return; }
+    int w = (op1 == 0u || op1 == 4u) ? 8 : 16, lanes = 32 / w;
+    uint32_t res = 0, ge = 0;
+    for (int i = 0; i < lanes; i++) {
+        int64_t x = lane(a, i * w, w, (int)sgn), y, r;
+        int sub;
+        if (op1 == 2u || op1 == 6u) {              /* ASX, SAX: the halves crossed */
+            y = lane(b, (1 - i) * 16, 16, (int)sgn);
+            sub = (op1 == 2u) ? (i == 0) : (i == 1);
+        } else {
+            y = lane(b, i * w, w, (int)sgn);
+            sub = (op1 & 4u) != 0;
+        }
+        r = sub ? x - y : x + y;
+        int64_t out;
+        if (op2 == 1u) {                           /* QADD16, UQADD8, ...: saturate, no GE, no Q */
+            int64_t hi = sgn ? ((int64_t)1 << (w - 1)) - 1 : ((int64_t)1 << w) - 1;
+            int64_t lo = sgn ? -((int64_t)1 << (w - 1)) : 0;
+            out = r > hi ? hi : r < lo ? lo : r;
+        } else if (op2 == 2u) {                    /* SHADD16, UHSUB8, ...: halve */
+            out = r >> 1;
+        } else {
+            out = r;
+            int g = sgn ? r >= 0 : (sub ? r >= 0 : r >= ((int64_t)1 << w));
+            if (g) ge |= (w == 8 ? 1u : 3u) << (w == 8 ? i : 2 * i);
+        }
+        res |= ((uint32_t)out & ((1u << w) - 1u)) << (i * w);
+    }
+    if (op2 == 0u) c->ge = ge;
+    W(c, rd, res);
+}
+
+static inline uint32_t sat32(int64_t v, int *sat)
+{
+    if (v > INT32_MAX) { *sat = 1; return 0x7FFFFFFFu; }
+    if (v < INT32_MIN) { *sat = 1; return 0x80000000u; }
+    return (uint32_t)v;
+}
+
+/* Multiply, multiply accumulate and absolute difference: the DSP forms (A5.3.17) */
+static void multiply_dsp(struct cm_cpu *c, uint32_t hw1, uint32_t hw2)
+{
+    uint32_t op1 = (hw1 >> 4) & 7u, op2 = (hw2 >> 4) & 3u;
+    uint32_t rn = hw1 & 15u, ra = hw2 >> 12, rd = (hw2 >> 8) & 15u, rm = hw2 & 15u;
+    uint32_t n = c->r[rn], m = c->r[rm], acc = ra == 15u ? 0 : c->r[ra];
+    int64_t r;
+    int q = 0;
+    switch (op1) {
+    case 1: {                                      /* SMLA<x><y>, SMUL<x><y> */
+        int32_t x = (op2 & 2u) ? hi16(n) : lo16(n), y = (op2 & 1u) ? hi16(m) : lo16(m);
+        r = (int64_t)x * y + (int32_t)acc;
+        if (r != (int32_t)r) q = 1;
+        break;
+    }
+    case 2: case 4: {                              /* SMLAD(X), SMUAD(X), SMLSD(X), SMUSD(X) */
+        if (op2 & 2u) { undefined(c); return; }
+        uint32_t mm = (op2 & 1u) ? ror32(m, 16) : m;
+        int64_t p1 = (int64_t)lo16(n) * lo16(mm), p2 = (int64_t)hi16(n) * hi16(mm);
+        r = (op1 == 2 ? p1 + p2 : p1 - p2) + (int32_t)acc;
+        if (r != (int32_t)r) q = 1;
+        break;
+    }
+    case 3: {                                      /* SMLAW<y>, SMULW<y> */
+        if (op2 & 2u) { undefined(c); return; }
+        int32_t y = (op2 & 1u) ? hi16(m) : lo16(m);
+        r = ((int64_t)(int32_t)n * y + ((int64_t)(int32_t)acc << 16)) >> 16;
+        if (r != (int32_t)r) q = 1;
+        break;
+    }
+    case 5: case 6: {                              /* SMMLA(R), SMMUL(R), SMMLS(R) */
+        if (op2 & 2u) { undefined(c); return; }
+        if (op1 == 6 && ra == 15u) { undefined(c); return; }
+        int64_t p = (int64_t)(int32_t)n * (int32_t)m;
+        uint64_t t = ((uint64_t)acc << 32) + (uint64_t)(op1 == 5 ? p : -p);
+        if (op2 & 1u) t += 0x80000000u;
+        W(c, rd, (uint32_t)(t >> 32));
+        return;
+    }
+    case 7: {                                      /* USAD8, USADA8 */
+        if (op2 != 0) { undefined(c); return; }
+        uint32_t sum = acc;
+        for (int i = 0; i < 32; i += 8) {
+            int32_t d = (int32_t)((n >> i) & 0xFFu) - (int32_t)((m >> i) & 0xFFu);
+            sum += (uint32_t)(d < 0 ? -d : d);
+        }
+        W(c, rd, sum);
+        return;
+    }
+    default:
+        undefined(c);
+        return;
+    }
+    W(c, rd, (uint32_t)r);
+    if (q && ra != 15u) c->q = 1;
+}
+
 static void dp_register(struct cm_cpu *c, uint32_t hw1, uint32_t hw2)
 {
     uint32_t op1 = (hw1 >> 4) & 15u, op2 = (hw2 >> 4) & 15u;
@@ -1891,7 +2018,14 @@ static void dp_register(struct cm_cpu *c, uint32_t hw1, uint32_t hw2)
         case 1: v = m & 0xFFFFu; break;            /* UXTAH, UXTH */
         case 4: v = sext(m, 8); break;             /* SXTAB, SXTB */
         case 5: v = m & 0xFFu; break;              /* UXTAB, UXTB */
-        default: undefined(c); return;             /* SXTB16, UXTB16 (DSP) */
+        case 2: case 3: {                          /* SXTAB16, SXTB16, UXTAB16, UXTB16 */
+            uint32_t b0 = m & 0xFFu, b2 = (m >> 16) & 0xFFu;
+            if (op1 == 2u) { b0 = sext(b0, 8) & 0xFFFFu; b2 = sext(b2, 8) & 0xFFFFu; }
+            uint32_t a = rn == 15 ? 0 : c->r[rn];
+            W(c, rd, ((a + b0) & 0xFFFFu) | (((a >> 16) + b2) << 16));
+            return;
+        }
+        default: undefined(c); return;
         }
         W(c, rd, rn == 15 ? v : c->r[rn] + v);
         return;
@@ -1909,10 +2043,26 @@ static void dp_register(struct cm_cpu *c, uint32_t hw1, uint32_t hw2)
         }
         case 7: W(c, rd, sext(((m & 0xFFu) << 8) | ((m >> 8) & 0xFFu), 16)); return;  /* REVSH */
         case 12: W(c, rd, m ? (uint32_t)__builtin_clz(m) : 32u); return;              /* CLZ */
-        default: undefined(c); return;             /* QADD, SEL, ... (DSP) */
+        case 0: case 1: case 2: case 3: {          /* QADD, QDADD, QSUB, QDSUB */
+            int sat = 0;
+            int64_t x = (int32_t)c->r[rn];
+            if (hw2 & 0x10u) x = (int32_t)sat32(2 * x, &sat);   /* doubled first */
+            uint32_t r = sat32((hw2 & 0x20u) ? (int64_t)(int32_t)m - x : (int64_t)(int32_t)m + x, &sat);
+            W(c, rd, r);
+            if (sat) c->q = 1;
+            return;
+        }
+        case 8: {                                  /* SEL */
+            uint32_t n = c->r[rn], r = 0;
+            for (int i = 0; i < 4; i++) r |= (((c->ge >> i) & 1u) ? n : m) & (0xFFu << (8 * i));
+            W(c, rd, r);
+            return;
+        }
+        default: undefined(c); return;
         }
     }
-    undefined(c);                                  /* parallel add/subtract (DSP) */
+    if ((op1 & 8u) && (op2 & 0x8u) == 0) { parallel(c, hw1, hw2); return; }   /* parallel add/subtract */
+    undefined(c);
 }
 
 static void multiply(struct cm_cpu *c, uint32_t hw1, uint32_t hw2)
@@ -1926,7 +2076,8 @@ static void multiply(struct cm_cpu *c, uint32_t hw1, uint32_t hw2)
         else undefined(c);
         return;
     }
-    undefined(c);                                  /* SMLA<x><y> and other DSP forms */
+    if (hw2 & 0xC0u) { undefined(c); return; }
+    multiply_dsp(c, hw1, hw2);
 }
 
 static void long_multiply(struct cm_cpu *c, uint32_t hw1, uint32_t hw2)
@@ -1962,16 +2113,32 @@ static void long_multiply(struct cm_cpu *c, uint32_t hw1, uint32_t hw2)
         W(c, hi, q);                               /* Rd is in bits 11:8 */
         return;
     }
+    case 0x48: case 0x49: case 0x4A: case 0x4B: {   /* SMLAL<x><y> */
+        int32_t x = (op2 & 2u) ? hi16(c->r[rn]) : lo16(c->r[rn]);
+        int32_t y = (op2 & 1u) ? hi16(c->r[rm]) : lo16(c->r[rm]);
+        r = (uint64_t)((int64_t)x * y) + (((uint64_t)c->r[hi] << 32) | c->r[lo]);
+        break;
+    }
+    case 0x4C: case 0x4D: case 0x5C: case 0x5D: {   /* SMLALD(X), SMLSLD(X) */
+        uint32_t n = c->r[rn], m = (op2 & 1u) ? ror32(c->r[rm], 16) : c->r[rm];
+        int64_t p1 = (int64_t)lo16(n) * lo16(m), p2 = (int64_t)hi16(n) * hi16(m);
+        r = (uint64_t)(op1 == 4 ? p1 + p2 : p1 - p2) + (((uint64_t)c->r[hi] << 32) | c->r[lo]);
+        break;
+    }
+    case 0x66:                                     /* UMAAL */
+        r = (uint64_t)c->r[rn] * c->r[rm] + c->r[hi] + c->r[lo];
+        break;
     default:
-        undefined(c);                              /* SMLALxy, UMAAL, ... (DSP) */
+        undefined(c);
         return;
     }
     W(c, lo, (uint32_t)r);
     W(c, hi, (uint32_t)(r >> 32));
 }
 
-static void coprocessor(struct cm_cpu *c, uint32_t hw2)
+static void coprocessor(struct cm_cpu *c, uint32_t hw1, uint32_t hw2)
 {
+    (void)hw1;
     uint32_t cp = (hw2 >> 8) & 15u;
     if (cp == 10 || cp == 11) {
         uint32_t access = (c->cpacr >> (cp == 10 ? 20 : 22)) & 3u;
@@ -1999,10 +2166,15 @@ static void exec32(struct cm_cpu *c, uint32_t hw1, uint32_t hw2)
             int t; uint32_t n, cy;
             decode_imm_shift((hw2 >> 4) & 3u, imm5, &t, &n);
             uint32_t opnd = shift_c(R(c, rm), t, n, c->c, &cy);
+            if (op == 6u && !s && !(hw2 & 0x10u)) {  /* PKHBT, PKHTB */
+                uint32_t v = c->r[rn];
+                W(c, rd, (hw2 & 0x20u) ? (v & 0xFFFF0000u) | (opnd & 0xFFFFu) : (opnd & 0xFFFF0000u) | (v & 0xFFFFu));
+                return;
+            }
             if (!dp_op(c, op, (int)s, rn, rd, opnd, cy)) undefined(c);
             return;
         }
-        coprocessor(c, hw2);
+        coprocessor(c, hw1, hw2);
         return;
     }
     if (op1 == 2) {
@@ -2020,7 +2192,7 @@ static void exec32(struct cm_cpu *c, uint32_t hw1, uint32_t hw2)
         return;
     }
     /* op1 == 3 */
-    if (op2 & 0x40u) { coprocessor(c, hw2); return; }
+    if (op2 & 0x40u) { coprocessor(c, hw1, hw2); return; }
     if ((op2 & 0x60u) == 0x00u) {                  /* loads and stores */
         if ((op2 & 0x67u) == 0x07u) { undefined(c); return; }
         if (!(op2 & 1u) && (op2 & 0x10u)) { undefined(c); return; }

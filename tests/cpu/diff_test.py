@@ -281,9 +281,51 @@ def t_tb(rng):
             "2: movs r1, #1", "b 5f", "3: movs r1, #2", "b 5f", "4: movs r1, #3", "5:"], []
 
 
+# DSP extension
+
+PAR = [p + o for p in ["s", "q", "sh", "u", "uq", "uh"] for o in ["add16", "asx", "sax", "sub16", "add8", "sub8"]]
+
+
+def t_dsp(rng):
+    d, n, m, a = r(rng), r(rng), r(rng), r(rng)
+    k = rng.randrange(9)
+    if k == 0:
+        return [f"{rng.choice(PAR)} {d}, {n}, {m}"], []
+    if k == 1:
+        return [f"{rng.choice(['qadd', 'qdadd', 'qsub', 'qdsub'])} {d}, {m}, {n}", f"{rng.choice(PAR)} {a}, {n}, {m}", f"sel {d}, {a}, {n}"], []
+    if k == 2:
+        op = rng.choice(["sxtab16", "uxtab16"])
+        if rng.random() < 0.4:
+            return [f"{op[:2]}tb16 {d}, {m}, ror #{rng.choice([0, 8, 16, 24])}"], []
+        return [f"{op} {d}, {n}, {m}, ror #{rng.choice([0, 8, 16, 24])}"], []
+    if k == 3:
+        xy = rng.choice(["bb", "bt", "tb", "tt"])
+        return [rng.choice([f"smla{xy} {d}, {n}, {m}, {a}", f"smul{xy} {d}, {n}, {m}",
+                            f"smlaw{xy[0]} {d}, {n}, {m}, {a}", f"smulw{xy[0]} {d}, {n}, {m}"])], []
+    if k == 4:
+        x = rng.choice(["", "x"])
+        return [rng.choice([f"smlad{x} {d}, {n}, {m}, {a}", f"smuad{x} {d}, {n}, {m}",
+                            f"smlsd{x} {d}, {n}, {m}, {a}", f"smusd{x} {d}, {n}, {m}"])], []
+    if k == 5:
+        rr = rng.choice(["", "r"])
+        return [rng.choice([f"smmla{rr} {d}, {n}, {m}, {a}", f"smmul{rr} {d}, {n}, {m}",
+                            f"smmls{rr} {d}, {n}, {m}, {a}", f"usad8 {d}, {n}, {m}", f"usada8 {d}, {n}, {m}, {a}"])], []
+    if k == 6:
+        lo, hi = r(rng), None
+        hi = r(rng, avoid=(lo,))
+        xy = rng.choice(["bb", "bt", "tb", "tt"])
+        x = rng.choice(["", "x"])
+        return [rng.choice([f"smlal{xy} {lo}, {hi}, {n}, {m}", f"smlald{x} {lo}, {hi}, {n}, {m}",
+                            f"smlsld{x} {lo}, {hi}, {n}, {m}", f"umaal {lo}, {hi}, {n}, {m}"])], []
+    if k == 7:
+        return [rng.choice([f"ssat16 {d}, #{rng.randrange(1, 17)}, {n}", f"usat16 {d}, #{rng.randrange(0, 16)}, {n}",
+                            f"pkhbt {d}, {n}, {m}, lsl #{rng.randrange(0, 32)}", f"pkhtb {d}, {n}, {m}, asr #{rng.randrange(1, 33)}"])], []
+    return [f"msr {rng.choice(['APSR_g', 'APSR_nzcvqg'])}, {n}", f"{rng.choice(PAR)} {d}, {n}, {m}"], []
+
+
 TEMPLATES = [(t16_alu, 4), (t16_imm, 4), (t16_hi, 1), (t32_dp_shift, 6), (t32_dp_imm, 6),
              (t32_plain, 3), (t32_reg, 3), (t32_mul, 2), (t_mem, 6), (t_it, 2), (t_branch, 2),
-             (t_tb, 1)]
+             (t_tb, 1), (t_dsp, 6)]
 
 
 def make_case(rng):
@@ -367,6 +409,7 @@ class Ref:
         for i, rr in enumerate(REGS[:15]):
             self.uc.reg_write(rr, regs[i])
         self.uc.reg_write(A.UC_ARM_REG_XPSR, regs[16] | (1 << 24))
+        self.uc.reg_write(A.UC_ARM_REG_APSR_NZCVQG, regs[16] & 0xF80F0000)
 
     def run(self, start, end):
         self.uc.emu_start(start | 1, end, count=64)
@@ -396,7 +439,7 @@ def main():
         regs = [rval(rng) for _ in range(13)] + [STACK, rval(rng) | 1, start]
         for b in bases:
             regs[13 if b == "sp" else (14 if b == "lr" else int(b[1:]))] = DATA_PTR + rng.randrange(-64, 64) * 4
-        xpsr = rng.getrandbits(4) << 28
+        xpsr = rng.getrandbits(5) << 27 | rng.getrandbits(4) << 16
         regs.append(xpsr)
         data = bytes(rng.getrandbits(8) for _ in range(256)) * (DATA_SIZE // 256)
 
@@ -415,9 +458,9 @@ def main():
         for j in range(16):
             if mregs[j] != rregs[j]:
                 diffs.append(f"{names[j]}: mine {mregs[j]:08x} ref {rregs[j]:08x}")
-        mflags, rflags = mregs[16] & 0xF8000000, rregs[16] & 0xF8000000
+        mflags, rflags = mregs[16] & 0xF80F0000, rregs[16] & 0xF80F0000
         if mflags != rflags:
-            diffs.append(f"NZCVQ: mine {mflags >> 27:05b} ref {rflags >> 27:05b}")
+            diffs.append(f"NZCVQ GE: mine {mflags >> 27:05b} {(mflags >> 16) & 15:04b} ref {rflags >> 27:05b} {(rflags >> 16) & 15:04b}")
         if mregs[17] or mregs[18]:
             diffs.append(f"fault: cfsr {mregs[17]:08x} lockup {mregs[18]}")
         if mdata != rdata:

@@ -8,8 +8,12 @@ not the clock cycle.
 ## Core
 
 - Thumb and Thumb-2 integer instructions of the Cortex-M4, including the
-  extend-and-add instructions. Checked against Unicorn on random
-  instruction sequences (`tests/cpu/diff_test.py`).
+  extend-and-add instructions and the DSP extension: parallel add and
+  subtract on bytes and halfwords (plain with the GE flags, saturating,
+  halving), SEL, QADD and friends, the 16-bit and dual multiplies with
+  accumulate (SMLA<x><y>, SMLAD, SMLSD, SMLAW, SMMLA, SMLALD, ...), UMAAL,
+  USAD8, SSAT16 and USAT16, PKHBT and PKHTB, SXTB16 and UXTB16. Checked
+  against Unicorn on random instruction sequences (`tests/cpu/diff_test.py`).
 - Exceptions: NVIC with 102 interrupts and 4 priority bits, priority
   grouping, preemption, tail chaining, PRIMASK, BASEPRI, FAULTMASK,
   Thread and Handler mode, MSP and PSP, unprivileged Thread mode,
@@ -21,8 +25,8 @@ not the clock cycle.
   peripheral addresses, stacking errors.
 - SysTick, the DWT cycle counter, bit-banding of SRAM and peripherals,
   the exclusive monitor, WFI/WFE/SEV.
-- Not yet: the FPU and the DSP instructions (they raise a UsageFault, as
-  on a core without them), the MPU (its registers exist but nothing is
+- Not yet: the FPU (its instructions raise a UsageFault, as on a core
+  without one), the MPU (its registers exist but nothing is
   enforced), debug features.
 
 ## Memory
