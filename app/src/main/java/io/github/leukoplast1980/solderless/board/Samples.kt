@@ -504,6 +504,7 @@ object Samples {
         c.add(": $n-init ( -- )")
         gpioClocks(c, chip, p.pins)
         c.add("  1 $clockBit lshift $reg bis!", "RCC $regName: clock for ${f.periph}")
+        spiReset(c, f.periph)
         c.add("  $n-off", "CS high before it becomes an output")
         for ((r, u) in p.pins.withIndex()) {
             val base = "$n-${p.type.roles[r]}"
@@ -524,10 +525,18 @@ object Samples {
     }
 
     /** SPI setup shared by the SPI parts: clocks, the GPIOs as outputs (high first), the bus pins in their alternate function */
+    /** Pulses the SPI's reset bit: another part's sample may have left bytes in its receive FIFO */
+    private fun spiReset(c: Code, periph: String) {
+        val (reg, _, bit) = SPI_CLOCK.getValue(periph)
+        val (rst, name) = if (reg == APB2ENR) "\$40021040" to "APB2RSTR" else "\$40021038" to "APB1RSTR1"
+        c.add("  1 $bit lshift $rst 2dup bis! bic!", "RCC $name: reset $periph, nothing left in it from another part")
+    }
+
     private fun spiPins(c: Code, n: String, chip: ChipPins, p: Part, f: Function.Spi) {
         val (reg, regName, clockBit) = SPI_CLOCK.getValue(f.periph)
         gpioClocks(c, chip, p.pins)
         c.add("  1 $clockBit lshift $reg bis!", "RCC $regName: clock for ${f.periph}")
+        spiReset(c, f.periph)
         for ((r, u) in p.pins.withIndex()) {
             val base = "$n-${p.type.roles[r]}"
             if (u.function is Function.Spi) { mode(c, base, "10", "alternate function"); altFunction(c, base, bit(chip, u), u.function) }

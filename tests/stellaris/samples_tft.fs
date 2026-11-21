@@ -57,6 +57,7 @@ $48000400 constant tft-res-port  \ GPIOB
   1 0 lshift $4002104C bis!                       \ RCC AHB2ENR: clock for GPIOA
   1 1 lshift $4002104C bis!                       \ RCC AHB2ENR: clock for GPIOB
   1 12 lshift $40021060 bis!                      \ RCC APB2ENR: clock for SPI1
+  1 12 lshift $40021040 2dup bis! bic!            \ RCC APB2RSTR: reset SPI1, nothing left in it from another part
   1 tft-cs-pin lshift tft-cs-port $18 + !         \ BSRR: high before it becomes an output
   %11 tft-cs-pin 2* lshift tft-cs-port bic!       \ MODER: clear the two bits
   %01 tft-cs-pin 2* lshift tft-cs-port bis!       \ MODER: 01 = output
@@ -153,6 +154,7 @@ $48000800 constant tft2-res-port  \ GPIOC
   1 1 lshift $4002104C bis!                       \ RCC AHB2ENR: clock for GPIOB
   1 2 lshift $4002104C bis!                       \ RCC AHB2ENR: clock for GPIOC
   1 14 lshift $40021058 bis!                      \ RCC APB1ENR1: clock for SPI2
+  1 14 lshift $40021038 2dup bis! bic!            \ RCC APB1RSTR1: reset SPI2, nothing left in it from another part
   1 tft2-cs-pin lshift tft2-cs-port $18 + !       \ BSRR: high before it becomes an output
   %11 tft2-cs-pin 2* lshift tft2-cs-port bic!     \ MODER: clear the two bits
   %01 tft2-cs-pin 2* lshift tft2-cs-port bis!     \ MODER: 01 = output

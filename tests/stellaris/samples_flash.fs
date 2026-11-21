@@ -56,6 +56,7 @@ $48000000 constant flash-do-port  \ GPIOA
 : flash-init ( -- )
   1 0 lshift $4002104C bis!                       \ RCC AHB2ENR: clock for GPIOA
   1 12 lshift $40021060 bis!                      \ RCC APB2ENR: clock for SPI1
+  1 12 lshift $40021040 2dup bis! bic!            \ RCC APB2RSTR: reset SPI1, nothing left in it from another part
   flash-off                                       \ CS high before it becomes an output
   %11 flash-cs-pin 2* lshift flash-cs-port bic!   \ MODER: clear the two bits
   %01 flash-cs-pin 2* lshift flash-cs-port bis!   \ MODER: 01 = output
@@ -141,6 +142,7 @@ $48000400 constant flash2-do-port  \ GPIOB
 : flash2-init ( -- )
   1 1 lshift $4002104C bis!                       \ RCC AHB2ENR: clock for GPIOB
   1 14 lshift $40021058 bis!                      \ RCC APB1ENR1: clock for SPI2
+  1 14 lshift $40021038 2dup bis! bic!            \ RCC APB1RSTR1: reset SPI2, nothing left in it from another part
   flash2-off                                      \ CS high before it becomes an output
   %11 flash2-cs-pin 2* lshift flash2-cs-port bic! \ MODER: clear the two bits
   %01 flash2-cs-pin 2* lshift flash2-cs-port bis! \ MODER: 01 = output

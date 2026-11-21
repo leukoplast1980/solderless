@@ -51,6 +51,7 @@ $48000800 constant matrix-din-port  \ GPIOC
 : matrix-init ( -- )
   1 2 lshift $4002104C bis!                       \ RCC AHB2ENR: clock for GPIOC
   1 15 lshift $40021058 bis!                      \ RCC APB1ENR1: clock for SPI3
+  1 15 lshift $40021038 2dup bis! bic!            \ RCC APB1RSTR1: reset SPI3, nothing left in it from another part
   1 matrix-cs-pin lshift matrix-cs-port $18 + !   \ BSRR: high before it becomes an output
   %11 matrix-cs-pin 2* lshift matrix-cs-port bic! \ MODER: clear the two bits
   %01 matrix-cs-pin 2* lshift matrix-cs-port bis! \ MODER: 01 = output
@@ -133,6 +134,7 @@ $48000400 constant matrix2-din-port  \ GPIOB
 : matrix2-init ( -- )
   1 1 lshift $4002104C bis!                       \ RCC AHB2ENR: clock for GPIOB
   1 12 lshift $40021060 bis!                      \ RCC APB2ENR: clock for SPI1
+  1 12 lshift $40021040 2dup bis! bic!            \ RCC APB2RSTR: reset SPI1, nothing left in it from another part
   1 matrix2-cs-pin lshift matrix2-cs-port $18 + ! \ BSRR: high before it becomes an output
   %11 matrix2-cs-pin 2* lshift matrix2-cs-port bic! \ MODER: clear the two bits
   %01 matrix2-cs-pin 2* lshift matrix2-cs-port bis! \ MODER: 01 = output

@@ -493,6 +493,7 @@ class BoardController(
         val lo = Math.round(from / step); val hi = Math.round(to / step)
         val slider = com.google.android.material.slider.Slider(activity).apply {
             valueFrom = lo.toFloat(); valueTo = hi.toFloat(); stepSize = 1f
+            isTickVisible = false
             this.value = Math.round(value / step).coerceIn(lo, hi).toFloat()
             labelBehavior = com.google.android.material.slider.LabelFormatter.LABEL_GONE
             contentDescription = label

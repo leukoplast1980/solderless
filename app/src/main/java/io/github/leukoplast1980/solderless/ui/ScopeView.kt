@@ -407,7 +407,11 @@ class ScopeView @JvmOverloads constructor(context: Context, attrs: AttributeSet?
                 // marks only where the bytes next to them are drawn one by one
                 val n = ev.getOrNull(if (e.kind == BusEv.START) k + 1 else k - 1)
                 if (n == null || n.kind != BusEv.ADDR && n.kind != BusEv.BYTE || x(n.end) - x(n.t) < dp(14f)) continue
-                if (x1 - x0 < dp(8f)) { val m = (x0 + x1) / 2; x0 = m - dp(4f); x1 = m + dp(4f) }
+                if (x1 - x0 < dp(8f)) {                          // a mark 8 dp wide, clear of the byte next to it
+                    val m = (x0 + x1) / 2
+                    if (e.kind == BusEv.START) { x1 = min(m + dp(4f), x(n.t)); x0 = x1 - dp(8f) }
+                    else { x0 = max(m - dp(4f), x(n.end)); x1 = x0 + dp(8f) }
+                }
                 flush()
                 box(c, x0, x1, top, cHigh)
                 label(c, if (e.kind == BusEv.START) "S" else "P", (x0 + x1) / 2, top + dp(17f), 10f, cText)
