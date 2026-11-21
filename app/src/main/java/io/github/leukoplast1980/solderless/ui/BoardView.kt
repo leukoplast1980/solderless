@@ -8,6 +8,7 @@ package io.github.leukoplast1980.solderless.ui
 
 import android.annotation.SuppressLint
 import android.content.Context
+import android.graphics.Bitmap
 import android.graphics.Canvas
 import android.graphics.DashPathEffect
 import android.graphics.Paint
@@ -52,6 +53,10 @@ class BoardView @JvmOverloads constructor(context: Context, attrs: AttributeSet?
 
     // ---- what touches do ----------------------------------------------
     var onPress: (Part, Boolean) -> Unit = { _, _ -> }
+    /** An encoder turned by some detents, clockwise when positive */
+    var onTurn: (Part, Int) -> Unit = { _, _ -> }
+    /** What an encoder's timer counts now, as the board shows it */
+    val encoderCounts = HashMap<Int, Long>()
     var onPot: (Part, Int) -> Unit = { _, _ -> }
     var onLongPress: (Part) -> Unit = {}
     /** A tap on a part that does not react to touch (not a button or a pot), or on a button's label */
@@ -59,6 +64,12 @@ class BoardView @JvmOverloads constructor(context: Context, attrs: AttributeSet?
     var onPinTap: (ChipPins.Pin) -> Unit = {}
     /** Last known pot positions (per mille), drawn and dragged */
     val potValue = HashMap<Int, Int>()
+    /** Displays: lit pixels (128 x 64, one byte each) and contrast, by part id; the controller fills them */
+    val devicePixels = HashMap<Int, ByteArray>()
+    val deviceContrast = HashMap<Int, Int>()
+    private val oledBitmap = Bitmap.createBitmap(128, 64, Bitmap.Config.ARGB_8888)
+    private val oledRow = IntArray(128 * 64)
+    private val pixelPaint = Paint().apply { isFilterBitmap = false; isAntiAlias = false }
 
     private val d = resources.displayMetrics.density
     private fun dp(v: Float) = v * d
@@ -73,6 +84,7 @@ class BoardView @JvmOverloads constructor(context: Context, attrs: AttributeSet?
     private val cDimText = 0xFF56636A.toInt(); private val cDim = 0xFF3A4650.toInt(); private val cNum = 0xFF4A555C.toInt()
     private val cHigh = 0xFF8FD18F.toInt(); private val cLow = 0xFF5E6A70.toInt(); private val cPwm = 0xFFC49BE0.toInt()
     private val cAnalog = 0xFF80DEEA.toInt(); private val cWarn = 0xFFFFB454.toInt(); private val cDanger = 0xFFFF6B6B.toInt()
+    private val cBus = 0xFFE6B673.toInt()
 
     private val stroke = Paint(Paint.ANTI_ALIAS_FLAG).apply { style = Paint.Style.STROKE; strokeWidth = dp(1.6f); strokeJoin = Paint.Join.ROUND; strokeCap = Paint.Cap.ROUND }
     private val fill = Paint(Paint.ANTI_ALIAS_FLAG).apply { style = Paint.Style.FILL }
@@ -88,8 +100,12 @@ class BoardView @JvmOverloads constructor(context: Context, attrs: AttributeSet?
     private val hitLabel = ArrayList<Pair<RectF, Part>>()
     private val rowHit = ArrayList<Pair<RectF, ChipPins.Pin>>()
 
+    /** The view's width as placement sees it (onMeasure runs before width is set) */
+    private var boardW = 0f
+
     override fun onMeasure(widthMeasureSpec: Int, heightMeasureSpec: Int) {
         val w = MeasureSpec.getSize(widthMeasureSpec)
+        boardW = w.toFloat()
         rowH = baseRow
         if (autoSpread && chip != null) {
             // Smallest row height at which every part sits next to its pins
@@ -97,7 +113,8 @@ class BoardView @JvmOverloads constructor(context: Context, attrs: AttributeSet?
             while (r < dp(56f)) {
                 computePins(r)
                 val placed = placeParts()
-                val worst = placed.maxOfOrNull { (p, cy, _) -> abs(cy - anchor(p)) } ?: 0f
+                val worst = placed.filter { it.first.id !in sidestepped }
+                    .maxOfOrNull { (p, cy, _) -> abs(cy - anchor(p)) } ?: 0f
                 val bottom = placed.maxOfOrNull { (p, cy, _) -> cy + extent(p).second } ?: 0f
                 if (worst <= r * 1.2f && bottom <= top + 32 * r + dp(8f)) break
                 r += dp(1f)
@@ -114,17 +131,72 @@ class BoardView @JvmOverloads constructor(context: Context, attrs: AttributeSet?
         for ((i, p) in right.withIndex()) { pinY[p.name] = top + (i + 0.5f) * r; pinSide[p.name] = -1 }
     }
 
-    /** Parts per side, each centred on its pins, pushed apart vertically */
+    /** How far a part reaches in from its header */
+    private fun widthOf(p: Part): Float = when (p.type) {
+        PartType.OLED -> dp(30f) + minOf(dp(146f), boardW - 2 * headerW - dp(36f))
+        PartType.RGB_LED -> dp(124f)
+        PartType.POT -> dp(100f)
+        PartType.LED -> dp(92f)
+        PartType.BUTTON -> dp(86f)
+        PartType.PIEZO, PartType.SPEAKER -> dp(72f)
+        PartType.FLASH -> dp(124f)
+        PartType.MATRIX -> dp(30f) + matrixWidth(p)
+        PartType.BARO, PartType.CO2 -> dp(30f) + dp(74f) + dp(64f)
+        PartType.ENCODER -> dp(30f) + dp(96f)
+        PartType.TFT -> dp(30f) + tftWidth()
+    }
+
+    /** A 4-in-1 matrix as wide as fits; a single 8 x 8 a quarter of that */
+    private fun matrixWidth(p: Part): Float {
+        val full = minOf(dp(150f), boardW - 2 * headerW - dp(36f))
+        return if (p.matrixChips == 1) full * 0.45f else full
+    }
+
+    private fun tftWidth(): Float = minOf(dp(120f), boardW - 2 * headerW - dp(36f))
+
+    /** Parts placement moved off their pins to keep clear of the other side or the
+     * USB-serial strip; a taller row would not bring them back, so spreading ignores them */
+    private val sidestepped = HashSet<Int>()
+
+    /** Parts per side, each centred on its pins, pushed apart vertically. A part
+     * reaching far in also keeps clear of what the other side has at that height,
+     * and every part of the USB-serial strip at PA2/PA3: it goes above or below,
+     * whichever is nearer its pins. */
     private fun placeParts(): List<Triple<Part, Float, Int>> {
+        if (boardW == 0f) boardW = width.toFloat()
+        sidestepped.clear()
         val placed = ArrayList<Triple<Part, Float, Int>>()
+        val inner = boardW - 2 * headerW
+        // (top, bottom, reach) of what is drawn, per side
+        val taken = mapOf(1 to ArrayList<Triple<Float, Float, Float>>(), -1 to ArrayList())
+        val y2 = pinY["PA2"]; val y3 = pinY["PA3"]
+        val strip = if (y2 != null && y3 != null)
+            Triple(minOf(y2, y3) - dp(14f), maxOf(y2, y3) + dp(14f), dp(62f)) else null
+        val stripSide = pinSide["PA2"] ?: 1
         for (side in listOf(1, -1)) {
             val parts = (board.parts + listOfNotNull(ghost)).filter { p -> sideOf(p) == side }
                 .map { it to anchor(it) }.sortedBy { it.second }
             var floor = top
+            val anchors = ArrayList<Float>()
             for ((p, y) in parts) {
                 val (above, below) = extent(p)
-                val cy = maxOf(y, floor + above)
+                val w = widthOf(p)
+                // parts on the same bus pins cannot all sit at them: taller rows would not help
+                if (anchors.any { kotlin.math.abs(it - y) < 1f }) sidestepped += p.id
+                anchors += y
+                val blocks = taken[-side]!!.filter { it.third + w > inner - dp(6f) }.toMutableList()
+                if (strip != null && (side == stripSide || strip.third + w > inner - dp(6f))) blocks += strip
+                blocks.sortBy { it.first }
+                var cy = maxOf(y, floor + above)
+                for (b in blocks) {
+                    if (cy - above >= b.second || cy + below <= b.first) continue
+                    val up = b.first - below - dp(6f)
+                    val down = b.second + above + dp(6f)
+                    cy = if (up - above >= floor && abs(up - y) < abs(down - y)) up else down
+                    sidestepped += p.id
+                }
                 placed += Triple(p, cy, side)
+                taken[side]!! += Triple(cy - above, cy + below, w)
                 floor = cy + below + dp(6f)
             }
         }
@@ -137,7 +209,7 @@ class BoardView @JvmOverloads constructor(context: Context, attrs: AttributeSet?
         val chip = chip ?: return
         canvas.drawColor(cBg)
         if (rowH == 0f) rowH = baseRow
-        hit.clear(); hitLabel.clear(); rowHit.clear(); pinY.clear(); pinSide.clear()
+        hit.clear(); hitLabel.clear(); knobs.clear(); rowHit.clear(); pinY.clear(); pinSide.clear()
         val (left, right) = chip.headers(order)
         drawHeader(canvas, left, true)
         drawHeader(canvas, right, false)
@@ -229,6 +301,13 @@ class BoardView @JvmOverloads constructor(context: Context, attrs: AttributeSet?
     private fun extent(p: Part): Pair<Float, Float> = when (p.type) {
         PartType.RGB_LED -> dp(52f) to dp(52f)
         PartType.POT -> dp(42f) to dp(42f)
+        PartType.OLED -> dp(56f) to dp(52f)
+        PartType.FLASH -> dp(58f) to dp(50f)
+        PartType.MATRIX -> dp(58f) to dp(50f)
+        PartType.BARO -> dp(52f) to dp(40f)
+        PartType.ENCODER -> dp(46f) to dp(52f)
+        PartType.CO2 -> dp(44f) to dp(32f)
+        PartType.TFT -> if (p.tftRows == 320) dp(98f) to dp(94f) else dp(80f) to dp(76f)
         else -> dp(26f) to dp(24f)
     }
 
@@ -450,9 +529,316 @@ class BoardView @JvmOverloads constructor(context: Context, attrs: AttributeSet?
                 }
                 box.set(x0, rows[0] - dp(30f), x0 + sg * dp(120f), rows[2] + dp(26f))
             }
+            PartType.OLED -> drawOled(c, p, cy, x0, sg, isGhost, box)
+            PartType.FLASH -> drawFlash(c, p, cy, x0, sg, isGhost, box)
+            PartType.MATRIX -> drawMatrix(c, p, cy, x0, sg, isGhost, box)
+            PartType.BARO, PartType.CO2 -> drawSensor(c, p, cy, x0, sg, isGhost, box)
+            PartType.ENCODER -> drawEncoder(c, p, cy, x0, sg, isGhost, box)
+            PartType.TFT -> drawTft(c, p, cy, x0, sg, isGhost, box)
         }
         box.sort()
         if (!isGhost) hit += box to p
+    }
+
+    /** An SSD1306 module: its four pins face the header, the screen shows what the controller lights */
+    private fun drawOled(c: Canvas, p: Part, cy: Float, x0: Float, sg: Int, isGhost: Boolean, box: RectF) {
+        val gc = if (isGhost) cHigh else null
+        val avail = width - 2 * headerW - dp(36f)
+        val mw = minOf(dp(146f), avail)                  // module width
+        val near = x0 + sg * dp(30f)                     // the module's edge with the pins
+        val far = near + sg * mw
+        val top = cy - dp(46f); val bottom = cy + dp(46f)
+        val l = minOf(near, far); val r = maxOf(near, far)
+        fill.color = 0xFF14324A.toInt()
+        if (!isGhost) c.drawRoundRect(RectF(l, top, r, bottom), dp(6f), dp(6f), fill)
+        setStroke(gc ?: 0xFF4A6A86.toInt(), isGhost, 1.4f)
+        c.drawRoundRect(RectF(l, top, r, bottom), dp(6f), dp(6f), stroke)
+        // Pins: GND and VCC, then SCL and SDA in the order their header pins come, so the wires do not cross
+        val scl = p.pins.getOrNull(0)?.pin; val sda = p.pins.getOrNull(1)?.pin
+        val sclFirst = (pinY[scl] ?: 0f) <= (pinY[sda] ?: 0f)
+        val names = listOf("GND", "VCC") + if (sclFirst) listOf("SCL", "SDA") else listOf("SDA", "SCL")
+        val ys = listOf(cy - dp(30f), cy - dp(15f), cy + dp(10f), cy + dp(25f))
+        text.typeface = Typeface.MONOSPACE
+        for ((i, n) in names.withIndex()) {
+            fill.color = 0xFFC9A24A.toInt(); c.drawCircle(near, ys[i], dp(3f), fill)
+            label(c, n, near + sg * dp(6f), ys[i] + dp(2.5f), 6.5f, 0xFFB9C9D9.toInt(), if (sg > 0) Paint.Align.LEFT else Paint.Align.RIGHT)
+        }
+        val ySig = mapOf(names[2] to ys[2], names[3] to ys[3])
+        for ((role, pin) in listOf(scl, sda).withIndex()) {
+            if (pin == null) continue
+            val y = ySig[if (role == 0) "SCL" else "SDA"]!!
+            val jog = if ((role == 0) == sclFirst) 16f else 9f
+            feed(c, pin, near, y, isGhost, gc ?: busColour(pin), jog)
+        }
+        // The screen, 2:1, pixel for pixel
+        val sx0 = minOf(near + sg * dp(26f), far - sg * dp(6f)); val sx1 = maxOf(near + sg * dp(26f), far - sg * dp(6f))
+        val sw = sx1 - sx0; val sh = sw / 2f
+        val sy0 = cy - sh / 2 + dp(4f)
+        fill.color = 0xFF050A10.toInt(); c.drawRect(sx0 - dp(2f), sy0 - dp(2f), sx1 + dp(2f), sy0 + sh + dp(2f), fill)
+        val px = devicePixels[p.id]
+        if (!isGhost && px != null) {
+            pixelPaint.isFilterBitmap = sw < 128f      // smaller than the panel: blend rather than drop lines
+            val contrast = deviceContrast[p.id] ?: 0x7F
+            val a = (110 + 145 * contrast / 255).coerceIn(60, 255)
+            val on = (a shl 24) or 0xCFE6FF
+            for (i in 0 until 128 * 64) oledRow[i] = if (px[i].toInt() != 0) on else 0
+            oledBitmap.setPixels(oledRow, 0, 128, 0, 0, 128, 64)
+            c.drawBitmap(oledBitmap, null, RectF(sx0, sy0, sx1, sy0 + sh), pixelPaint)
+        }
+        label(c, "OLED " + "0x%02X".format(java.util.Locale.ROOT, p.i2cAddr), (l + r) / 2, top - dp(5f), 9.5f, gc ?: cText, bold = true)
+        box.set(x0, top - dp(18f), far, bottom + dp(4f))
+        if (!isGhost) hitLabel += RectF(l, top - dp(20f), r, bottom) to p
+    }
+
+    /** Pins along a module's edge facing the header: VCC and GND first, then the signals
+     * in the order their header pins come, each wire turning in a column of its own */
+    private fun modulePins(c: Canvas, p: Part, near: Float, sg: Int, ys: List<Float>, names: List<String>, isGhost: Boolean,
+                           colourOf: (Int, String) -> Int) {
+        val gc = if (isGhost) cHigh else null
+        val al = if (sg > 0) Paint.Align.LEFT else Paint.Align.RIGHT
+        text.typeface = Typeface.MONOSPACE
+        for ((i, n) in listOf("VCC", "GND").withIndex()) {
+            fill.color = 0xFFC9A24A.toInt(); c.drawCircle(near, ys[i], dp(3f), fill)
+            label(c, n, near + sg * dp(6f), ys[i] + dp(2.5f), 6.5f, 0xFFB9C9D9.toInt(), al)
+        }
+        val roles = p.pins.indices.sortedBy { pinY[p.pins[it].pin] ?: 0f }
+        val rowOf = HashMap<Int, Float>()
+        roles.forEachIndexed { i, role -> rowOf[role] = ys[i + 2] }
+        fun py(role: Int) = pinY[p.pins[role].pin] ?: 0f
+        val jog = HashMap<Int, Float>()
+        roles.filter { rowOf[it]!! - py(it) > 0.5f }.sortedByDescending { py(it) }.forEachIndexed { k, role -> jog[role] = 6f + 5f * k }
+        roles.filter { rowOf[it]!! - py(it) < -0.5f }.sortedBy { py(it) }.forEachIndexed { k, role -> jog[role] = 6f + 5f * k }
+        for (role in roles) {
+            val y = rowOf[role]!!
+            fill.color = 0xFFC9A24A.toInt(); c.drawCircle(near, y, dp(3f), fill)
+            label(c, names[role], near + sg * dp(6f), y + dp(2.5f), 6.5f, 0xFFB9C9D9.toInt(), al)
+            val pin = p.pins[role].pin
+            feed(c, pin, near, y, isGhost, gc ?: colourOf(role, pin), jog[role] ?: 9f)
+        }
+    }
+
+    private val matrixPaint = Paint(Paint.ANTI_ALIAS_FLAG)
+
+    /** A MAX7219 matrix module: red LEDs on a dark board, its pin strip facing the header */
+    private fun drawMatrix(c: Canvas, p: Part, cy: Float, x0: Float, sg: Int, isGhost: Boolean, box: RectF) {
+        val gc = if (isGhost) cHigh else null
+        val near = x0 + sg * dp(30f)
+        val mw = matrixWidth(p)
+        val far = near + sg * mw
+        val l = minOf(near, far); val r = maxOf(near, far)
+        val strip = dp(26f)                                   // the pins and their names
+        val gx0 = if (sg > 0) l + strip else l + dp(4f)
+        val gx1 = if (sg > 0) r - dp(4f) else r - strip
+        val w = 8 * p.matrixChips
+        val dot = (gx1 - gx0) / w
+        val gh = dot * 8
+        val top = cy - maxOf(gh / 2 + dp(6f), dp(40f)); val bottom = cy + maxOf(gh / 2 + dp(6f), dp(40f))
+        fill.color = 0xFF1A1416.toInt()
+        if (!isGhost) c.drawRoundRect(RectF(l, top, r, bottom), dp(4f), dp(4f), fill)
+        setStroke(gc ?: 0xFF5A3434.toInt(), isGhost, 1.4f)
+        c.drawRoundRect(RectF(l, top, r, bottom), dp(4f), dp(4f), stroke)
+        val px = devicePixels[p.id]
+        val gy0 = cy - gh / 2
+        for (y in 0 until 8) for (x in 0 until w) {
+            val v = if (!isGhost && px != null && y * w + x < px.size) px[y * w + x].toInt() and 0xFF else 0
+            matrixPaint.color = if (isGhost) 0x553A2224 else Panels.ledColour(v)
+            c.drawCircle(gx0 + (x + 0.5f) * dot, gy0 + (y + 0.5f) * dot, dot * 0.36f, matrixPaint)
+        }
+        val ys = (0 until 5).map { cy - dp(26f) + it * dp(13f) }
+        modulePins(c, p, near, sg, ys, listOf("CS", "CLK", "DIN"), isGhost) { role, pin -> if (role == 0) wireColour(pin) else cBus }
+        val title = if (p.matrixChips == 1) "LED matrix · MAX7219" else "LED matrix · MAX7219 × ${p.matrixChips}"
+        label(c, title, (l + r) / 2, top - dp(5f), 9.5f, gc ?: cText, bold = true)
+        box.set(x0, top - dp(18f), far, bottom + dp(4f))
+        if (!isGhost) hitLabel += RectF(l, top - dp(20f), r, bottom) to p
+    }
+
+    private var tftBitmap: Bitmap? = null
+    private var tftArgb = IntArray(0)
+
+    /** An ST7789 module: the screen shows the panel as it is lit */
+    private fun drawTft(c: Canvas, p: Part, cy: Float, x0: Float, sg: Int, isGhost: Boolean, box: RectF) {
+        val gc = if (isGhost) cHigh else null
+        val near = x0 + sg * dp(30f)
+        val mw = tftWidth()
+        val far = near + sg * mw
+        val l = minOf(near, far); val r = maxOf(near, far)
+        val sx0 = if (sg > 0) l + dp(28f) else l + dp(5f)
+        val sx1 = if (sg > 0) r - dp(5f) else r - dp(28f)
+        val sw = sx1 - sx0
+        val sh = sw * p.tftRows / 240f
+        val top = cy - sh / 2 - dp(14f); val bottom = cy + sh / 2 + dp(14f)
+        fill.color = 0xFF14324A.toInt()
+        if (!isGhost) c.drawRoundRect(RectF(l, top, r, bottom), dp(6f), dp(6f), fill)
+        setStroke(gc ?: 0xFF4A6A86.toInt(), isGhost, 1.4f)
+        c.drawRoundRect(RectF(l, top, r, bottom), dp(6f), dp(6f), stroke)
+        val sy0 = cy - sh / 2
+        fill.color = 0xFF000000.toInt(); c.drawRect(sx0 - dp(2f), sy0 - dp(2f), sx1 + dp(2f), sy0 + sh + dp(2f), fill)
+        val px = devicePixels[p.id]
+        if (!isGhost && px != null && px.size >= 240 * p.tftRows * 2) {
+            val bm = tftBitmap?.takeIf { it.height == p.tftRows } ?: Bitmap.createBitmap(240, p.tftRows, Bitmap.Config.ARGB_8888).also { tftBitmap = it }
+            if (tftArgb.size != 240 * p.tftRows) tftArgb = IntArray(240 * p.tftRows)
+            Panels.rgb565(px, tftArgb, 240 * p.tftRows)
+            bm.setPixels(tftArgb, 0, 240, 0, 0, 240, p.tftRows)
+            pixelPaint.isFilterBitmap = true
+            c.drawBitmap(bm, null, RectF(sx0, sy0, sx1, sy0 + sh), pixelPaint)
+        }
+        val ys = (0 until 7).map { cy - dp(39f) + it * dp(13f) }
+        modulePins(c, p, near, sg, ys, listOf("CS", "SCL", "SDA", "DC", "RES"), isGhost) { role, pin -> if (role == 1 || role == 2) cBus else wireColour(pin) }
+        label(c, "ST7789 · 240 × ${p.tftRows}", (l + r) / 2, top - dp(5f), 9.5f, gc ?: cText, bold = true)
+        box.set(x0, top - dp(18f), far, bottom + dp(4f))
+        if (!isGhost) hitLabel += RectF(l, top - dp(20f), r, bottom) to p
+    }
+
+    /** What a sensor reads now, as its module shows it next to it: "1013.2 hPa", "21.5 °C" */
+    val deviceReadings = HashMap<Int, List<String>>()
+
+    /** A sensor module on I2C: its pins facing the header, the chip, what it reads now */
+    private fun drawSensor(c: Canvas, p: Part, cy: Float, x0: Float, sg: Int, isGhost: Boolean, box: RectF) {
+        val gc = if (isGhost) cHigh else null
+        val baro = p.type == PartType.BARO
+        val near = x0 + sg * dp(30f)
+        val far = near + sg * dp(74f)
+        val rows = if (baro) 6 else 4
+        val top = cy - dp(6.5f) * rows - dp(6f); val bottom = cy + dp(6.5f) * rows + dp(6f)
+        val l = minOf(near, far); val r = maxOf(near, far)
+        fill.color = if (baro) 0xFF3A1F4A.toInt() else 0xFF1E3A2A.toInt()      // the purple BMP280 board, the green SCD41
+        if (!isGhost) c.drawRoundRect(RectF(l, top, r, bottom), dp(5f), dp(5f), fill)
+        setStroke(gc ?: if (baro) 0xFF7A5A8E.toInt() else 0xFF4E8A62.toInt(), isGhost, 1.4f)
+        c.drawRoundRect(RectF(l, top, r, bottom), dp(5f), dp(5f), stroke)
+        val ys = (0 until rows).map { cy - dp(6.5f) * (rows - 1) + it * dp(13f) }
+        // VCC, GND, then SCL and SDA in header order; the BMP280 also has CSB and SDO, strapped on the module
+        val names = listOf("SCL", "SDA")
+        modulePins(c, p, near, sg, ys.take(4), names, isGhost) { _, pin -> busColour(pin) }
+        if (baro) {
+            val al = if (sg > 0) Paint.Align.LEFT else Paint.Align.RIGHT
+            for ((k, n) in listOf("CSB", "SDO").withIndex()) {
+                fill.color = 0xFF7A6A4A.toInt(); c.drawCircle(near, ys[4 + k], dp(3f), fill)
+                label(c, n, near + sg * dp(6f), ys[4 + k] + dp(2.5f), 6.5f, 0xFF8A7A9A.toInt(), al)
+            }
+        }
+        // the chip: the BMP280's metal can, the SCD41's square with its opening
+        val cx = near + sg * dp(52f)
+        fill.color = if (baro) 0xFFB8BEC2.toInt() else 0xFF2A2F33.toInt()
+        val half = dp(if (baro) 7f else 10f)
+        c.drawRoundRect(RectF(cx - half, cy - half, cx + half, cy + half), dp(2f), dp(2f), fill)
+        if (!baro) { fill.color = 0xFF0E1012.toInt(); c.drawCircle(cx, cy, dp(4f), fill) }
+        else { fill.color = 0xFF6A7074.toInt(); c.drawCircle(cx + dp(3f), cy - dp(3f), dp(1.2f), fill) }
+        val name = if (baro) "BMP280 · " + "0x%02X".format(java.util.Locale.ROOT, p.i2cAddr) else "SCD41 · 0x62"
+        label(c, name, (l + r) / 2, top - dp(5f), 9.5f, gc ?: cText, bold = true)
+        // the readings, beyond the module
+        val lines = deviceReadings[p.id] ?: if (baro) listOf("%.1f hPa".format(java.util.Locale.ROOT, p.pressureHpa),
+            "%.1f °C".format(java.util.Locale.ROOT, p.tempC)) else listOf("${p.co2Ppm} ppm", "%.1f °C · %d %%".format(java.util.Locale.ROOT, p.tempC, p.rhPct))
+        val tx = far + sg * dp(6f)
+        val tal = if (sg > 0) Paint.Align.LEFT else Paint.Align.RIGHT
+        if (!isGhost) for ((k, t) in lines.withIndex()) label(c, t, tx, cy - dp(4f) + k * dp(13f), 9f, cAnalog, tal)
+        box.set(x0, top - dp(18f), far + sg * dp(64f), bottom + dp(4f))
+        if (!isGhost) hitLabel += RectF(minOf(l, tx - dp(64f)), top - dp(20f), maxOf(r, tx + dp(64f)), bottom) to p
+    }
+
+    /** Detents each encoder was turned, for drawing its knob */
+    private val encoderTurned = HashMap<Int, Int>()
+    /** Where each encoder's knob is, for touches */
+    private val knobs = HashMap<Int, RectF>()
+
+    /** A KY-040 encoder: its pins facing the header, the knob with its pointer, what the timer counts */
+    private fun drawEncoder(c: Canvas, p: Part, cy: Float, x0: Float, sg: Int, isGhost: Boolean, box: RectF) {
+        val gc = if (isGhost) cHigh else null
+        val near = x0 + sg * dp(30f)
+        val far = near + sg * dp(96f)
+        val top = cy - dp(40f); val bottom = cy + dp(40f)
+        val l = minOf(near, far); val r = maxOf(near, far)
+        fill.color = 0xFF16304A.toInt()
+        if (!isGhost) c.drawRoundRect(RectF(l, top, r, bottom), dp(5f), dp(5f), fill)
+        setStroke(gc ?: 0xFF4A6A86.toInt(), isGhost, 1.4f)
+        c.drawRoundRect(RectF(l, top, r, bottom), dp(5f), dp(5f), stroke)
+        val ys = (0 until 5).map { cy - dp(26f) + it * dp(13f) }
+        modulePins(c, p, near, sg, ys, listOf("CLK", "DT", "SW"), isGhost) { _, pin -> wireColour(pin) }
+        // the knob: a shaft in a nut, a pointer that turns 18° a detent
+        val kx = near + sg * dp(62f); val kr = dp(21f)
+        fill.color = 0xFF2A333A.toInt(); c.drawCircle(kx, cy, kr, fill)
+        setStroke(gc ?: 0xFF8A9690.toInt(), isGhost, 1.4f); c.drawCircle(kx, cy, kr, stroke)
+        val pressed = pressedParts.contains(p.id)
+        fill.color = if (pressed) 0xFF4E5A62.toInt() else 0xFF3C474E.toInt(); c.drawCircle(kx, cy, dp(10f), fill)
+        setStroke(gc ?: 0xFFB9C2BC.toInt(), isGhost, 1.2f); c.drawCircle(kx, cy, dp(10f), stroke)
+        val a = Math.toRadians(-90.0 + 18.0 * (encoderTurned[p.id] ?: 0))
+        setStroke(gc ?: cText, isGhost, 2f)
+        c.drawLine(kx, cy, kx + (dp(16f) * Math.cos(a)).toFloat(), cy + (dp(16f) * Math.sin(a)).toFloat(), stroke)
+        if (!isGhost) knobs[p.id] = RectF(kx - kr - dp(6f), cy - kr - dp(6f), kx + kr + dp(6f), cy + kr + dp(6f))
+        label(c, "Encoder · KY-040", (l + r) / 2, top - dp(5f), 9.5f, gc ?: cText, bold = true)
+        if (!isGhost) {
+            val t = (p.pins.firstOrNull()?.function as? Function.Timer)?.timer
+            val cnt = encoderCounts[p.id]
+            label(c, if (cnt != null && t != null) "count $cnt · $t" else "swipe to turn, tap to push",
+                (l + r) / 2, bottom + dp(12f), 8.5f, if (cnt != null) cHigh else cLabel)
+        }
+        box.set(x0, top - dp(18f), far, bottom + dp(16f))
+        if (!isGhost) hitLabel += RectF(l, top - dp(20f), r, top + dp(2f)) to p
+    }
+
+    /** Parts that report being busy (a flash erasing or programming) */
+    val deviceBusy = HashSet<Int>()
+
+    /** A W25Q module: VCC and GND, then its four signals in the order their header
+     * pins come, so no two wires cross; the chip itself in the middle */
+    private fun drawFlash(c: Canvas, p: Part, cy: Float, x0: Float, sg: Int, isGhost: Boolean, box: RectF) {
+        val gc = if (isGhost) cHigh else null
+        val near = x0 + sg * dp(30f)
+        val far = near + sg * dp(92f)
+        val top = cy - dp(44f); val bottom = cy + dp(44f)
+        val l = minOf(near, far); val r = maxOf(near, far)
+        fill.color = 0xFF14324A.toInt()
+        if (!isGhost) c.drawRoundRect(RectF(l, top, r, bottom), dp(6f), dp(6f), fill)
+        setStroke(gc ?: 0xFF4A6A86.toInt(), isGhost, 1.4f)
+        c.drawRoundRect(RectF(l, top, r, bottom), dp(6f), dp(6f), stroke)
+        val names = listOf("CS", "CLK", "DI", "DO")
+        val roles = p.pins.indices.sortedBy { pinY[p.pins[it].pin] ?: 0f }
+        val ys = (0 until 6).map { cy - dp(32.5f) + it * dp(13f) }
+        val rowOf = HashMap<Int, Float>()
+        roles.forEachIndexed { i, role -> rowOf[role] = ys[i + 2] }
+        text.typeface = Typeface.MONOSPACE
+        val al = if (sg > 0) Paint.Align.LEFT else Paint.Align.RIGHT
+        for ((i, n) in listOf("VCC", "GND").withIndex()) {
+            fill.color = 0xFFC9A24A.toInt(); c.drawCircle(near, ys[i], dp(3f), fill)
+            label(c, n, near + sg * dp(6f), ys[i] + dp(2.5f), 6.5f, 0xFFB9C9D9.toInt(), al)
+        }
+        // each wire turns in a column of its own, as for the RGB LED
+        fun py(role: Int) = pinY[p.pins[role].pin] ?: cy
+        val jog = HashMap<Int, Float>()
+        roles.filter { rowOf[it]!! - py(it) > 0.5f }.sortedByDescending { py(it) }.forEachIndexed { k, role -> jog[role] = 6f + 5f * k }
+        roles.filter { rowOf[it]!! - py(it) < -0.5f }.sortedBy { py(it) }.forEachIndexed { k, role -> jog[role] = 6f + 5f * k }
+        for (role in roles) {
+            val y = rowOf[role]!!
+            fill.color = 0xFFC9A24A.toInt(); c.drawCircle(near, y, dp(3f), fill)
+            label(c, names[role], near + sg * dp(6f), y + dp(2.5f), 6.5f, 0xFFB9C9D9.toInt(), al)
+            val pin = p.pins[role].pin
+            feed(c, pin, near, y, isGhost, gc ?: if (role == 0) wireColour(pin) else cBus, jog[role] ?: 9f)
+        }
+        // the chip: an SO-8 body with its legs
+        val bx0 = minOf(near + sg * dp(34f), near + sg * dp(84f)); val bx1 = maxOf(near + sg * dp(34f), near + sg * dp(84f))
+        val by0 = cy - dp(22f); val by1 = cy + dp(22f)
+        fill.color = 0xFF9AA4AA.toInt()
+        for (k in 0 until 4) {
+            val ly = by0 + dp(7f) + k * dp(10f)
+            c.drawRect(bx0 - dp(4f), ly - dp(1.5f), bx0, ly + dp(1.5f), fill)
+            c.drawRect(bx1, ly - dp(1.5f), bx1 + dp(4f), ly + dp(1.5f), fill)
+        }
+        fill.color = 0xFF1B2024.toInt(); c.drawRoundRect(RectF(bx0, by0, bx1, by1), dp(2f), dp(2f), fill)
+        fill.color = 0xFF3A4246.toInt(); c.drawCircle(bx0 + dp(5f), by0 + dp(5f), dp(1.8f), fill)
+        val cx = (bx0 + bx1) / 2
+        label(c, "W25Q", cx, cy - dp(2f), 8f, gc ?: 0xFFD8E0D0.toInt(), bold = true)
+        label(c, "${p.flashMbit}JV", cx, cy + dp(9f), 7f, gc ?: 0xFF8A9690.toInt())
+        if (!isGhost && p.id in deviceBusy) label(c, "busy", (l + r) / 2, bottom + dp(13f), 8.5f, cWarn, bold = true)
+        label(c, "Flash · ${p.flashName}", (l + r) / 2, top - dp(5f), 9.5f, gc ?: cText, bold = true)
+        box.set(x0, top - dp(18f), far, bottom + dp(4f))
+        if (!isGhost) hitLabel += RectF(l, top - dp(20f), r, bottom) to p
+    }
+
+    /** I2C lines: the bus colour while they idle high, as any wire otherwise */
+    private fun busColour(pin: String): Int {
+        val st = state ?: return cBus
+        val s = slot(pin)
+        if (s < 0) return cBus
+        return if (st.high(s) && !st.floating(s)) cBus else wireColour(pin)
     }
 
     private fun drawConsole(c: Canvas) {
@@ -487,6 +873,9 @@ class BoardView @JvmOverloads constructor(context: Context, attrs: AttributeSet?
 
     private val pressedParts = HashSet<Int>()
     private var dragPart: Part? = null
+    private var knobPart: Part? = null
+    private var knobX = 0f; private var knobY = 0f
+    private var knobSent = 0
     private var dragStartY = 0f
     private var dragStartValue = 0
 
@@ -501,6 +890,7 @@ class BoardView @JvmOverloads constructor(context: Context, attrs: AttributeSet?
         }
         override fun onSingleTapUp(e: MotionEvent): Boolean {
             hitLabel.lastOrNull { it.first.contains(e.x, e.y) }?.let { onTap(it.second); return true }
+            if (knobs.values.any { it.contains(e.x, e.y) }) return true      // the knob turns and pushes
             partAt(e.x, e.y)?.let { p -> if (p.type != PartType.BUTTON && p.type != PartType.POT) onTap(p); return true }
             if (partAt(e.x, e.y) == null && hitLabel.none { it.first.contains(e.x, e.y) }) rowHit.firstOrNull { it.first.contains(e.x, e.y) }?.let { onPinTap(it.second) }
             return true
@@ -510,6 +900,9 @@ class BoardView @JvmOverloads constructor(context: Context, attrs: AttributeSet?
     /** Where a part is drawn, in view coordinates (for the UI probe) */
     fun partBounds(id: Int): RectF? = hit.lastOrNull { it.second.id == id }?.first?.let { RectF(it) }
 
+    /** Where an encoder's knob takes touches (for the UI probe) */
+    fun knobBounds(id: Int): RectF? = knobs[id]?.let { RectF(it) }
+
     private fun partAt(x: Float, y: Float): Part? = hit.lastOrNull { it.first.contains(x, y) }?.second
 
     @SuppressLint("ClickableViewAccessibility")
@@ -517,6 +910,12 @@ class BoardView @JvmOverloads constructor(context: Context, attrs: AttributeSet?
         gestures.onTouchEvent(e)
         when (e.actionMasked) {
             MotionEvent.ACTION_DOWN -> {
+                knobs.entries.firstOrNull { it.value.contains(e.x, e.y) }?.let { (id, _) ->
+                    knobPart = board.parts.firstOrNull { it.id == id }
+                    knobX = e.x; knobY = e.y; knobSent = 0
+                    parent?.requestDisallowInterceptTouchEvent(true)
+                    return true
+                }
                 val p = partAt(e.x, e.y) ?: return true
                 when (p.type) {
                     PartType.BUTTON -> { pressedParts += p.id; onPress(p, true); invalidate(); parent?.requestDisallowInterceptTouchEvent(true) }
@@ -524,11 +923,31 @@ class BoardView @JvmOverloads constructor(context: Context, attrs: AttributeSet?
                     else -> {}
                 }
             }
-            MotionEvent.ACTION_MOVE -> dragPart?.let { p ->
+            MotionEvent.ACTION_MOVE -> knobPart?.let { p ->
+                // a swipe turns it: right or up is clockwise, one detent every 16 dp
+                val steps = ((e.x - knobX) - (e.y - knobY)) / dp(16f)
+                val want = steps.toInt()
+                if (want != knobSent) {
+                    onTurn(p, want - knobSent)
+                    encoderTurned[p.id] = (encoderTurned[p.id] ?: 0) + want - knobSent
+                    knobSent = want
+                    invalidate()
+                }
+            } ?: dragPart?.let { p ->
                 val v = (dragStartValue + ((dragStartY - e.y) / dp(120f) * 1000)).toInt().coerceIn(0, 1000)
                 if (v != potValue[p.id]) { potValue[p.id] = v; onPot(p, v); invalidate() }
             }
             MotionEvent.ACTION_UP, MotionEvent.ACTION_CANCEL -> {
+                knobPart?.let { p ->
+                    // a tap on the knob pushes it, for a moment
+                    val moved = Math.hypot((e.x - knobX).toDouble(), (e.y - knobY).toDouble()) > dp(8f)
+                    if (!moved && knobSent == 0 && e.actionMasked == MotionEvent.ACTION_UP) {
+                        pressedParts += p.id; onPress(p, true); invalidate()
+                        postDelayed({ pressedParts -= p.id; onPress(p, false); invalidate() }, 180)
+                    }
+                    knobPart = null
+                    return true
+                }
                 for (id in pressedParts) board.parts.firstOrNull { it.id == id }?.let { onPress(it, false) }
                 pressedParts.clear()
                 dragPart = null

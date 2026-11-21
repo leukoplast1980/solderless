@@ -1,0 +1,36 @@
+\ I2C mistakes the emulator points out: no pull-ups (no START goes out),  ok.
+\ SCL faster than the part allows (it does not answer), push-pull pins,  ok.
+\ an address not shifted into SADD[7:1] (and no message for a plain NACK,  ok.
+\ which every bus scan meets).  ok.
+#!attach 1 oled PB8 PB9 pull=0
+$48000400 constant GPIOB  ok.
+$40005400 constant I2C1  ok.
+: i2c-pins ( -- )  ok.
+  %10 $4002104C bis!  1 21 lshift $40021058 bis!  ok.
+  %1111 16 lshift GPIOB bic!  %1010 16 lshift GPIOB bis!  ok.
+  %11 8 lshift GPIOB 4 + bis!  $FF GPIOB $24 + bic!  $44 GPIOB $24 + bis! ;  ok.
+: isr@ ( -- u ) I2C1 $18 + @ ;  ok.
+: probe ( addr -- isr )  \ address only, then whatever ISR says after a while  ok.
+  1 lshift 1 25 lshift or 1 13 lshift or I2C1 4 + !  2000 0 do loop  isr@  $30 I2C1 $1C + ! ;  ok.
+i2c-pins  $00310F13 I2C1 $10 + !  1 I2C1 !  ok.
+$3C probe hex. 00008001  ok.
+
+[chip] I2C1: nothing pulls PB8 up, so the line stays low and no START can go out. I2C needs pull-ups on SCL (PB8) and SDA (PB9): a module's own, or resistors of 2.2 to 10 kohm
+#!clear
+#!attach 1 oled PB8 PB9
+0 I2C1 !  1 I2C1 !  ok.
+$3C probe hex. 00000021  ok.
+0 I2C1 !  0 I2C1 $10 + !  1 I2C1 !  ok.
+$3C probe hex. 00000031  ok.
+
+[chip] I2C1 runs SCL at 2105 kHz; the SSD1306 OLED at 0x3C handles up to 400 kHz and does not answer. Set TIMINGR for 400 kHz or less
+0 I2C1 !  $00310F13 I2C1 $10 + !  1 I2C1 !  ok.
+%11 8 lshift GPIOB 4 + bic!  ok.
+$3C probe hex. 00000021  ok.
+
+[chip] I2C1: PB8 is push-pull. I2C lines must be open-drain (OTYPER): a part pulls SDA low to answer, and a push-pull pin drives it high at the same time
+%11 8 lshift GPIOB 4 + bis!  ok.
+$3D probe hex. 00000031  ok.
+$1E probe hex. 00000031  ok.
+
+[chip] I2C1: no part answers at 0x1E. The SSD1306 OLED is at 0x3C: if you meant it, the address goes in bits 7:1 of CR2 (SADD), so it is written as 0x78

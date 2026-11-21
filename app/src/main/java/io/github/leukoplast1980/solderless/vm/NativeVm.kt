@@ -52,6 +52,15 @@ object NativeVm {
     @JvmStatic external fun boardSet(handle: Long, attachments: IntArray)
     /** A button's pressed state (0/1) or a pot's wiper in per mille. */
     @JvmStatic external fun boardInput(handle: Long, part: Int, value: Int)
+    /** A bus part: its pixels (one byte each) into [pixels]; its controller's state as "name\tvalue" lines, null if absent */
+    @JvmStatic external fun deviceRead(handle: Long, part: Int, pixels: ByteArray): String?
+    @JvmStatic external fun boardTurn(handle: Long, part: Int, steps: Int)
+    /** What a sensor senses: BMP280 pressure_pa, temp_c; SCD41 co2_ppm, temp_c, rh, breath */
+    @JvmStatic external fun deviceInput(handle: Long, part: Int, what: String, value: Double)
+    /** A memory part (W25Q): [len] bytes at [addr] read into or written from [buf], as a programmer would. Returns the count. */
+    @JvmStatic external fun deviceMem(handle: Long, part: Int, addr: Int, buf: ByteArray, len: Int, write: Boolean): Int
+    /** A count that changes whenever a memory part's contents do */
+    @JvmStatic external fun deviceGen(handle: Long, part: Int): Int
     /** Fills [out] (at least [BoardState.SIZE] ints); starts a new averaging window. */
     @JvmStatic external fun boardRead(handle: Long, out: IntArray)
     /** Sound events of piezo and speaker pins; see jni.c audioRead for the layout. */
@@ -60,4 +69,6 @@ object NativeVm {
     @JvmStatic external fun tracePins(handle: Long, slots: IntArray)
     /** The scope's events; same layout as [audioRead]. Called from the UI thread only. */
     @JvmStatic external fun traceRead(handle: Long, out: IntArray): Int
+    /** What the decoder saw on the traced pins' buses since the last call: 6 ints per event (see jni.c) */
+    @JvmStatic external fun busRead(handle: Long, out: IntArray): Int
 }

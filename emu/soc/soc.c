@@ -119,6 +119,8 @@ static void dispatch_event(struct sl_soc *s, int ev)
         if (ev >= EV_USART_TX0 && ev <= EV_USART_TX_LAST) usart_tx_event(s, ev - EV_USART_TX0);
         else if (ev >= EV_TIM0 && ev <= EV_TIM_LAST) tim_event(s, ev - EV_TIM0);
         else if (ev >= EV_ADC0 && ev <= EV_ADC_LAST) adc_event(s, ev - EV_ADC0);
+        else if (ev >= EV_I2C0 && ev <= EV_I2C_LAST) i2c_event(s, ev - EV_I2C0);
+        else if (ev >= EV_SPI0 && ev <= EV_SPI_LAST) spi_event(s, ev - EV_SPI0);
         break;
     }
 }
@@ -204,6 +206,9 @@ static void periph_regs_reset(struct sl_soc *s, int pi)
 
 static int find_periph(const struct sl_soc *s, uint32_t a)
 {
+    /* Programs tend to stay on one peripheral for a while */
+    const struct sl_periph_info *last = &sl_g431_periph[s->last_pi];
+    if (a - last->base < last->size) return s->last_pi;
     int lo = 0, hi = s->np - 1;
     while (lo <= hi) {
         int mid = (lo + hi) / 2;
@@ -215,12 +220,7 @@ static int find_periph(const struct sl_soc *s, uint32_t a)
     return -1;
 }
 
-static int gpio_port_of(const struct sl_soc *s, int pi)
-{
-    for (int i = 0; i < SL_NUM_PORTS; i++)
-        if (s->pi_gpio[i] == pi) return i;
-    return -1;
-}
+static int gpio_port_of(const struct sl_soc *s, int pi) { return s->port_of[pi]; }
 
 /* Recomputes which peripherals have their bus clock enabled. */
 static void update_clock_gates(struct sl_soc *s)
@@ -246,6 +246,10 @@ static void periph_reset_one(struct sl_soc *s, int pi)
     if (a >= 0) adc_reset(s, a);
     if (pi == s->pi_dac1) dac_reset(s);
     if (pi == s->pi_exti) exti_reset(s);
+    int c = i2c_index_of_periph(s, pi);
+    if (c >= 0) i2c_reset(s, c);
+    int sp = spi_index_of_periph(s, pi);
+    if (sp >= 0) spi_reset(s, sp);
     board_af_outputs_changed(s);
 }
 
@@ -285,6 +289,10 @@ static uint32_t periph_read(struct sl_soc *s, int pi, uint32_t off, int effects)
     if (a >= 0) return adc_read(s, a, off, effects);
     if (pi == s->pi_dac1) return dac_read(s, off);
     if (pi == s->pi_exti) return exti_read(s, off);
+    int c = i2c_index_of_periph(s, pi);
+    if (c >= 0) return i2c_read(s, c, off, effects);
+    int sp = spi_index_of_periph(s, pi);
+    if (sp >= 0) return spi_read(s, sp, off, effects);
     if (pi == s->pi_dbgmcu && off == 0) return 0x20016468u;   /* IDCODE: G431/G441, rev Z */
     return s->regs[pi][off / 4];
 }
@@ -304,6 +312,10 @@ static void periph_write(struct sl_soc *s, int pi, uint32_t off, uint32_t v, uin
     if (a >= 0) { adc_write(s, a, off, v, mask); return; }
     if (pi == s->pi_dac1) { dac_write(s, off, v, mask); return; }
     if (pi == s->pi_exti) { exti_write(s, off, v, mask); return; }
+    int c = i2c_index_of_periph(s, pi);
+    if (c >= 0) { i2c_write(s, c, off, v, mask); return; }
+    int sp = spi_index_of_periph(s, pi);
+    if (sp >= 0) { spi_write(s, sp, off, v, mask); return; }
     uint32_t wm = s->wmask[pi][off / 4] & mask;
     s->regs[pi][off / 4] = (s->regs[pi][off / 4] & ~wm) | (v & wm);
 }
@@ -359,6 +371,7 @@ static int mmio_read(void *ctx, uint32_t a, int n, uint32_t *v)
 {
     struct sl_soc *s = ctx;
     int pi = find_periph(s, a);
+    if (pi >= 0) s->last_pi = pi;
     if (pi < 0) {
         soc_log(s, LOG_BUS_ERROR, "Bus error: read of 0x%08X, where there is no memory or peripheral (PC 0x%08X)",
                 a, s->cpu.r[15]);
@@ -371,7 +384,9 @@ static int mmio_read(void *ctx, uint32_t a, int n, uint32_t *v)
                 p->name, s->cpu.r[15]);
         w = 0;
     } else {
+        s->rd_width = n;
         w = periph_read(s, pi, off & ~3u, 1);
+        s->rd_width = 4;
     }
     unsigned sh = (off & 3u) * 8u;
     *v = n == 4 ? w : (w >> sh) & ((1u << (8 * n)) - 1u);
@@ -384,6 +399,7 @@ static int mmio_write(void *ctx, uint32_t a, int n, uint32_t v)
     struct sl_soc *s = ctx;
     idle_break(s);
     int pi = find_periph(s, a);
+    if (pi >= 0) s->last_pi = pi;
     if (pi < 0) {
         soc_log(s, LOG_BUS_ERROR, "Bus error: write to 0x%08X, where there is no memory or peripheral (PC 0x%08X)",
                 a, s->cpu.r[15]);
@@ -461,6 +477,16 @@ void soc_init(struct sl_soc *s)
     s->pi_adc_common = periph_index("ADC12_COMMON");
     static const char *ports[SL_NUM_PORTS] = { "GPIOA", "GPIOB", "GPIOC", "GPIOD", "GPIOE", "GPIOF", "GPIOG" };
     for (int i = 0; i < SL_NUM_PORTS; i++) s->pi_gpio[i] = periph_index(ports[i]);
+    memset(s->port_of, -1, sizeof s->port_of);
+    for (int i = 0; i < SL_NUM_PORTS; i++) if (s->pi_gpio[i] >= 0) s->port_of[s->pi_gpio[i]] = (int8_t)i;
+    s->last_pi = 0;
+    memset(s->af_index, -1, sizeof s->af_index);
+    for (int i = 0; i < sl_g431_naf; i++) {
+        const struct sl_af_info *e = &sl_g431_af[i];
+        if (e->port < SL_NUM_PORTS && e->pin < 16 && e->af < 16
+            && s->af_index[e->port][e->pin][e->af] < 0)
+            s->af_index[e->port][e->pin][e->af] = (int16_t)i;
+    }
 
     memset(s->flash, 0xFF, sizeof s->flash);
     memset(s->sysmem, 0xFF, sizeof s->sysmem);
@@ -500,6 +526,8 @@ void soc_init(struct sl_soc *s)
     usart_init(s);
     tim_init(s);
     adc_init(s);
+    i2c_init(s);
+    spi_init(s);
     board_init(s);
     soc_reset(s, 1);
 }
@@ -520,6 +548,8 @@ void soc_reset(struct sl_soc *s, int power_on)
     for (int i = 0; i < SL_NUM_ADC; i++) if (s->adc[i].pi >= 0) adc_reset(s, i);
     dac_reset(s);
     exti_reset(s);
+    for (int i = 0; i < SL_NUM_I2C; i++) if (s->i2c[i].pi >= 0) i2c_reset(s, i);
+    for (int i = 0; i < SL_NUM_SPI; i++) if (s->spi[i].pi >= 0) spi_reset(s, i);
     update_clock_gates(s);
     s->term_rx_busy = 0;
     s->idle_poll = 0;
@@ -528,6 +558,7 @@ void soc_reset(struct sl_soc *s, int power_on)
     s->t_rem = 0;
     s->hclk = 16000000u;
     rcc_update_clocks(s);
+    if (power_on) bus_power_cycle(s);
     board_reset(s);
     cm_reset(&s->cpu);
     if (s->cpu.lockup)

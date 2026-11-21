@@ -72,7 +72,6 @@ struct cm_cpu {
     uint32_t r[16];             /* r[13] is the active stack pointer, r[15] the PC */
     uint32_t n, z, c, v, q;     /* flags, each 0 or 1 */
     uint32_t ge;                /* GE[3:0] */
-    uint32_t it;                /* ITSTATE */
     uint32_t tbit;              /* EPSR.T */
     uint32_t ipsr;              /* active exception number, 0 in Thread mode */
     uint32_t sp_main, sp_proc;  /* the stack pointer that is not active */
@@ -103,28 +102,44 @@ struct cm_cpu {
     /* MPU (registers only for now) */
     uint32_t mpu_ctrl, mpu_rnr, mpu_rbar[8], mpu_rasr[8];
 
-    /* FPU control (registers only for now) */
+    /* FPU (FPv4-SP): S0-S31, FPSCR, and its control registers in the SCB */
+    uint32_t s[32];
+    uint32_t fpscr;
     uint32_t fpccr, fpcar, fpdscr;
 
     /* Exclusive monitor */
     int excl_valid;
     uint32_t excl_addr;
 
-    /* Run state */
-    int sleeping;               /* 1: in WFI or WFE, waiting for a wake-up event */
+    /* Run state. The run loop looks at these before every instruction, as
+     * one word (attn_pre): any of them set takes it off its fast path. */
+    union {
+        struct {
+            uint8_t check_irq;  /* look for a pending exception before the next instruction */
+            uint8_t lockup;     /* fault while a fault could not be taken */
+            uint8_t sleeping;   /* 1: in WFI or WFE, waiting for a wake-up event */
+            uint8_t stop_batch; /* set by callbacks to end cm_run early */
+        };
+        uint32_t attn_pre;
+    };
     int event_reg;              /* WFE event register */
-    int lockup;                 /* fault while a fault could not be taken */
-    int check_irq;              /* look for a pending exception before the next instruction */
-    int stop_batch;             /* set by callbacks to end cm_run early */
     uint64_t cycles;            /* cycles run (one per instruction) */
     uint64_t synced;            /* cycles already applied to SysTick and DWT */
 
-    /* Set while an instruction executes */
+    /* Set while an instruction executes. The run loop looks at these after
+     * every instruction, as one word (attn_post). */
     uint32_t next_pc;
-    int sync_exc;               /* synchronous exception raised by the instruction */
+    union {
+        struct {
+            uint8_t sync_exc;   /* synchronous exception raised by the instruction */
+            uint8_t it;         /* ITSTATE */
+            uint8_t exc_ret_pending;    /* it loaded EXC_RETURN into the PC */
+            uint8_t unused_;
+        };
+        uint32_t attn_post;
+    };
     uint32_t sync_ret;          /* return address for it */
     int it_set;                 /* the instruction was IT */
-    int exc_ret_pending;        /* it loaded EXC_RETURN into the PC */
     uint32_t exc_ret_value;
 
     /* For idle detection: counts stores that changed memory (writes to

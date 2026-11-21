@@ -1,6 +1,6 @@
 # What the emulator models
 
-Status for milestone 2. "Works like the chip" means: same registers, reset
+Status for milestone 3. "Works like the chip" means: same registers, reset
 values and documented behaviour as in RM0440 (the G4 reference manual) and
 the ARMv7-M Architecture Reference Manual. Timing follows the datasheets,
 not the clock cycle.
@@ -8,8 +8,12 @@ not the clock cycle.
 ## Core
 
 - Thumb and Thumb-2 integer instructions of the Cortex-M4, including the
-  extend-and-add instructions. Checked against Unicorn on random
-  instruction sequences (`tests/cpu/diff_test.py`).
+  extend-and-add instructions and the DSP extension: parallel add and
+  subtract on bytes and halfwords (plain with the GE flags, saturating,
+  halving), SEL, QADD and friends, the 16-bit and dual multiplies with
+  accumulate (SMLA<x><y>, SMLAD, SMLSD, SMLAW, SMMLA, SMLALD, ...), UMAAL,
+  USAD8, SSAT16 and USAT16, PKHBT and PKHTB, SXTB16 and UXTB16. Checked
+  against Unicorn on random instruction sequences (`tests/cpu/diff_test.py`).
 - Exceptions: NVIC with 102 interrupts and 4 priority bits, priority
   grouping, preemption, tail chaining, PRIMASK, BASEPRI, FAULTMASK,
   Thread and Handler mode, MSP and PSP, unprivileged Thread mode,
@@ -21,8 +25,18 @@ not the clock cycle.
   peripheral addresses, stacking errors.
 - SysTick, the DWT cycle counter, bit-banding of SRAM and peripherals,
   the exclusive monitor, WFI/WFE/SEV.
-- Not yet: the FPU and the DSP instructions (they raise a UsageFault, as
-  on a core without them), the MPU (its registers exist but nothing is
+- The single-precision FPU (FPv4-SP-D16): S0-S31 (D0-D15), FPSCR with
+  its four rounding modes, flush-to-zero, default NaN, alternative half
+  precision and the cumulative exception flags; arithmetic, fused and
+  chained multiply-accumulate, square root, compares, conversions to and
+  from integers, fixed point and half precision, loads, stores and moves.
+  Results are computed in integers after the ARM ARM's pseudocode, so
+  they are the chip's to the last bit whatever the phone's own FPU does.
+  CPACR gates it (NOCP otherwise); exceptions stack an FP context in the
+  extended frame, lazily by default (FPCCR, FPCAR, CONTROL.FPCA,
+  EXC_RETURN 0xFFFFFFE1/E9/ED). Checked against Unicorn and by
+  `tests/cpu/exc_test.S`.
+- Not yet: the MPU (its registers exist but nothing is
   enforced), debug features.
 
 ## Memory
@@ -75,8 +89,11 @@ its writable bits, taken from ST's SVD. Behaviour so far:
   capture of pin edges, interrupts (TIM1 and TIM8 on their four lines,
   shared with TIM15-17). TIM2 is 32 bits wide. The counter is worked out
   from the time when read, so a running timer costs nothing between
-  accesses. Not yet: slave modes and triggers, encoder mode (milestone 3),
-  dead time, break inputs, DMA.
+  accesses. Encoder modes 1-3 (SMS in SMCR): the counter steps on the
+  edges of TI1, TI2 or both, up or down by the other input's level as the
+  reference manual's table says, sets DIR, and wraps at ARR with an
+  update event. Not yet: other slave modes and triggers, dead time, break
+  inputs, DMA.
 - **ADC1, ADC2**: deep power-down, the voltage regulator and its 20 us
   start-up, calibration, enable and ADRDY, the clock source (ADC12_CCR
   CKMODE or RCC_CCIPR, which selects no clock after reset), regular
@@ -88,8 +105,29 @@ its writable bits, taken from ST's SVD. Behaviour so far:
 - **DAC1**: outputs 1 and 2 on PA4 and PA5 in analog mode, all data
   register alignments, software trigger, the output buffer. Not yet:
   timer triggers, wave generation, DMA, sample and hold.
-- RTC, I2C, SPI, DMA, comparators, op-amps and the rest: registers only,
-  until their milestones.
+- **I2C1-3** as masters: START with the 7-bit address from CR2, the
+  part's acknowledge or NACKF with the automatic STOP, TXIS and TXE,
+  RXNE (the last byte read is not acknowledged), NBYTES with TC, RELOAD
+  with TCR, AUTOEND, repeated START, STOP, the clock stretched while TXDR
+  is empty or RXDR full, interrupts, PE as the software reset. Bytes go
+  out whole on the virtual clock, nine SCL periods each, at the rate
+  TIMINGR gives with the kernel clock chosen in CCIPR. As on the chip, the
+  pins must be in the I2C alternate function and open-drain, and the lines
+  need pull-ups: without them SCL stays low and START waits with BUSY set.
+  Not yet: slave mode, 10-bit addresses, SMBus, timeouts, DMA.
+- **SPI1-3** as masters: the 32-bit transmit and receive FIFOs with the
+  packing rules of DR (an 8-bit access moves one byte, a wider one two, so
+  a word written with `!` in 8-bit mode sends two frames), data sizes of 4
+  to 16 bits, FRXTH (with its reset value RXNE waits for two bytes), TXE,
+  RXNE, BSY and the FIFO levels, overrun, the mode fault when the master
+  sees NSS low (SSM and SSI, or the NSS pin), NSS driven by the SPI with
+  SSOE, CPOL and CPHA, LSBFIRST, SCK from PCLK and BR, interrupts. Frames
+  reach the parts whole, at the end of their time on the wire, so a chip
+  select raised before BSY clears cuts the last byte off, as on the bench.
+  Not yet: slave mode, bidirectional and receive-only modes, CRC, TI mode,
+  NSS pulses, I2S, DMA.
+- RTC, DMA, comparators, op-amps and the rest: registers only, until their
+  milestones.
 
 ## The breadboard
 
@@ -110,6 +148,90 @@ external pull resistor, the DAC. The net settles at their weighted mean.
   time (2 ms by default) before it settles, as real contacts do.
 - Piezos and speakers listen to their pin: the app plays PWM as a square
   wave and edges and DAC samples as they come, about 80 ms behind.
+- Bus parts sit on the pins of a bus and answer at their address. A
+  module's pull-ups (4.7 kohm each on the common OLED boards) are drivers
+  on SCL and SDA like any other, so two modules on one bus pull harder.
+  The on-chip I2C reaches the parts in whole bytes. Firmware that toggles
+  the pins itself (bit-banged I2C, common in Forth) works too: a decoder
+  on each part watches the nets, takes a START as SDA falling while SCL is
+  high and a bit as SDA when SCL rises, and the part answers by holding
+  SDA low on the net, so the firmware reads its acknowledge and its data
+  through IDR.
+- A power cycle (not a reset of the chip alone) powers the parts down and
+  up too: displays go dark with noise in their memory, registers return
+  to their power-on values. What a part keeps without power stays: the
+  flash's contents and its protection bits, the SCD41's persisted
+  settings, and what the sensors were set to sense.
+- **SSD1306 OLED** (128x64, I2C at 0x3C or 0x3D): the command set with
+  its arguments, also when a driver sends a command and its arguments in
+  separate transfers; the control byte (Co, D/C); horizontal, vertical
+  and page addressing with the column and page windows; segment remap,
+  COM scan direction and the COM pin configuration; multiplex ratio,
+  display offset and start line; contrast, inverse, entire display on.
+  After power-up its RAM holds noise, and it stays dark until the
+  firmware turns on the charge pump (8D 14) and the display (AF), as the
+  real module does. Reads return the status byte (D6 set while the
+  display is off). Not yet: scrolling (the commands are accepted and the
+  close-up says it is on, but the picture stands still).
+- SPI parts listen while their chip select is low. Firmware that toggles
+  the pins itself works too: the part takes MOSI on the rising edge of SCK
+  and moves its output on the falling edge, driving MISO on the net only
+  while it has something to say. A master in mode 1 or 2, too fast a clock
+  or LSB first garbles the bits, and the console says which.
+- **W25Q32/64/128 flash**: JEDEC, manufacturer, device and unique IDs;
+  read and fast read; write enable, which clears itself after every
+  program, erase and status write; page program that only turns 1s into
+  0s and wraps at the end of its 256-byte page; 4 KB, 32 KB, 64 KB and
+  chip erase; status registers 1-3 with the block protect bits; power-down
+  and reset. Programs and erases take the datasheet's typical times with
+  BUSY set, and the chip ignores everything but the status reads
+  meanwhile. WP and HOLD are tied high. The contents are kept with the
+  project and can be read and edited in a hex view. Not yet: dual and quad
+  modes, suspend, security registers, SFDP.
+- **MAX7219 LED matrix**, a single 8 x 8 module or a chain of four: one long
+  shift register through the chain, latched when CS (LOAD) rises, so the
+  first word sent reaches the chip farthest from DIN; digits, Code B
+  decode, intensity, scan limit, shutdown, display test. At power-up the
+  chips are in shutdown, scan one row and hold noise. Digit 0 is the top
+  row, D7 the left column; the chip at DIN is on the right.
+- **ST7789 colour display**, 240 x 240 or 240 x 320, with DC and RES: the 240 x
+  320 frame memory, of which a 240-row panel shows rows 0-239; hardware and
+  software reset, sleep, display on and off, inversion (these IPS panels
+  show true colours with it on), 12-, 16- and 18-bit pixels (18 after
+  reset), MADCTL, the address window, memory write. Commands sent before
+  the datasheet's wait after a reset or Sleep Out are ignored (after RES,
+  5 ms if it came while asleep, 120 ms if awake). Not yet:
+  reads, partial mode, scrolling.
+- **BMP280 pressure sensor** (I2C at 0x76 or 0x77 by its SDO): chip ID 58,
+  soft reset, the calibration bytes (the datasheet's example values), sleep,
+  forced and normal mode with the standby time, oversampling with its
+  resolution and the typical measurement times, the IIR filter, the status
+  bits. The raw readings are what a real chip with that calibration gives
+  for the pressure and temperature set on its sheet, or the phone's own
+  barometer, so the datasheet's compensation formulas turn them back into
+  those values. Not yet: SPI.
+- **SCD41 CO2 sensor** (I2C at 0x62): the datasheet's command set with a
+  CRC-8 on every word, the execution times during which it does not
+  answer, periodic measurement every 5 s (low-power every 30 s), single
+  shots, data ready, read_measurement that empties the buffer, the
+  temperature offset (4 °C by default), altitude and ambient pressure,
+  automatic self-calibration, serial number, self test, persist, factory
+  reset, power down and wake up. It acknowledges only the commands the
+  datasheet allows in its current mode. CO2, temperature and humidity come
+  from its sheet; a breath raises them and fades over about 15 s.
+- **Rotary encoder** (KY-040): CLK and DT are two contacts to ground with
+  the module's 10 kohm pull-ups, closing in quadrature, four edges a
+  detent, so a timer in encoder mode counts 4 a detent; SW is a button.
+  Turning it queues the edges 2.5 ms apart.
+- **What went over a bus**, for the Scope: on the pins it watches, the
+  emulator logs START, the address and its acknowledge, each byte with its
+  acknowledge and STOP, from the on-chip I2C and from the decoders on
+  bit-banged lines; SPI frames with what came back on MISO, the parts' chip
+  selects, and the display's DC with each byte. The on-chip peripherals
+  send whole bytes, so their pins' traced levels only show where the lines
+  rest; the Scope draws their bits from this log. When the app falls
+  behind (a display filled at full speed), one entry says how many bytes
+  went undecoded.
 
 ## Time
 
@@ -146,6 +268,23 @@ The console shows these in amber, at most three times each per run:
 - a floating input or one between the thresholds, read by the firmware
 - a short between the chip and a part; more than 20 mA through an LED
 - an advanced timer running with an output enabled but MOE clear
+- SPI: a mode fault, no pin in SCK or MOSI, a mode, clock or bit order the
+  part does not take, two parts answering on MISO at once, an overrun the
+  firmware then reads
+- the parts: a flash command while busy, a program or erase without write
+  enable or into a protected block, programming over bytes that were not
+  erased; the matrix's 5 V logic and a CS that rises after an odd number of
+  bytes; a display command too soon after a reset, pixels written while it
+  sleeps or is off, in 18-bit colour, or into rows the panel does not show
+- the sensors: BMP280 data read before any measurement ran, or turned
+  into units without reading the calibration; SCD41 commands it does not
+  take in its current mode, a read with no new measurement, a transfer
+  while a command still runs, a wrong CRC, an unknown command
+- a timer in encoder mode whose CH1 and CH2 are not both inputs
+- I2C: no pull-ups on SCL or SDA, pins that are push-pull or not in the
+  I2C alternate function, SCL faster than the part allows (it does not
+  answer), two parts at one address, an address that was not shifted into
+  bits 7:1 (CR2.SADD, or the first byte of a bit-banged transfer)
 - the ADC without a clock, started before its regulator is ready,
   calibrated while enabled, started before ADRDY; an ADC channel read on a
   pin that is not in analog mode; an ADC overrun

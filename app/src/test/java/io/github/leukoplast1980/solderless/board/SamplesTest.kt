@@ -23,6 +23,15 @@ class SamplesTest {
         return PinUse(pin, Function.Adc(a, ch))
     }
     private fun gpio(pin: String) = PinUse(pin, Function.Gpio)
+    private fun i2c(pin: String, signal: String): PinUse {
+        val f = chip.gpio(pin)!!.i2c(signal).first()
+        return PinUse(pin, Function.I2c(f.periph, signal, f.af))
+    }
+
+    private fun spi(pin: String, signal: String): PinUse {
+        val f = chip.gpio(pin)!!.spi(signal).first()
+        return PinUse(pin, Function.Spi(f.periph, signal, f.af))
+    }
 
     /** One board with every variant; the names are led, led2, ... in id order */
     val board = Board(listOf(
@@ -41,6 +50,19 @@ class SamplesTest {
         Part(13, PartType.SPEAKER, listOf(PinUse("PA4", Function.Dac(1)))),
         Part(14, PartType.SPEAKER, listOf(tim("PB6", "TIM4")), dacDrive = false),
         Part(15, PartType.PIEZO, listOf(tim("PB8", "TIM16"))),
+        Part(16, PartType.OLED, listOf(i2c("PB8", "SCL"), i2c("PB9", "SDA"))),
+        Part(17, PartType.OLED, listOf(i2c("PC8", "SCL"), i2c("PC9", "SDA")), i2cAddr = 0x3D),
+        Part(18, PartType.FLASH, listOf(gpio("PA4"), spi("PA5", "SCK"), spi("PA7", "MOSI"), spi("PA6", "MISO"))),
+        Part(19, PartType.FLASH, listOf(gpio("PB12"), spi("PB13", "SCK"), spi("PB15", "MOSI"), spi("PB14", "MISO")), flashMbit = 32),
+        Part(20, PartType.MATRIX, listOf(gpio("PC9"), spi("PC10", "SCK"), spi("PC12", "MOSI"))),
+        Part(21, PartType.MATRIX, listOf(gpio("PB10"), spi("PB3", "SCK"), spi("PB5", "MOSI")), matrixChips = 1),
+        Part(22, PartType.TFT, listOf(gpio("PA4"), spi("PA5", "SCK"), spi("PA7", "MOSI"), gpio("PB0"), gpio("PB1"))),
+        Part(23, PartType.TFT, listOf(gpio("PB12"), spi("PB13", "SCK"), spi("PB15", "MOSI"), gpio("PC6"), gpio("PC7")), tftRows = 320),
+        Part(24, PartType.BARO, listOf(i2c("PB8", "SCL"), i2c("PB9", "SDA")), i2cAddr = 0x76),
+        Part(25, PartType.CO2, listOf(i2c("PB8", "SCL"), i2c("PB9", "SDA")), i2cAddr = 0x62),
+        Part(26, PartType.BARO, listOf(i2c("PC8", "SCL"), i2c("PC9", "SDA")), i2cAddr = 0x77),
+        Part(27, PartType.ENCODER, listOf(tim("PA0", "TIM2"), tim("PA1", "TIM2"), gpio("PC3"))),
+        Part(28, PartType.ENCODER, listOf(tim("PB6", "TIM4"), tim("PB7", "TIM4"), gpio("PC2"))),
     ))
 
     @Test fun everySampleIsTestedOnTheEmulator() {
@@ -72,6 +94,13 @@ class SamplesTest {
             Part(1, PartType.POT, emptyList()),
             Part(1, PartType.SPEAKER, emptyList()), Part(1, PartType.SPEAKER, emptyList(), dacDrive = false),
             Part(1, PartType.PIEZO, emptyList()),
+            Part(1, PartType.OLED, emptyList()),
+            Part(1, PartType.FLASH, emptyList()),
+            Part(1, PartType.MATRIX, emptyList()),
+            Part(1, PartType.TFT, emptyList()),
+            Part(1, PartType.BARO, emptyList(), i2cAddr = 0x76),
+            Part(1, PartType.CO2, emptyList(), i2cAddr = 0x62),
+            Part(1, PartType.ENCODER, emptyList()),
         )
         var n = 0
         for ((vi, v) in variants.withIndex()) for (o in rec.options(emptyList(), v, 0)) {

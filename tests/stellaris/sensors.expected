@@ -1,0 +1,91 @@
+\ A BMP280 (0x76) and an SCD41 (0x62) sharing I2C1 on PB8 (SCL) and PB9 (SDA).  ok.
+\ BMP280: its id, data before any measurement, calibration, forced and normal  ok.
+\ mode, a temperature turned into hundredths of a degree with the datasheet's  ok.
+\ formula. SCD41: serial number, commands with CRCs, periodic measurement,  ok.
+\ the rules on what it acknowledges.  ok.
+#!attach 1 bmp280 PB8 PB9
+#!attach 2 scd41 PB8 PB9
+$48000400 constant GPIOB  ok.
+$40005400 constant I2C1  ok.
+: ms ( n -- ) 15999 $E000E014 !  0 $E000E018 !  5 $E000E010 !  ok.
+  0 ?do begin $E000E010 @ $10000 and until loop  0 $E000E010 ! ;  ok.
+: i2c-init ( -- )  ok.
+  %10 $4002104C bis!  1 21 lshift $40021058 bis!  ok.
+  %1111 16 lshift GPIOB bic!  %1010 16 lshift GPIOB bis!  %11 8 lshift GPIOB 4 + bis!  ok.
+  $FF GPIOB $24 + bic!  $44 GPIOB $24 + bis!  ok.
+  0 I2C1 !  $00310F13 I2C1 $10 + !  1 I2C1 ! ;  ok.
+: isr@ ( -- u ) I2C1 $18 + @ ;  ok.
+: go ( n addr flags -- ) >r 1 lshift swap 16 lshift or r> or 1 13 lshift or I2C1 4 + ! ;  ok.
+: >i2c ( b -- ) begin isr@ %10010 and until  isr@ $10 and 0= if I2C1 $28 + ! else drop then ;  ok.
+: i2c> ( -- b ) begin isr@ %10100 and until  I2C1 $24 + @ ;  ok.
+: end ( -- f ) begin isr@ $20 and until  isr@ $10 and 0=  $30 I2C1 $1C + ! ;  \ STOP; acknowledged?  ok.
+: tc ( -- ) begin isr@ %1010000 and until ;  ok.
+: reg! ( v reg addr -- ) 2 swap 1 25 lshift go >i2c >i2c end drop ;  ok.
+: wr1 ( reg addr -- ) 1 swap 0 go >i2c tc ;                     \ the register pointer; no STOP  ok.
+: rdn ( n addr -- ) 1 10 lshift 1 25 lshift or go ;            \ repeated START, read n, STOP  ok.
+: regs ( reg addr n -- )  \ the registers from reg on, in hex  ok.
+  >r swap over wr1  r@ swap rdn  r> 0 ?do i2c> . loop  end drop ;  ok.
+: reg@ ( reg addr -- b ) tuck wr1 1 swap rdn i2c> end drop ;  ok.
+hex  ok.
+i2c-init  ok.
+$D0 $76 reg@ . 58  ok.
+$F7 $76 6 regs 80 0 0 80 0 0  ok.
+
+[chip] BMP280: no measurement has run, so the data registers hold 80000, their reset value. Write ctrl_meas (F4): mode 01 for one measurement, 11 for one every standby time
+[chip] BMP280: the raw readings need this chip's 24 calibration bytes (88-9F) to become degrees and pascals; every chip has its own
+$88 $76 6 regs 70 6B 43 67 18 FC  ok.
+\ T: the datasheet's 32-bit formula, in hundredths of a degree  ok.
+decimal  ok.
+0 variable adc  ok.
+: t100 ( -- n )  ok.
+  adc @ 3 rshift 27504 2* - 26435 * 11 arshift  ok.
+  adc @ 4 rshift 27504 - dup * 12 arshift -1000 * 14 arshift +  ok.
+  5 * 128 + 8 arshift ;  ok.
+: raw ( -- ) $FA $76 wr1  3 $76 rdn  ok.
+  i2c> 12 lshift i2c> 4 lshift or i2c> 4 rshift or adc ! end drop ;  ok.
+$25 $F4 $76 reg!  $F3 $76 reg@ . 8  ok.
+10 ms  $F3 $76 reg@ .  raw t100 . 0 2150  ok.
+#!set 1 temp_c 30.25
+$B7 $F4 $76 reg!  $10 $F5 $76 reg!  100 ms raw t100 . 2204  ok.
+#!sensor 1
+Bus	I2C 0x76 · SCL PB8 · SDA PB9
+Reading	1013.2 hPa · 30.2 °C
+chip id	0x58 read ✓
+calibration	only part read
+ctrl_meas	0xB7  normal, T ×16, P ×16
+config	0x10  standby 0.5 ms, filter ×16
+last measurement	37.7 ms ago, takes 65.5 ms
+\ The SCD41: 16-bit commands;  got with a CRC-8 after each  ok.
+: cmd ( c -- ) 2 $62 1 25 lshift go  dup 8 rshift >i2c >i2c end . ;  ok.
+: got ( n -- )  \ n  got with their CRCs, or "nack" when it does not answer  ok.
+  3 * dup $62 rdn  begin isr@ %10100 and until  ok.
+  isr@ $10 and if drop end drop ." nack " exit then  ok.
+  0 ?do i2c> . loop end drop ;  ok.
+hex  ok.
+$3682 cmd 1 ms 3 got -1 61 C5 92 0 BB D4 D9 EB AD  ok.
+$EC05 cmd 1 ms 3 got -1 nack  ok.
+
+[chip] SCD41: read_measurement not acknowledged: no new measurement since the last read (one every 5 s, the first 5 s after the start). get_data_ready_status (E4B8) tells when there is one
+$21B1 cmd -1  ok.
+$241D cmd 0  ok.
+
+[chip] SCD41: command 241D (set_temperature_offset) not acknowledged: while it measures periodically it takes only read_measurement, get_data_ready_status, set_ambient_pressure and stop_periodic_measurement (3F86, then 500 ms)
+$E4B8 cmd 1 ms 1 got -1 80 0 A2  ok.
+decimal 5100 ms hex  ok.
+$E4B8 cmd 1 ms 1 got -1 80 6 4  ok.
+$EC05 cmd 3 got -1 nack  ok.
+
+[chip] SCD41: it does not answer while a command runs: read_measurement (EC05) takes its time before the next transfer (read_measurement 1 ms, stop_periodic_measurement 500 ms)
+$EC05 cmd 1 ms 3 got -1 3 34 AD 62 3 5E 73 33 1  ok.
+$EC05 cmd 1 ms 3 got -1 nack  ok.
+$3F86 cmd $2318 cmd -1 0  ok.
+decimal  ok.
+#!set 2 co2_ppm 1200
+#!sensor 2
+Bus	I2C 0x62 · SCL PB8 · SDA PB9
+Reading	1200 ppm · 22.0 °C · 45 %
+mode	idle
+data	none
+serial	61C5 00BB D9EB
+settings	offset 4.0 °C · altitude 0 m · ASC on
+last command	3F86 stop_periodic_measurement · 0.0 s ago

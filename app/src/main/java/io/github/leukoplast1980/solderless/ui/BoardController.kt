@@ -37,6 +37,7 @@ import com.google.android.material.slider.Slider
 import io.github.leukoplast1980.solderless.R
 import io.github.leukoplast1980.solderless.board.Board
 import io.github.leukoplast1980.solderless.board.ChipPins
+import io.github.leukoplast1980.solderless.board.Function as PinFunction
 import io.github.leukoplast1980.solderless.board.LedColour
 import io.github.leukoplast1980.solderless.board.Part
 import io.github.leukoplast1980.solderless.board.PartType
@@ -48,6 +49,10 @@ import io.github.leukoplast1980.solderless.settings.Settings
 import io.github.leukoplast1980.solderless.vm.BoardState
 import io.github.leukoplast1980.solderless.vm.VmHost
 import java.io.File
+
+/** In the parts' state text (read every refresh) */
+private val BUSY = Regex("Status\tBUSY 1")
+private val CONTRAST = Regex("Contrast\t0x([0-9A-F]{2})")
 
 class BoardController(
     private val activity: AppCompatActivity,
@@ -68,9 +73,37 @@ class BoardController(
     private val potStripName: TextView = activity.findViewById(R.id.potStripName)
     private val potStripValue: TextView = activity.findViewById(R.id.potStripValue)
     private val potSlider: Slider = activity.findViewById(R.id.potSlider)
+    /** Displays: what each controller holds, read with the board */
+    private val oledBuf = ByteArray(128 * 64)
+    private val panelBuf = ByteArray(240 * 320 * 2)
+    /** A sensor's sheet while open: its part and what updates it from the state text */
+    private var sensorSheet: Pair<Int, (String) -> Unit>? = null
+    /** A matrix or colour display close up: its part and what updates the sheet */
+    private var panelCloseUp: Pair<Int, (ByteArray, String) -> Unit>? = null
+    private val deviceText = HashMap<Int, String>()
+    /** The close-up open now: part id, its screen and its rows of state */
+    private var closeUp: Triple<Int, OledView, LinearLayout>? = null
+    /** The flash sheet while it is open: its part and what updates it from the state text */
+    private var flashSheet: Pair<Int, (String) -> Unit>? = null
+    /** The flash part a file is being loaded into or saved from */
+    private var flashFilePart = -1
+    private val loadFlashFile = activity.registerForActivityResult(androidx.activity.result.contract.ActivityResultContracts.OpenDocument()) { uri ->
+        if (uri != null) loadFlash(flashFilePart, uri)
+    }
+    private val saveFlashFile = activity.registerForActivityResult(androidx.activity.result.contract.ActivityResultContracts.CreateDocument("application/octet-stream")) { uri ->
+        if (uri != null) saveFlash(flashFilePart, uri)
+    }
+
     /** The pot whose slider is open, or -1 */
     private var openPot = -1
     private var bottomInset = 0
+
+    init {
+        activity.lifecycle.addObserver(object : androidx.lifecycle.DefaultLifecycleObserver {
+            override fun onResume(owner: androidx.lifecycle.LifecycleOwner) = updateBarometer(true)
+            override fun onPause(owner: androidx.lifecycle.LifecycleOwner) = updateBarometer(false)
+        })
+    }
 
     init {
         makeDraggable()
@@ -83,8 +116,17 @@ class BoardController(
         view.board = vm.board
         view.onPress = { p, down -> vm.boardInput(p.id, if (down) 1 else 0) }
         view.onPot = { p, v -> vm.boardInput(p.id, v) }
+        view.onTurn = { p, steps -> vm.boardTurn(p.id, steps) }
         view.onLongPress = { showSettings(it) }
-        view.onTap = { showSample(it) }
+        view.onTap = {
+            when (it.type) {
+                PartType.OLED -> showOled(it)
+                PartType.FLASH -> showFlash(it)
+                PartType.MATRIX, PartType.TFT -> showPanel(it)
+                PartType.BARO, PartType.CO2 -> showSensor(it)
+                else -> showSample(it)
+            }
+        }
         view.onPinTap = { showPin(it) }
         activity.findViewById<View>(R.id.boardAdd).setOnClickListener { showAdd() }
         activity.findViewById<View>(R.id.boardSupport).setOnClickListener { showSupport() }
@@ -112,6 +154,7 @@ class BoardController(
         if (view.board !== vm.board) { view.board = vm.board; rebuildPinned() }
         if (!boardVisible && pinned.visibility != View.VISIBLE) return
         vm.readBoard(state)
+        readDevices(boardVisible)
         if (boardVisible) {
             view.state = state
             view.invalidate()
@@ -119,6 +162,65 @@ class BoardController(
             warn.visibility = if (n > 0) View.VISIBLE else View.GONE
             warn.text = activity.getString(R.string.board_warnings, n)
         } else updatePinned()
+    }
+
+    /** Pixels and state of the displays on the board, for the board, the card and the close-up.
+     * With the board hidden, only the parts pinned over the other tabs. */
+    private fun readDevices(boardVisible: Boolean) {
+        val parts = if (boardVisible) vm.board.parts else vm.board.parts.filter { it.pinnedOverTabs }
+        for (p in parts.filter { it.type == PartType.FLASH }) {
+            val text = vm.readDevice(p.id, oledBuf) ?: continue
+            deviceText[p.id] = text
+            if (BUSY.containsMatchIn(text)) view.deviceBusy += p.id else view.deviceBusy -= p.id
+            flashSheet?.let { (id, update) -> if (id == p.id) update(text) }
+        }
+        // what each encoder's timer counts, when it is in encoder mode
+        val encs = parts.filter { it.type == PartType.ENCODER && it.pins.firstOrNull()?.function is PinFunction.Timer }
+        if (encs.isNotEmpty()) {
+            val addr = encs.flatMap { p ->
+                val base = ChipPins.BASE[(p.pins[0].function as PinFunction.Timer).timer]!!.toInt()
+                listOf(base + 0x08, base + 0x24, base + 0x00)
+            }.toIntArray()
+            val v = vm.peekWords(addr)
+            for ((k, p) in encs.withIndex()) {
+                val smcr = v[3 * k]; val sms = (smcr and 7) or ((smcr shr 13) and 8)
+                val on = sms in 1..3 && (v[3 * k + 2] and 1) != 0
+                val timer = (p.pins[0].function as PinFunction.Timer).timer
+                val cnt = if (timer == "TIM2") v[3 * k + 1].toLong() else (v[3 * k + 1] and 0xFFFF).toShort().toLong()
+                if (on) view.encoderCounts[p.id] = cnt else view.encoderCounts.remove(p.id)
+            }
+        }
+        for (p in parts.filter { it.type == PartType.BARO || it.type == PartType.CO2 }) {
+            val text = vm.readDevice(p.id, oledBuf) ?: continue
+            deviceText[p.id] = text
+            text.lines().firstOrNull { it.startsWith("Reading\t") }?.let { r ->
+                view.deviceReadings[p.id] = r.substringAfter('\t').split(" · ").let { parts ->
+                    if (p.type == PartType.CO2) listOf(parts[0], parts.drop(1).joinToString(" · ")) else parts }
+            }
+            sensorSheet?.let { (id, update) -> if (id == p.id) update(text) }
+        }
+        for (p in parts.filter { it.type == PartType.MATRIX || it.type == PartType.TFT }) {
+            val text = vm.readDevice(p.id, panelBuf) ?: continue
+            val n = if (p.type == PartType.MATRIX) 64 * p.matrixChips else 240 * p.tftRows * 2
+            // the part's own array, refilled: a new one every refresh was up to 150 KB of garbage 20 times a second
+            val px = view.devicePixels[p.id]?.takeIf { it.size == n } ?: ByteArray(n).also { view.devicePixels[p.id] = it }
+            System.arraycopy(panelBuf, 0, px, 0, n)
+            deviceText[p.id] = text
+            when (val v = pinnedViews[p.id]) { is MatrixView -> v.show(px); is TftView -> v.show(px) }
+            panelCloseUp?.let { (id, update) -> if (id == p.id) update(px, text) }
+        }
+        for (p in parts.filter { it.type == PartType.OLED }) {
+            val text = vm.readDevice(p.id, oledBuf) ?: continue
+            val contrast = CONTRAST.find(text)?.groupValues?.get(1)?.toInt(16) ?: 0x7F
+            val px = view.devicePixels[p.id]?.takeIf { it.size == oledBuf.size } ?: ByteArray(oledBuf.size).also { view.devicePixels[p.id] = it }
+            System.arraycopy(oledBuf, 0, px, 0, oledBuf.size)
+            view.deviceContrast[p.id] = contrast
+            deviceText[p.id] = text
+            (pinnedViews[p.id] as? OledView)?.show(oledBuf, contrast)
+            closeUp?.let { (id, screen, rows) ->
+                if (id == p.id) { screen.show(oledBuf, contrast); fillState(rows, text) }
+            }
+        }
     }
 
     private fun warnings(): Int = vm.board.parts.flatMap { it.pins }.count { u ->
@@ -132,6 +234,7 @@ class BoardController(
         view.ghost = null
         view.highlightPins = emptySet()
         rebuildPinned()
+        updateBarometer()
     }
 
     // ------------------------------------------------------------------
@@ -211,7 +314,9 @@ class BoardController(
         parent.addView(row, LinearLayout.LayoutParams(-1, -2).apply { topMargin = dp(10) })
     }
 
-    private fun buttons(parent: LinearLayout, vararg b: Pair<String, () -> Unit>, primaryLast: Boolean = true) {
+    /** A row of buttons; [compact] for three short ones on a narrow screen, [dangerLast] for one that destroys */
+    private fun buttons(parent: LinearLayout, vararg b: Pair<String, () -> Unit>, primaryLast: Boolean = true,
+                        compact: Boolean = false, dangerLast: Boolean = false) {
         val row = LinearLayout(activity).apply { orientation = LinearLayout.HORIZONTAL; setPadding(0, dp(16), 0, 0) }
         for ((i, x) in b.withIndex()) {
             val primary = primaryLast && i == b.size - 1 && b.size > 1
@@ -219,6 +324,8 @@ class BoardController(
                 if (primary) com.google.android.material.R.attr.materialButtonStyle
                 else com.google.android.material.R.attr.materialButtonOutlinedStyle)
             btn.text = x.first
+            if (compact) { btn.setPadding(dp(6), btn.paddingTop, dp(6), btn.paddingBottom); btn.textSize = 13f; btn.maxLines = 1 }
+            if (dangerLast && i == b.size - 1) btn.setTextColor(color(R.color.danger))
             btn.setOnClickListener { x.second() }
             row.addView(btn, LinearLayout.LayoutParams(0, -2, 1f).apply { if (i > 0) marginStart = dp(10) })
         }
@@ -250,6 +357,13 @@ class BoardController(
         val needs = mapOf(
             PartType.BUTTON to "input with interrupt", PartType.LED to "output or PWM", PartType.RGB_LED to "3 PWM channels, one timer",
             PartType.POT to "ADC input", PartType.SPEAKER to "DAC or PWM, transistor", PartType.PIEZO to "PWM",
+            PartType.OLED to "I2C: SCL and SDA",
+            PartType.FLASH to "SPI: CLK, DI, DO, and CS",
+            PartType.MATRIX to "SPI: CLK and DIN, and CS",
+            PartType.BARO to "I2C: SCL and SDA",
+            PartType.CO2 to "I2C: SCL and SDA",
+            PartType.ENCODER to "timer CH1 and CH2, an input",
+            PartType.TFT to "SPI: SCL and SDA; CS, DC, RES",
         )
         val grid = android.widget.GridLayout(activity).apply { columnCount = 2 }
         for ((t, n) in needs) grid.addView(MaterialButton(activity, null, com.google.android.material.R.attr.materialButtonOutlinedStyle).apply {
@@ -330,6 +444,292 @@ class BoardController(
         dlg.setOnDismissListener { if (view.ghost === pr.part) { view.ghost = null; view.highlightPins = emptySet() } }
     }
 
+    /** "name\tvalue" lines as a two-column table */
+    private fun fillState(rows: LinearLayout, text: String) {
+        val lines = text.trimEnd().lines().filter { '\t' in it }
+        if (rows.childCount != lines.size) {
+            rows.removeAllViews()
+            for (l in lines) rows.addView(LinearLayout(activity).apply {
+                orientation = LinearLayout.HORIZONTAL
+                setPadding(0, dp(6), 0, dp(6))
+                addView(TextView(activity).apply { textSize = 12.5f; setTextColor(color(R.color.label)) }, LinearLayout.LayoutParams(dp(104), -2))
+                addView(TextView(activity).apply { textSize = 12.5f; typeface = Typeface.MONOSPACE; setTextColor(color(R.color.console_text)) },
+                    LinearLayout.LayoutParams(0, -2, 1f))
+            })
+        }
+        for ((i, l) in lines.withIndex()) {
+            val row = rows.getChildAt(i) as LinearLayout
+            val (k, v) = l.split('\t', limit = 2)
+            (row.getChildAt(0) as TextView).text = k
+            val tv = row.getChildAt(1) as TextView
+            if (tv.text.toString() != v) tv.text = v
+        }
+    }
+
+    /** A display close up: every pixel, and what its controller holds */
+    private fun showOled(p: Part): BottomSheetDialog {
+        val dlg = sheet { col, dlg ->
+            title(col, p.type.title, "SSD1306 · 128 × 64 · " + (p.i2c ?: "I2C") + " " + "0x%02X".format(java.util.Locale.ROOT, p.i2cAddr))
+            val screen = OledView(activity, grid = true)
+            col.addView(screen, LinearLayout.LayoutParams(-1, -2).apply { topMargin = dp(8) })
+            col.addView(body(activity.getString(R.string.oled_closeup_hint), R.color.label))
+            val rows = LinearLayout(activity).apply { orientation = LinearLayout.VERTICAL }
+            col.addView(rows)
+            closeUp = Triple(p.id, screen, rows)
+            view.devicePixels[p.id]?.let { screen.show(it, view.deviceContrast[p.id] ?: 0x7F) }
+            deviceText[p.id]?.let { fillState(rows, it) }
+            switch(col, activity.getString(R.string.board_pin_over_tabs), p.pinnedOverTabs) {
+                setBoard(vm.board.with(vm.board.parts.first { it.id == p.id }.copy(pinnedOverTabs = it)))
+            }
+            buttons(col, activity.getString(R.string.board_sample_code) to { dlg.dismiss(); showSample(p) },
+                activity.getString(R.string.board_part_settings) to { dlg.dismiss(); showSettings(p) }, primaryLast = false)
+        }
+        dlg.setOnDismissListener { closeUp = null }
+        return dlg
+    }
+
+    /** A slider for a value the sensor senses: the label, the value as it reads, the range under it */
+    private fun sliderRow(parent: LinearLayout, label: String, value: Float, from: Float, to: Float, step: Float,
+                          fmt: (Float) -> String, live: (Float) -> Unit, done: (Float) -> Unit): com.google.android.material.slider.Slider {
+        val head = LinearLayout(activity).apply { orientation = LinearLayout.HORIZONTAL; setPadding(0, dp(10), 0, 0) }
+        head.addView(TextView(activity).apply { text = label; textSize = 14f; setTextColor(color(R.color.console_text)) }, LinearLayout.LayoutParams(0, -2, 1f))
+        val shown = TextView(activity).apply { text = fmt(value); textSize = 14f; typeface = Typeface.MONOSPACE; setTextColor(0xFF80DEEA.toInt()) }
+        head.addView(shown)
+        parent.addView(head)
+        // The slider counts whole steps: a value like 987.6 in steps of 0.1 is not exact in a Float,
+        // and the Slider throws when its value is not a multiple of its step
+        val lo = Math.round(from / step); val hi = Math.round(to / step)
+        val slider = com.google.android.material.slider.Slider(activity).apply {
+            valueFrom = lo.toFloat(); valueTo = hi.toFloat(); stepSize = 1f
+            isTickVisible = false
+            this.value = Math.round(value / step).coerceIn(lo, hi).toFloat()
+            labelBehavior = com.google.android.material.slider.LabelFormatter.LABEL_GONE
+            contentDescription = label
+            addOnChangeListener { _, v, fromUser -> shown.text = fmt(v * step); if (fromUser) live(v * step) }
+            addOnSliderTouchListener(object : com.google.android.material.slider.Slider.OnSliderTouchListener {
+                override fun onStartTrackingTouch(sl: com.google.android.material.slider.Slider) {}
+                override fun onStopTrackingTouch(sl: com.google.android.material.slider.Slider) { done(sl.value * step) }
+            })
+        }
+        parent.addView(slider)
+        val ends = LinearLayout(activity).apply { orientation = LinearLayout.HORIZONTAL; setPadding(dp(12), 0, dp(12), 0) }
+        ends.addView(TextView(activity).apply { text = fmt(from); textSize = 11f; setTextColor(color(R.color.label)) }, LinearLayout.LayoutParams(0, -2, 1f))
+        ends.addView(TextView(activity).apply { text = fmt(to); textSize = 11f; setTextColor(color(R.color.label)) })
+        parent.addView(ends)
+        return slider
+    }
+
+    private fun savePart(id: Int, change: (Part) -> Part) {
+        val cur = vm.board.parts.firstOrNull { it.id == id } ?: return
+        setBoard(vm.board.with(change(cur)))
+    }
+
+    /** A sensor: what it senses, set with sliders; what the driver has done with it */
+    private fun showSensor(p: Part): BottomSheetDialog {
+        val baro = p.type == PartType.BARO
+        val dlg = sheet { col, dlg ->
+            title(col, p.type.title, (if (baro) "BMP280 module · " else "SCD41 module · ") + (p.i2c ?: "I2C") + " · address " +
+                "0x%02X".format(java.util.Locale.ROOT, p.i2cAddr))
+            val loc = java.util.Locale.ROOT
+            if (baro) {
+                val pressure = sliderRow(col, activity.getString(R.string.sensor_pressure), p.pressureHpa.toFloat(), 300f, 1100f, 0.1f,
+                    { "%.1f hPa".format(loc, it) }, { vm.setPressure(p.id, it.toDouble()) }) { v -> savePart(p.id) { it.copy(pressureHpa = v.toDouble()) } }
+                sliderRow(col, activity.getString(R.string.sensor_temperature), p.tempC.toFloat(), -40f, 85f, 0.1f,
+                    { "%.1f °C".format(loc, it) }, { v -> vm.sendSensor(p.copy(tempC = v.toDouble())) }) { v -> savePart(p.id) { it.copy(tempC = v.toDouble()) } }
+                val hasBarometer = barometer != null
+                switch(col, activity.getString(if (hasBarometer) R.string.sensor_follow_barometer else R.string.sensor_no_barometer), p.followBarometer && hasBarometer) { on ->
+                    pressure.isEnabled = !on
+                    savePart(p.id) { it.copy(followBarometer = on) }
+                }
+                pressure.isEnabled = !(p.followBarometer && hasBarometer)
+                if (!hasBarometer) (col.getChildAt(col.childCount - 1)).isEnabled = false
+            } else {
+                sliderRow(col, activity.getString(R.string.sensor_co2), p.co2Ppm.toFloat(), 400f, 5000f, 10f,
+                    { "%.0f ppm".format(loc, it) }, { v -> vm.sendSensor(p.copy(co2Ppm = v.toInt())) }) { v -> savePart(p.id) { it.copy(co2Ppm = v.toInt()) } }
+                sliderRow(col, activity.getString(R.string.sensor_temperature), p.tempC.toFloat(), -10f, 60f, 0.1f,
+                    { "%.1f °C".format(loc, it) }, { v -> vm.sendSensor(p.copy(tempC = v.toDouble())) }) { v -> savePart(p.id) { it.copy(tempC = v.toDouble()) } }
+                sliderRow(col, activity.getString(R.string.sensor_humidity), p.rhPct.toFloat(), 0f, 100f, 1f,
+                    { "%.0f %%".format(loc, it) }, { v -> vm.sendSensor(p.copy(rhPct = v.toInt())) }) { v -> savePart(p.id) { it.copy(rhPct = v.toInt()) } }
+                col.addView(MaterialButton(activity, null, com.google.android.material.R.attr.materialButtonOutlinedStyle).apply {
+                    text = activity.getString(R.string.sensor_breathe); isAllCaps = false
+                    setOnClickListener { vm.breathe(p.id) }
+                }, LinearLayout.LayoutParams(-1, dp(48)).apply { topMargin = dp(12) })
+                col.addView(body(activity.getString(R.string.sensor_breathe_note), R.color.label))
+            }
+            section(col, activity.getString(if (baro) R.string.sensor_driver else R.string.sensor_state))
+            val rows = LinearLayout(activity).apply { orientation = LinearLayout.VERTICAL }
+            col.addView(rows)
+            val update = { text: String ->
+                fillState(rows, text.lines().filter { !it.startsWith("Bus\t") && !it.startsWith("Reading\t") }.joinToString("\n"))
+            }
+            sensorSheet = p.id to update
+            deviceText[p.id]?.let(update)
+            buttons(col, activity.getString(R.string.board_sample_code) to { dlg.dismiss(); showSample(p) },
+                activity.getString(R.string.board_part_settings) to { dlg.dismiss(); showSettings(p) }, primaryLast = false)
+        }
+        dlg.setOnDismissListener { sensorSheet = null }
+        return dlg
+    }
+
+    // ------------------------------------------------------------------
+    // The phone's barometer, for pressure sensors that follow it
+
+    private val sensorManager = activity.getSystemService(android.content.Context.SENSOR_SERVICE) as? android.hardware.SensorManager
+    private val barometer = sensorManager?.getDefaultSensor(android.hardware.Sensor.TYPE_PRESSURE)
+    private var listening = false
+    private val barometerListener = object : android.hardware.SensorEventListener {
+        override fun onSensorChanged(e: android.hardware.SensorEvent) {
+            val hpa = e.values[0].toDouble()
+            for (p in vm.board.parts) if (p.type == PartType.BARO && p.followBarometer) vm.setPressure(p.id, hpa)
+        }
+        override fun onAccuracyChanged(s: android.hardware.Sensor?, a: Int) {}
+    }
+
+    /** Listens to the barometer while a pressure sensor follows it and the app is in front */
+    fun updateBarometer(resumed: Boolean = activity.lifecycle.currentState.isAtLeast(androidx.lifecycle.Lifecycle.State.RESUMED)) {
+        val want = resumed && barometer != null && vm.board.parts.any { it.type == PartType.BARO && it.followBarometer }
+        if (want && !listening) sensorManager?.registerListener(barometerListener, barometer, android.hardware.SensorManager.SENSOR_DELAY_NORMAL)
+        if (!want && listening) sensorManager?.unregisterListener(barometerListener)
+        listening = want
+    }
+
+    /** A matrix or colour display close up: the LEDs or the panel, and what its controller holds */
+    private fun showPanel(p: Part): BottomSheetDialog {
+        val dlg = sheet { col, dlg ->
+            title(col, p.type.title, describe(p))
+            val screen: View = if (p.type == PartType.MATRIX) MatrixView(activity, p.matrixChips) else TftView(activity, p.tftRows)
+            col.addView(screen, LinearLayout.LayoutParams(-1, -2).apply { topMargin = dp(8) })
+            col.addView(body(activity.getString(if (p.type == PartType.MATRIX) R.string.matrix_closeup_hint else R.string.tft_closeup_hint), R.color.label))
+            val rows = LinearLayout(activity).apply { orientation = LinearLayout.VERTICAL }
+            col.addView(rows)
+            val update = { px: ByteArray, text: String ->
+                when (screen) { is MatrixView -> screen.show(px); is TftView -> screen.show(px) }
+                fillState(rows, text)
+            }
+            panelCloseUp = p.id to update
+            val px = view.devicePixels[p.id]; val t = deviceText[p.id]
+            if (px != null && t != null) update(px, t)
+            switch(col, activity.getString(R.string.board_pin_over_tabs), p.pinnedOverTabs) {
+                setBoard(vm.board.with(vm.board.parts.first { it.id == p.id }.copy(pinnedOverTabs = it)))
+            }
+            buttons(col, activity.getString(R.string.board_sample_code) to { dlg.dismiss(); showSample(p) },
+                activity.getString(R.string.board_part_settings) to { dlg.dismiss(); showSettings(p) }, primaryLast = false)
+        }
+        dlg.setOnDismissListener { panelCloseUp = null }
+        return dlg
+    }
+
+    /** The flash: its status, what is written where, the hex view, files */
+    private fun showFlash(p: Part): BottomSheetDialog {
+        val dlg = sheet { col, dlg ->
+            title(col, activity.getString(R.string.flash_title),
+                "${p.flashName} · ${p.flashMbit / 8} MB · ${p.spi ?: "SPI"} · CS on ${p.pins.firstOrNull()?.pin ?: "?"}")
+            section(col, activity.getString(R.string.flash_status))
+            val chips = ChipGroup(activity)
+            col.addView(chips)
+            val lastOp = body("", R.color.label, mono = true)
+            col.addView(lastOp)
+            section(col, activity.getString(R.string.flash_written))
+            val written = LinearLayout(activity).apply {
+                orientation = LinearLayout.VERTICAL
+                setPadding(dp(12), dp(8), dp(12), dp(8))
+                background = GradientDrawable().apply { setColor(color(R.color.console_background)); cornerRadius = dp(10).toFloat() }
+            }
+            col.addView(written)
+            col.addView(MaterialButton(activity).apply {
+                text = activity.getString(R.string.flash_open_hex); isAllCaps = false
+                setOnClickListener { openHex(p) }
+            }, LinearLayout.LayoutParams(-1, dp(52)).apply { topMargin = dp(14) })
+            col.addView(body(activity.getString(R.string.flash_note), R.color.label))
+            buttons(col, activity.getString(R.string.flash_load) to { flashFilePart = p.id; loadFlashFile.launch(arrayOf("*/*")) },
+                activity.getString(R.string.flash_save) to { flashFilePart = p.id; saveFlashFile.launch("${vm.board.nameOf(p)}.bin") },
+                activity.getString(R.string.flash_erase_all) to { eraseFlash(p) }, primaryLast = false, compact = true, dangerLast = true)
+            buttons(col, activity.getString(R.string.board_sample_code) to { dlg.dismiss(); showSample(p) },
+                activity.getString(R.string.board_part_settings) to { dlg.dismiss(); showSettings(p) }, primaryLast = false)
+            var last = ""
+            val update = { st: String ->
+                if (st != last) {
+                    last = st
+                    val kv = st.trimEnd().lines().filter { '\t' in it }.map { it.split('\t') }
+                    chips.removeAllViews()
+                    kv.firstOrNull { it[0] == "Status" }?.getOrNull(1)?.split(" · ")?.forEach { t ->
+                        chips.addView(Chip(activity).apply {
+                            text = t; typeface = Typeface.MONOSPACE; isClickable = false
+                            if (t == "BUSY 1") setChipStrokeColorResource(R.color.chip_message)
+                        })
+                    }
+                    lastOp.text = listOf("Busy", "Power", "Last").mapNotNull { k -> kv.firstOrNull { it[0] == k }?.getOrNull(1) }.joinToString("\n")
+                    lastOp.visibility = if (lastOp.text.isEmpty()) View.GONE else View.VISIBLE
+                    written.removeAllViews()
+                    for (w in kv.filter { it[0] == "Written" }) written.addView(LinearLayout(activity).apply {
+                        orientation = LinearLayout.HORIZONTAL
+                        addView(TextView(activity).apply { this.text = w.getOrElse(1) { "" }; typeface = Typeface.MONOSPACE; textSize = 12f
+                            setTextColor(color(R.color.console_text)); setPadding(0, dp(3), 0, dp(3)) }, LinearLayout.LayoutParams(0, -2, 1f))
+                        addView(TextView(activity).apply { this.text = w.getOrElse(2) { "" }; typeface = Typeface.MONOSPACE; textSize = 12f
+                            setTextColor(color(R.color.label)); setPadding(dp(8), dp(3), 0, dp(3)) })
+                    })
+                }
+            }
+            flashSheet = p.id to update
+            deviceText[p.id]?.let(update)
+        }
+        dlg.setOnDismissListener { flashSheet = null }
+        return dlg
+    }
+
+    private fun openHex(p: Part) {
+        HexView(activity, activity.getString(R.string.flash_hex_title, p.flashName), vm.memorySize(p),
+            read = { a, n -> vm.readMemory(p.id, a, n) },
+            write = { a, data -> vm.writeMemory(p.id, a, data) }).show()
+    }
+
+    private fun eraseFlash(p: Part) {
+        androidx.appcompat.app.AlertDialog.Builder(activity)
+            .setMessage(activity.getString(R.string.flash_erase_confirm, p.flashName))
+            .setPositiveButton(R.string.flash_erase_all) { _, _ ->
+                val ff = ByteArray(1 shl 16) { 0xFF.toByte() }
+                var a = 0
+                while (a < vm.memorySize(p)) { vm.writeMemory(p.id, a, ff); a += ff.size }
+                Thread { vm.saveFlash() }.start()
+            }
+            .setNegativeButton(android.R.string.cancel, null)
+            .show()
+    }
+
+    /** A file into the flash from address 0, as a programmer would; the rest stays as it is */
+    private fun loadFlash(partId: Int, uri: android.net.Uri) {
+        val p = vm.board.parts.firstOrNull { it.id == partId } ?: return
+        val size = vm.memorySize(p)
+        val n = runCatching {
+            activity.contentResolver.openInputStream(uri)!!.use { inp ->
+                val buf = ByteArray(1 shl 16)
+                var at = 0
+                while (at < size) {
+                    val k = inp.read(buf, 0, minOf(buf.size, size - at))
+                    if (k <= 0) break
+                    vm.writeMemory(p.id, at, buf.copyOf(k))
+                    at += k
+                }
+                at
+            }
+        }.getOrElse { -1 }
+        android.widget.Toast.makeText(activity, if (n < 0) activity.getString(R.string.flash_load_failed)
+            else activity.getString(R.string.flash_loaded, n), android.widget.Toast.LENGTH_SHORT).show()
+        if (n > 0) Thread { vm.saveFlash() }.start()
+    }
+
+    /** The whole chip into a file */
+    private fun saveFlash(partId: Int, uri: android.net.Uri) {
+        val p = vm.board.parts.firstOrNull { it.id == partId } ?: return
+        val ok = runCatching {
+            activity.contentResolver.openOutputStream(uri)!!.use { out ->
+                var a = 0
+                while (a < vm.memorySize(p)) { out.write(vm.readMemory(p.id, a, 1 shl 16)); a += 1 shl 16 }
+            }
+        }.isSuccess
+        android.widget.Toast.makeText(activity, if (ok) R.string.flash_saved else R.string.flash_save_failed, android.widget.Toast.LENGTH_SHORT).show()
+    }
+
     /** A part's sample code, from a tap on the part or its sheet */
     private fun showSample(p: Part): BottomSheetDialog = sheet { col, dlg ->
         val b = vm.board
@@ -349,6 +749,13 @@ class BoardController(
         PartType.POT -> "10 kΩ linear"
         PartType.SPEAKER -> if (p.dacDrive) "DAC drive" else "PWM drive"
         PartType.PIEZO -> "passive"
+        PartType.OLED -> "SSD1306 · ${p.i2c ?: "I2C"} · address " + "0x%02X".format(java.util.Locale.ROOT, p.i2cAddr)
+        PartType.FLASH -> "${p.flashName} · ${p.flashMbit / 8} MB · ${p.spi ?: "SPI"}"
+        PartType.MATRIX -> (if (p.matrixChips == 1) "MAX7219 · 8 × 8" else "${p.matrixChips} × MAX7219 · ${8 * p.matrixChips} × 8") + " · ${p.spi ?: "SPI"}"
+        PartType.TFT -> "ST7789 · 240 × ${p.tftRows} · ${p.spi ?: "SPI"}"
+        PartType.BARO -> "BMP280 · ${p.i2c ?: "I2C"} · address " + "0x%02X".format(java.util.Locale.ROOT, p.i2cAddr)
+        PartType.CO2 -> "SCD41 · ${p.i2c ?: "I2C"} · address 0x62"
+        PartType.ENCODER -> "KY-040 · ${(p.pins.firstOrNull()?.function as? PinFunction.Timer)?.timer ?: "timer"} encoder mode"
     }
 
     private fun showRewire(pr: Recommender.Proposal, pin: String?) {
@@ -417,6 +824,20 @@ class BoardController(
                     "GPIO${'A' + (vm.chip.gpio(p.pins[0].pin)?.port ?: 0)}_PUPDR = ${if (p.toVcc) "10" else "01"} for ${p.pins[0].pin}.", R.color.label))
             }
             PartType.SPEAKER -> choice(col, "Driven by", listOf("DAC", "PWM"), if (p.dacDrive) 0 else 1) { update(p.copy(dacDrive = it == 0)) }
+            PartType.BARO -> choice(col, "Address (the SDO pin)", listOf("0x76 · SDO to GND", "0x77 · SDO to 3V3"), if (p.i2cAddr == 0x77) 1 else 0) {
+                update(p.copy(i2cAddr = if (it == 1) 0x77 else 0x76)) }
+            PartType.CO2 -> col.addView(body(activity.getString(R.string.co2_address_note), R.color.label))
+            PartType.MATRIX -> choice(col, "Module", listOf("8 × 8 · one MAX7219", "32 × 8 · four in one"), if (p.matrixChips == 1) 0 else 1) {
+                update(p.copy(matrixChips = if (it == 0) 1 else 4)) }
+            PartType.TFT -> choice(col, "Panel", listOf("240 × 240 · 1.3\"", "240 × 320 · 2.0\""), if (p.tftRows == 320) 1 else 0) {
+                update(p.copy(tftRows = if (it == 1) 320 else 240)) }
+            PartType.FLASH -> {
+                choice(col, "Chip", listOf("W25Q32 · 4 MB", "W25Q64 · 8 MB", "W25Q128 · 16 MB"), listOf(32, 64, 128).indexOf(p.flashMbit)) {
+                    update(p.copy(flashMbit = listOf(32, 64, 128)[it])) }
+                col.addView(body(activity.getString(R.string.flash_size_note), R.color.label))
+            }
+            PartType.OLED -> choice(col, "Address (the SA0 pad)", listOf("0x3C · to GND", "0x3D · to 3V3"), if (p.i2cAddr == 0x3D) 1 else 0) {
+                update(p.copy(i2cAddr = if (it == 1) 0x3D else 0x3C)) }
             else -> {}
         }
         for (x in Passives.forPart(p)) col.addView(body("${x.value}: ${x.reason}"))
@@ -558,13 +979,21 @@ class BoardController(
                     onChange = { setPot(p.id, it) }
                     onTap = { openPot = if (openPot == p.id) -1 else p.id; showPotStrip(); updatePotButtons() }
                 }
+                PartType.OLED -> OledView(activity)
+                PartType.MATRIX -> MatrixView(activity, p.matrixChips)
+                PartType.TFT -> TftView(activity, p.tftRows)
                 else -> TextView(activity).apply {
                     textSize = 12f; setTextColor(color(R.color.console_text)); gravity = Gravity.CENTER_VERTICAL
                     compoundDrawablePadding = dp(8)
                     text = nameAndPins(p)
                 }
             }
-            pinned.addView(v, LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, if (p.type == PartType.POT) dp(40) else dp(36))
+            // A 0.96" OLED's glass is about 22 mm wide: 138 dp is that on any screen
+            if (p.type == PartType.OLED) pinned.addView(v, LinearLayout.LayoutParams(dp(138), dp(69)).apply { topMargin = dp(4); bottomMargin = dp(2) })
+            // a 1.3" panel is about 23 mm wide, a 2.0" one 31 mm; kept smaller so the card stays a card
+            else if (p.type == PartType.TFT) pinned.addView(v, LinearLayout.LayoutParams(dp(120), dp(120 * p.tftRows / 240)).apply { topMargin = dp(4); bottomMargin = dp(2) })
+            else if (p.type == PartType.MATRIX) pinned.addView(v, LinearLayout.LayoutParams(dp(if (p.matrixChips == 1) 64 else 200), -2).apply { topMargin = dp(4); bottomMargin = dp(2) })
+            else pinned.addView(v, LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, if (p.type == PartType.POT) dp(40) else dp(36))
                 .apply { if (p.type == PartType.POT) topMargin = dp(4) })
             pinnedViews[p.id] = v
         }

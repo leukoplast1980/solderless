@@ -60,15 +60,21 @@ Minimum Android version: 8.0, as for Mecrisp Pocket. Aim for F-Droid.
   BASEPRI and FAULTMASK.
 - Fault status registers (CFSR, HFSR, MMFAR, BFAR) set as on the real core, so
   the fault explainer (section 8) can decode them.
-- Milestone 3 adds the DSP instructions and the single-precision FPU, including
-  lazy stacking. Without them, C firmware built for hard float gets a
-  UsageFault, as on a core with the FPU switched off.
+- The DSP instructions and the single-precision FPU with lazy stacking
+  (milestone 3), so C firmware built for hard float runs; its arithmetic
+  is done in integers to the ARM ARM's pseudocode, not on the phone's FPU.
 - Milestone 5 adds the MPU.
 
 Why our own interpreter: it fits the way Mecrisp Pocket's `rv32.c` already
 does single-step, snapshots and virtual time, it is easy to hook for the
 access log, and it has no outside dependency. Speed is enough: a good
 interpreter on a current phone lands near the real chip's 170 MHz.
+
+The run loop keeps its common case short: the rare conditions (a pending
+interrupt, a fault, an IT block, an exception return, sleep) are one test
+before and one after each instruction, and loads and stores that hit RAM or
+flash are handled inline. The emulator is built optimised in debug APKs
+too, which would otherwise run it about three times slower.
 
 ### 3.2 Memory
 
@@ -116,6 +122,9 @@ nothing, reads return 0) and the Log says why.
   delay takes a second: LEDs blink at the right rate, sounds have the right
   pitch, the CO2 sensor delivers a value every 5 s. If the phone cannot keep
   up, emulated time runs slower and a speed indicator shows the ratio.
+- **Batches.** The CPU runs at most 20,000 instructions at a time (about
+  0.1 ms at full speed). The app's reads of the board, the displays and the
+  scope wait for the running batch to end, so they stay short.
 - **Deterministic mode** for tests: no pacing, no wall clock, same result on
   every run.
 - **Idle detection.** Stellaris waits for a key by polling USART2's status
@@ -244,8 +253,9 @@ reported), SPI parts by their own chip-select pins.
   a "breathe" button raises CO2 and lets it settle back.
 - **SSD1306**: the full command set (addressing modes, segment and COM remap,
   multiplex ratio, offset, contrast, charge pump, inverse, on/off; scrolling
-  later). I2C with control bytes, SPI with the DC pin, the RES pin. No reads
-  over the serial interfaces, as on the real chip. Drawn pixel for pixel.
+  later). I2C with control bytes, SPI with the DC pin, the RES pin. Over
+  I2C only the status byte reads back; no RAM reads, as on the real chip.
+  Drawn pixel for pixel.
 - **ST7789**: reset, sleep out with its wait, colour mode (16- and 18-bit),
   memory access control (rotation, RGB order), address window, memory write,
   inversion, display on. Backlight pin, dimmable by PWM.
@@ -306,10 +316,16 @@ Settled with the mock-up (Solderless – Breadboard tab mock-up, 19 November
 - **Scope tab** (added in milestone 2, styled after Mecrisp Pocket's GPIO
   trace): one row per pin with a part, or added from its sheet; logic
   levels, voltages for analog pins, PWM as a square wave or a band, fast
-  toggling as a dense mark; windows of 1 ms to 5 s, pinch and drag, Hold,
-  trigger on a rising or falling edge, cursors A and B. The emulator
-  records each watched pin's changes with their time; the app keeps the
-  last 6 seconds.
+  toggling as a dense mark; windows of 10 µs to 1 s, pinch (2 µs to 6 s)
+  and drag, Hold, trigger on a rising or falling edge, cursors A and B.
+  The emulator records each watched pin's changes with their time; the
+  app keeps the last 6 seconds. From milestone 3 it decodes the buses:
+  the pins of a bus are shown once, labelled by signal and peripheral,
+  with the bits an on-chip I2C or SPI sent drawn on them; a row of boxes
+  follows (S, "3C W ✓", "AF ✓", P; SPI bytes with what came back on MISO)
+  and a line saying what the part made of the transfer at cursor A or the
+  last one shown ("OLED: command AF, display on", "MAX7219: register 0C
+  shutdown ← 01, normal operation").
 - **Settings:** spread the pins when parts need room (the tab grows and
   scrolls), header order.
 - **Displays** (milestone 3) are drawn as their modules with the screen

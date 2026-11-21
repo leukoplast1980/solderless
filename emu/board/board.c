@@ -63,13 +63,10 @@ static void add(struct drivers *d, double g_us, int mv)
     }
 }
 
-static const struct sl_af_info *af_entry(int port, int bit, int af)
+static const struct sl_af_info *af_entry(struct sl_soc *s, int port, int bit, int af)
 {
-    for (int i = 0; i < sl_g431_naf; i++) {
-        const struct sl_af_info *e = &sl_g431_af[i];
-        if (e->port == port && e->pin == bit && e->af == af) return e;
-    }
-    return 0;
+    int i = s->af_index[port][bit][af & 15];
+    return i >= 0 ? &sl_g431_af[i] : 0;
 }
 
 /* What the chip's output stage puts on the pin. Fills PWM fields. */
@@ -88,7 +85,7 @@ static void chip_driver(struct sl_soc *s, int slot, struct drivers *d, struct sl
         if (!od || !odr) { add(d, G_CHIP, odr ? SL_VDD_MV : 0); p->chip_drives = 1; }
     } else if (mode == 2) {
         int af = gpio_pin_af(s, port, bit);
-        const struct sl_af_info *e = af >= 0 ? af_entry(port, bit, af) : 0;
+        const struct sl_af_info *e = af >= 0 ? af_entry(s, port, bit, af) : 0;
         if (!e || e->periph < 0 || !s->clk_on[e->periph]) return;
         const char *kind = sl_g431_periph[e->periph].kind;
         if (!strcmp(kind, "timer") && e->signal[0] == 'C' && e->signal[1] == 'H') {
@@ -108,6 +105,15 @@ static void chip_driver(struct sl_soc *s, int slot, struct drivers *d, struct sl
         } else if (!strcmp(kind, "usart") && !strcmp(e->signal, "TX")) {
             add(d, G_CHIP, SL_VDD_MV);                    /* idle line; bytes go to the terminal directly */
             p->chip_drives = 1;
+        } else if (!strcmp(kind, "i2c") && (!strcmp(e->signal, "SCL") || !strcmp(e->signal, "SDA"))) {
+            /* Open drain: an idle I2C line is released, the pull-ups hold it high; the
+             * bytes go to the parts directly. Push-pull drives it high. */
+            if (!od) { add(d, G_CHIP, SL_VDD_MV); p->chip_drives = 1; }
+        } else if (!strcmp(kind, "spi")) {
+            /* SCK idles at CPOL, MOSI keeps its last bit, NSS with SSOE; the
+             * frames go to the parts directly */
+            int lv;
+            if (spi_pin_out(s, e->periph, e->signal, &lv) && (!od || !lv)) { add(d, G_CHIP, lv ? SL_VDD_MV : 0); p->chip_drives = 1; }
         }
     } else if (mode == 3) {
         int mv, g;
@@ -160,6 +166,50 @@ void board_trace_pins(struct sl_soc *s, const int *slots, int n)
         }
 }
 
+int board_pin_traced(struct sl_soc *s, int slot)
+{
+    return slot >= 0 && slot < SL_PIN_SLOTS && B->pin[slot].traced;
+}
+
+static int bus_free_slots(struct sl_soc *s)
+{
+    return (int)((B->bus_tail + SL_BUS_RING - B->bus_head - 1) % SL_BUS_RING);
+}
+
+void board_bus_log(struct sl_soc *s, const sl_bus_event *e)
+{
+    sl_bus_event *l = &B->bus_lost;
+    if (l->kind && bus_free_slots(s) >= 2) {            /* room again: say what was lost first */
+        B->bus[B->bus_head] = *l;
+        B->bus_head = (B->bus_head + 1) % SL_BUS_RING;
+        l->kind = 0;
+    }
+    if (l->kind || bus_free_slots(s) < 2) {             /* full: the reader is behind */
+        if (!l->kind) { *l = *e; l->bits = l->kind; l->kind = SL_BUS_LOST; l->flags = 0; l->value = 0; l->miso = 0; }
+        uint32_t n = ((uint32_t)l->miso << 16 | l->value) + 1;
+        l->value = (uint16_t)n; l->miso = (uint16_t)(n >> 16);
+        l->t1_ns = e->t1_ns;
+        return;
+    }
+    B->bus[B->bus_head] = *e;
+    B->bus_head = (B->bus_head + 1) % SL_BUS_RING;
+}
+
+size_t board_bus_read(struct sl_soc *s, sl_bus_event *out, size_t max)
+{
+    size_t n = 0;
+    if (B->bus_lost.kind && bus_free_slots(s) >= 1) {
+        B->bus[B->bus_head] = B->bus_lost;
+        B->bus_head = (B->bus_head + 1) % SL_BUS_RING;
+        B->bus_lost.kind = 0;
+    }
+    while (n < max && B->bus_tail != B->bus_head) {
+        out[n++] = B->bus[B->bus_tail];
+        B->bus_tail = (B->bus_tail + 1) % SL_BUS_RING;
+    }
+    return n;
+}
+
 size_t board_trace_read(struct sl_soc *s, sl_audio_event *out, size_t max)
 {
     /* A burst that ended: record where the pin settled */
@@ -200,9 +250,12 @@ static void resolve(struct sl_soc *s, int slot, int edges)
             add(&d, 1e6 / rth, (int)(SL_VDD_MV * x + 0.5));
             break;
         }
+        case SL_ATT_DEVICE: if (a->a.r_ohm > 0) add(&d, 1e6 / a->a.r_ohm, SL_VDD_MV); break;   /* the module's pull-up */
         default: break;
         }
     }
+    int part_level;
+    if (bus_pin_drive(s, slot, &part_level)) add(&d, G_CHIP, part_level ? SL_VDD_MV : 0);   /* a bus part drives the line */
 
     int old_level = p->level, old_float = p->floating;
     p->shorted = d.nstrong >= 2 && d.strong_max - d.strong_min > 1000;
@@ -249,9 +302,10 @@ static void resolve(struct sl_soc *s, int slot, int edges)
     }
     if (edges && !p->floating && !p->pwm && !p->undefined && (p->level != old_level || old_float)) {
         exti_gpio(s, port, bit, p->level);
+        bus_pin_changed(s, slot);
         /* Input capture: a pin in alternate-function mode routed to a timer channel */
         int af = gpio_pin_af(s, port, bit);
-        const struct sl_af_info *e = af >= 0 ? af_entry(port, bit, af) : 0;
+        const struct sl_af_info *e = af >= 0 ? af_entry(s, port, bit, af) : 0;
         if (e && e->periph >= 0 && !strcmp(sl_g431_periph[e->periph].kind, "timer")
             && e->signal[0] == 'C' && e->signal[1] == 'H' && e->signal[3] != 'N')
             tim_input_edge(s, e->periph, e->signal[2] - '0', p->level);
@@ -260,8 +314,8 @@ static void resolve(struct sl_soc *s, int slot, int edges)
 
 void board_port_changed(struct sl_soc *s, int port, uint32_t pins)
 {
-    for (int b = 0; b < 16; b++)
-        if ((pins >> b) & 1u) resolve(s, port * 16 + b, 1);
+    for (pins &= 0xFFFFu; pins; pins &= pins - 1)
+        resolve(s, port * 16 + __builtin_ctz(pins), 1);
 }
 
 void board_af_outputs_changed(struct sl_soc *s)
@@ -288,7 +342,7 @@ int board_pin_level(struct sl_soc *s, int port, int pin)
         (void)sl;
         /* Instantaneous level of a PWM pin: ask the timer. */
         int af = gpio_pin_af(s, port, pin);
-        const struct sl_af_info *e = af >= 0 ? af_entry(port, pin, af) : 0;
+        const struct sl_af_info *e = af >= 0 ? af_entry(s, port, pin, af) : 0;
         if (e) {
             struct sl_tim_out o;
             if (tim_output(s, e->periph, e->signal[2] - '0', e->signal[3] == 'N', &o)) return o.level;
@@ -312,6 +366,7 @@ void board_idr_read(struct sl_soc *s, int port)
     for (int b = 0; b < 16; b++) {
         struct sl_pin_state *p = &B->pin[port * 16 + b];
         if (!p->used || ((moder >> (2 * b)) & 3u) != 0u) continue;
+        if (bus_pin_is_miso(s, port * 16 + b)) continue;   /* DO floats between a part's answers; those bits are not used */
         char n[6]; pin_name(port * 16 + b, n);
         if (p->floating)
             soc_log(s, LOG_FLOATING, "%s floats: nothing drives it and its pull-up is off (GPIO%c_PUPDR), "
@@ -333,12 +388,26 @@ static void schedule_next(struct sl_soc *s)
         struct sl_att_state *a = &B->att[i];
         if (a->bounce_i < a->bounce_n && a->bounce_at[a->bounce_i] < t) t = a->bounce_at[a->bounce_i];
     }
+    if (B->enc_n && B->enc[0].at < t) t = B->enc[0].at;
     soc_sched(s, EV_BOARD, t);
 }
+
+static void switch_change(struct sl_soc *s, struct sl_att_state *a, int pressed);
 
 void board_event(struct sl_soc *s)
 {
     uint64_t now = soc_now_ps(s);
+    /* encoder contacts whose time has come */
+    while (B->enc_n && B->enc[0].at <= now) {
+        struct sl_enc_step st = B->enc[0];
+        memmove(B->enc, B->enc + 1, sizeof B->enc[0] * (size_t)(B->enc_n - 1));
+        B->enc_n--;
+        for (int i = 0; i < B->natt; i++) {
+            struct sl_att_state *a = &B->att[i];
+            if (a->a.part == st.part && a->a.kind == SL_ATT_SWITCH && a->a.role == st.contact && (a->value != 0) != st.closed)
+                switch_change(s, a, st.closed);
+        }
+    }
     for (int i = 0; i < B->natt; i++) {
         struct sl_att_state *a = &B->att[i];
         while (a->bounce_i < a->bounce_n && a->bounce_at[a->bounce_i] <= now) {
@@ -382,6 +451,7 @@ void board_input(struct sl_soc *s, int part, int value)
     for (int i = 0; i < B->natt; i++) {
         struct sl_att_state *a = &B->att[i];
         if (a->a.part != part) continue;
+        if (a->a.kind == SL_ATT_SWITCH && a->a.role >= SL_ROLE_ENC_A) continue;   /* encoder contacts turn */
         if (a->a.kind == SL_ATT_SWITCH) {
             if ((value != 0) != (a->value != 0)) switch_change(s, a, value != 0);
         } else if (a->a.kind == SL_ATT_POT) {
@@ -389,6 +459,26 @@ void board_input(struct sl_soc *s, int part, int value)
             resolve(s, a->a.pin, 1);
         }
     }
+}
+
+/* Turning an encoder: each detent closes A and B and opens them again, in
+ * the order that gives its direction, 2.5 ms apart; the contacts bounce as
+ * switches do. Steps queue up behind any still turning. */
+void board_turn(struct sl_soc *s, int part, int steps)
+{
+    uint64_t at = soc_now_ps(s);
+    for (int k = 0; k < B->enc_n; k++) if (B->enc[k].at > at) at = B->enc[k].at;
+    const uint64_t gap = 2500ull * 1000000ull;
+    int n = steps < 0 ? -steps : steps;
+    for (int k = 0; k < n && B->enc_n + 4 <= SL_ENC_QUEUE; k++) {
+        int first = steps > 0 ? SL_ROLE_ENC_A : SL_ROLE_ENC_B, second = steps > 0 ? SL_ROLE_ENC_B : SL_ROLE_ENC_A;
+        const int order[4][2] = { { first, 1 }, { second, 1 }, { first, 0 }, { second, 0 } };
+        for (int j = 0; j < 4; j++) {
+            at += gap;
+            B->enc[B->enc_n++] = (struct sl_enc_step){ at, part, order[j][0], order[j][1] };
+        }
+    }
+    schedule_next(s);
 }
 
 void board_set(struct sl_soc *s, const sl_attach *att, int n)
@@ -410,6 +500,8 @@ void board_set(struct sl_soc *s, const sl_attach *att, int n)
             }
     }
     B->natt = n;
+    B->enc_n = 0;
+    bus_set(s);
     for (int slot = 0; slot < SL_PIN_SLOTS; slot++) { B->pin[slot].used = 0; B->pin[slot].audio = 0; B->pin[slot].last_mv = -2; }
     for (int i = 0; i < n; i++)
         if (att[i].pin >= 0 && att[i].pin < SL_PIN_SLOTS) {

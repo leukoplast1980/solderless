@@ -35,6 +35,9 @@ class ReplProbeTest {
     @Test
     fun consoleAndRegisters() {
         val scenario = ActivityScenario.launch(MainActivity::class.java)
+        Thread.sleep(1500)
+        // Other probes ran before on the same chip: start it afresh, so the banner is in the console again
+        io.github.leukoplast1980.solderless.vm.VmHost.get(InstrumentationRegistry.getInstrumentation().targetContext).powerCycle()
         Thread.sleep(3000)
         val lines = listOf("3", "4", "+", ".", ": test 0 do i . loop ;", "t test", "5 test", "\$40013800 @ hex.")
         for (line in lines) {

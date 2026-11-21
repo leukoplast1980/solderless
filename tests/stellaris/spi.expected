@@ -1,0 +1,50 @@
+\ A W25Q64 on SPI1: PA5 CLK, PA6 DO, PA7 DI, PA4 CS (a GPIO). IDs, write  ok.
+\ enable, page program, read back, erase, and the flash's own rules.  ok.
+#!attach 1 flash PA4 PA5 PA7 PA6
+$48000000 constant GPIOA  ok.
+$40013000 constant SPI1  ok.
+: spi-init ( -- )  ok.
+  1 $4002104C bis!  1 12 lshift $40021060 bis!           \ GPIOA and SPI1 clocks  ok.
+  1 4 lshift GPIOA $18 + !                                \ CS high before it is an output  ok.
+  $FF 8 lshift GPIOA bic!  %10101001 8 lshift GPIOA bis!  \ PA4 output, PA5-7 alternate function  ok.
+  $FFF 20 lshift GPIOA $20 + bic!  $555 20 lshift GPIOA $20 + bis!   \ AF5: SPI1  ok.
+  $1700 SPI1 4 + !                                        \ 8-bit frames, RXNE at one byte (FRXTH)  ok.
+  $354 SPI1 ! ;                                           \ master, PCLK/8, SSM and SSI, on  ok.
+: >spi> ( b -- b )  ok.
+  begin SPI1 8 + @ 2 and until  SPI1 $C + c!  ok.
+  begin SPI1 8 + @ 1 and until  SPI1 $C + c@ ;  ok.
+: cs-lo 1 4 lshift 16 lshift GPIOA $18 + ! ;  ok.
+: cs-hi 1 4 lshift GPIOA $18 + ! ;  ok.
+: jedec ( -- ) cs-lo $9F >spi> drop 0 >spi> hex. 0 >spi> hex. 0 >spi> hex. cs-hi ;  ok.
+: status ( -- sr ) cs-lo 5 >spi> drop 0 >spi> cs-hi ;  ok.
+: wren ( -- ) cs-lo 6 >spi> drop cs-hi ;  ok.
+: wait ( -- ) begin status 1 and 0= until ;  ok.
+: >addr ( a -- ) dup 16 rshift >spi> drop dup 8 rshift >spi> drop >spi> drop ;  ok.
+: prog ( c-addr u a -- ) cs-lo 2 >spi> drop >addr 0 ?do dup i + c@ >spi> drop loop drop cs-hi ;  ok.
+: .c ( c -- ) dup 32 u< over 126 u> or if drop [char] . then emit ;  ok.
+: rd ( a u -- ) cs-lo 3 >spi> drop swap >addr 0 ?do 0 >spi> .c loop cs-hi ;  ok.
+: erase4k ( a -- ) wren cs-lo $20 >spi> drop >addr cs-hi ;  ok.
+: hello s" Hello from Forth" ;  ok.
+: world s" World" ;  ok.
+spi-init jedec 000000EF 00000040 00000017  ok.
+status hex. 00000000  ok.
+hello 0 prog  0 16 rd ................ ok.
+
+[chip] W25Q64: command 02 ignored: write enable (06) was not sent first, so WEL in status register 1 is 0. It clears itself after every program and erase
+wren status hex. 00000002  ok.
+hello 0 prog  status hex. wait status hex. 00000001 00000000  ok.
+0 16 rd Hello from Forth ok.
+wren world 0 prog wait  0 16 rd @e`ld from Forth ok.
+
+[chip] W25Q64: page program over bytes that were not erased: only 1s can become 0s, so the result is the old and the new data ANDed. Erase the sector (20) first
+0 erase4k status hex.  0 4 rd 00000001 ...4 ok.
+
+[chip] W25Q64: command 03 ignored, still busy with a sector erase. Poll BUSY (bit 0 of status register 1, command 05) until it is 0
+wait 0 4 rd .... ok.
+#!flash 1 0 16
+Bus	SPI · CS PA4 · CLK PA5 · DI PA7 · DO PA6
+Chip	W25Q64 · 8 MB · JEDEC EF 40 17
+Status	BUSY 0 · WEL 0 · BP 000
+Last	4 KB erase at 000000 · 45 ms
+Written	nothing yet: every byte reads FF	
+FF FF FF FF FF FF FF FF FF FF FF FF FF FF FF FF

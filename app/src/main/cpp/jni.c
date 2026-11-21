@@ -241,21 +241,74 @@ out:
 
 /* ---- The breadboard ---------------------------------------------------- */
 
-/* att: 8 ints per attachment, in sl_attach's field order */
+/* att: 10 ints per attachment, in sl_attach's field order */
 JNIEXPORT void JNICALL FN(boardSet)(JNIEnv *env, jclass cls, jlong h, jintArray att)
 {
     (void)cls;
-    jsize n = (*env)->GetArrayLength(env, att) / 8;
+    jsize n = (*env)->GetArrayLength(env, att) / 10;
     if (n > SL_MAX_ATTACH) n = SL_MAX_ATTACH;
     sl_attach a[SL_MAX_ATTACH];
     jint *v = (*env)->GetIntArrayElements(env, att, NULL);
     for (jsize i = 0; i < n; i++) {
-        jint *x = v + 8 * i;
+        jint *x = v + 10 * i;
         a[i].part = x[0]; a[i].role = x[1]; a[i].pin = x[2]; a[i].kind = x[3];
         a[i].to_vcc = x[4]; a[i].r_ohm = x[5]; a[i].vf_mv = x[6]; a[i].bounce_us = x[7];
+        a[i].dev = x[8]; a[i].addr = x[9];
     }
     (*env)->ReleaseIntArrayElements(env, att, v, JNI_ABORT);
     sl_board_set(VM(h), a, (int)n);
+}
+
+/* A bus part: pixels (one byte each) into px; returns its state as text */
+JNIEXPORT jstring JNICALL FN(deviceRead)(JNIEnv *env, jclass cls, jlong h, jint part, jbyteArray px)
+{
+    (void)cls;
+    static uint8_t buf[240 * 320 * 2];      /* the largest display: an ST7789, two bytes a pixel */
+    char text[1024];
+    text[0] = 0;
+    size_t n = sl_device_read(VM(h), part, buf, sizeof buf, text, sizeof text);
+    if (!n && !text[0]) return NULL;           /* not on the board */
+    jsize len = (*env)->GetArrayLength(env, px);
+    if ((size_t)len > n) len = (jsize)n;
+    if (len > 0) (*env)->SetByteArrayRegion(env, px, 0, len, (const jbyte *)buf);
+    return (*env)->NewStringUTF(env, text);
+}
+
+/* A rotary encoder turned by some detents */
+JNIEXPORT void JNICALL FN(boardTurn)(JNIEnv *env, jclass cls, jlong h, jint part, jint steps)
+{
+    (void)env; (void)cls;
+    sl_board_turn(VM(h), part, steps);
+}
+
+/* What a sensor senses, as the user sets it */
+JNIEXPORT void JNICALL FN(deviceInput)(JNIEnv *env, jclass cls, jlong h, jint part, jstring what, jdouble value)
+{
+    (void)cls;
+    const char *w = (*env)->GetStringUTFChars(env, what, NULL);
+    if (!w) return;
+    sl_device_input(VM(h), part, w, value);
+    (*env)->ReleaseStringUTFChars(env, what, w);
+}
+
+/* A memory part's contents: len bytes at addr into or out of buf */
+JNIEXPORT jint JNICALL FN(deviceMem)(JNIEnv *env, jclass cls, jlong h, jint part, jint addr, jbyteArray buf, jint len, jboolean write)
+{
+    (void)cls;
+    jsize cap = (*env)->GetArrayLength(env, buf);
+    if (len > cap) len = cap;
+    if (len <= 0) return 0;
+    jbyte *b = (*env)->GetByteArrayElements(env, buf, NULL);
+    size_t n = sl_device_mem(VM(h), part, (uint32_t)addr, (uint8_t *)b, (size_t)len, write ? 1 : 0);
+    (*env)->ReleaseByteArrayElements(env, buf, b, write ? JNI_ABORT : 0);
+    return (jint)n;
+}
+
+/* A count that changes whenever a memory part's contents do */
+JNIEXPORT jint JNICALL FN(deviceGen)(JNIEnv *env, jclass cls, jlong h, jint part)
+{
+    (void)env; (void)cls;
+    return (jint)sl_device_gen(VM(h), part);
 }
 
 JNIEXPORT void JNICALL FN(boardInput)(JNIEnv *env, jclass cls, jlong h, jint part, jint value)
@@ -340,5 +393,31 @@ JNIEXPORT jint JNICALL FN(traceRead)(JNIEnv *env, jclass cls, jlong h, jintArray
         x[2] = ev[i].kind; x[3] = (jint)ev[i].a; x[4] = (jint)ev[i].b;
     }
     (*env)->SetIntArrayRegion(env, out, 0, (jsize)(2 + 5 * n), v);
+    return (jint)n;
+}
+
+/* The scope's decoder: 6 ints per event — t0 (low, high), length in ns,
+ * kind | flags << 8 | bits << 16 | part << 24, value | miso << 16,
+ * the pins as bytes (SCL/SCK, SDA/MOSI, MISO, CS; 0xFF: none) */
+JNIEXPORT jint JNICALL FN(busRead)(JNIEnv *env, jclass cls, jlong h, jintArray out)
+{
+    (void)cls;
+    jsize len = (*env)->GetArrayLength(env, out);
+    size_t max = (size_t)len / 6;
+    if (max > 2048) max = 2048;
+    static sl_bus_event ev[2048];
+    static jint v[6 * 2048];
+    size_t n = sl_bus_read(VM(h), ev, max);
+    for (size_t i = 0; i < n; i++) {
+        const sl_bus_event *e = &ev[i];
+        jint *x = v + 6 * i;
+        x[0] = (jint)(uint32_t)e->t0_ns; x[1] = (jint)(uint32_t)(e->t0_ns >> 32);
+        uint64_t d = e->t1_ns > e->t0_ns ? e->t1_ns - e->t0_ns : 0;
+        x[2] = (jint)(d > 0x7FFFFFFF ? 0x7FFFFFFF : d);
+        x[3] = (jint)((uint32_t)e->kind | (uint32_t)e->flags << 8 | (uint32_t)e->bits << 16 | (uint32_t)(uint8_t)e->part << 24);
+        x[4] = (jint)((uint32_t)e->value | (uint32_t)e->miso << 16);
+        x[5] = (jint)((uint32_t)(uint8_t)e->pin[0] | (uint32_t)(uint8_t)e->pin[1] << 8 | (uint32_t)(uint8_t)e->pin2 << 16 | (uint32_t)(uint8_t)e->cs << 24);
+    }
+    (*env)->SetIntArrayRegion(env, out, 0, (jsize)(6 * n), v);
     return (jint)n;
 }

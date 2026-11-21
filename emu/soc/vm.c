@@ -16,7 +16,10 @@
 #include <string.h>
 #include <time.h>
 
-#define BATCH        200000u
+/* Instructions per batch. The host's requests (reading the board, a display,
+ * the scope) wait for the running batch to end, so it stays short: about
+ * 0.1 ms at full speed. */
+#define BATCH        20000u
 #define RING_SIZE    65536u          /* power of two */
 #define TAIL_SIZE    512u            /* power of two */
 #define LOG_SIZE     16384u
@@ -75,7 +78,7 @@ struct sl_vm {
     pthread_mutex_t log_lock;
     char log[LOG_SIZE];
     size_t log_len;
-    uint32_t log_seen[64];          /* per key: messages so far */
+    uint32_t log_seen[128];          /* per key: messages so far */
 
     /* Pacing */
     uint64_t rt_base_ns;            /* wall clock minus emulated time */
@@ -136,7 +139,7 @@ static void h_log(void *host, int key, const char *msg)
 {
     sl_vm *vm = host;
     pthread_mutex_lock(&vm->log_lock);
-    uint32_t *seen = &vm->log_seen[key & 63];
+    uint32_t *seen = &vm->log_seen[key & 127];
     if (*seen < 3) {                     /* each kind of message at most three times */
         (*seen)++;
         size_t n = strlen(msg);
@@ -192,6 +195,7 @@ sl_vm *sl_create(const sl_config *cfg)
 void sl_destroy(sl_vm *vm)
 {
     if (!vm) return;
+    bus_free(vm->soc);
     for (int i = 0; i < vm->soc->np; i++) { free(vm->soc->regs[i]); free(vm->soc->wmask[i]); }
     free(vm->soc);
     pthread_mutex_destroy(&vm->lock);
@@ -407,6 +411,12 @@ void sl_step(sl_vm *vm)
 
 void sl_reset(sl_vm *vm) { atomic_store(&vm->reset_req, 1); wake_vm(vm); }
 void sl_power_cycle(sl_vm *vm) { atomic_store(&vm->reset_req, 2); wake_vm(vm); }
+
+static void apply_requests(sl_vm *vm);
+static void sync_fn(sl_vm *vm, void *arg) { (void)arg; apply_requests(vm); }
+
+/* A reset or power cycle asked for is done when this returns */
+void sl_sync(sl_vm *vm) { run_on_vm(vm, sync_fn, NULL); }
 
 /* ---------------------------------------------------------------------- */
 /* Terminal                                                               */
@@ -709,6 +719,18 @@ static void board_input_fn(sl_vm *vm, void *arg)
     board_input(vm->soc, io->part, io->value);
 }
 
+static void board_turn_fn(sl_vm *vm, void *arg)
+{
+    struct board_input_io *io = arg;
+    board_turn(vm->soc, io->part, io->value);
+}
+
+void sl_board_turn(sl_vm *vm, int part, int steps)
+{
+    struct board_input_io io = { part, steps };
+    run_on_vm(vm, board_turn_fn, &io);
+}
+
 void sl_board_input(sl_vm *vm, int part, int value)
 {
     struct board_input_io io = { part, value };
@@ -718,6 +740,61 @@ void sl_board_input(sl_vm *vm, int part, int value)
 }
 
 static void board_read_fn(sl_vm *vm, void *arg) { board_read(vm->soc, arg); }
+
+struct device_io { int part; uint8_t *px; size_t len; char *text; size_t tlen; size_t n; };
+static void device_fn(sl_vm *vm, void *arg)
+{
+    struct device_io *io = arg;
+    io->n = bus_device_read(vm->soc, io->part, io->px, io->len, io->text, io->tlen);
+}
+
+size_t sl_device_read(sl_vm *vm, int part, uint8_t *pixels, size_t len, char *text, size_t tlen)
+{
+    struct device_io io = { part, pixels, len, text, tlen, 0 };
+    run_on_vm(vm, device_fn, &io);
+    return io.n;
+}
+
+struct dmem_io { int part; uint32_t addr; uint8_t *buf; size_t len; int write; size_t n; };
+static void dmem_fn(sl_vm *vm, void *arg)
+{
+    struct dmem_io *io = arg;
+    io->n = bus_device_mem(vm->soc, io->part, io->addr, io->buf, io->len, io->write);
+}
+
+size_t sl_device_mem(sl_vm *vm, int part, uint32_t addr, uint8_t *buf, size_t len, int write)
+{
+    struct dmem_io io = { part, addr, buf, len, write, 0 };
+    run_on_vm(vm, dmem_fn, &io);
+    return io.n;
+}
+
+struct dgen_io { int part; uint32_t gen; };
+static void dgen_fn(sl_vm *vm, void *arg)
+{
+    struct dgen_io *io = arg;
+    io->gen = bus_device_gen(vm->soc, io->part);
+}
+
+uint32_t sl_device_gen(sl_vm *vm, int part)
+{
+    struct dgen_io io = { part, 0 };
+    run_on_vm(vm, dgen_fn, &io);
+    return io.gen;
+}
+
+struct din_io { int part; const char *what; double v; };
+static void din_fn(sl_vm *vm, void *arg)
+{
+    struct din_io *io = arg;
+    bus_device_input(vm->soc, io->part, io->what, io->v);
+}
+
+void sl_device_input(sl_vm *vm, int part, const char *what, double value)
+{
+    struct din_io io = { part, what, value };
+    run_on_vm(vm, din_fn, &io);
+}
 
 void sl_board_read(sl_vm *vm, sl_board_state *out)
 {
@@ -758,6 +835,20 @@ static void trace_fn(sl_vm *vm, void *arg)
     struct audio_io *io = arg;
     io->n = board_trace_read(vm->soc, io->out, io->max);
     io->now = soc_now_ps(vm->soc) / 1000u;
+}
+
+struct bus_io { sl_bus_event *out; size_t max, n; };
+static void bus_fn(sl_vm *vm, void *arg)
+{
+    struct bus_io *io = arg;
+    io->n = board_bus_read(vm->soc, io->out, io->max);
+}
+
+size_t sl_bus_read(sl_vm *vm, sl_bus_event *out, size_t max)
+{
+    struct bus_io io = { out, max, 0 };
+    run_on_vm(vm, bus_fn, &io);
+    return io.n;
 }
 
 size_t sl_trace_read(sl_vm *vm, sl_audio_event *out, size_t max, uint64_t *now_ns)

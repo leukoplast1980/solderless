@@ -314,6 +314,18 @@ uint32_t rcc_usart_kernel_hz(struct sl_soc *s, int idx)
     }
 }
 
+uint32_t rcc_i2c_kernel_hz(struct sl_soc *s, int idx)
+{
+    static const int shift[SL_NUM_I2C] = { 12, 14, 16 };
+    uint32_t sel = (rcc(s)[CCIPR / 4] >> shift[idx]) & 3u;
+    switch (sel) {
+    case 0: return s->pclk1;
+    case 1: return s->sysclk;
+    case 2: return (rcc(s)[CR / 4] & CR_HSIRDY) ? HSI_HZ : 0;
+    default: return 0;
+    }
+}
+
 void pwr_write(struct sl_soc *s, uint32_t off, uint32_t v, uint32_t mask)
 {
     uint32_t wm = s->wmask[s->pi_pwr][off / 4] & mask;

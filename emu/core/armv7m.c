@@ -6,10 +6,11 @@
  * Reference Manual (DDI 0403E), chapter A5 (encodings), A7 (instructions)
  * and B1 (exception model). Section names are given where it helps.
  *
- * The DSP extension and the FPU are not implemented yet: their encodings
- * raise a UsageFault (UNDEFINSTR, or NOCP while CPACR denies access).
+ * With the DSP extension and the single-precision FPU (FPv4-SP-D16), its
+ * extended exception frames and lazy state preservation (B1.5.7).
  */
 #include "armv7m.h"
+#include "fparith.h"
 
 #include <string.h>
 
@@ -38,6 +39,17 @@
 
 #define CONTROL_NPRIV      (1u << 0)
 #define CONTROL_SPSEL      (1u << 1)
+#define CONTROL_FPCA       (1u << 2)
+
+#define FPCCR_LSPACT       (1u << 0)
+#define FPCCR_USER         (1u << 1)
+#define FPCCR_THREAD       (1u << 3)
+#define FPCCR_HFRDY        (1u << 4)
+#define FPCCR_MMRDY        (1u << 5)
+#define FPCCR_BFRDY        (1u << 6)
+#define FPCCR_MONRDY       (1u << 8)
+#define FPCCR_LSPEN        (1u << 30)
+#define FPCCR_ASPEN        (1u << 31)
 
 #define DEMCR_TRCENA       (1u << 24)
 #define DWT_CYCCNTENA      (1u << 0)
@@ -59,10 +71,23 @@ static inline uint32_t sext(uint32_t v, unsigned bits)
     return (v ^ m) - m;
 }
 
+static inline int32_t lo16(uint32_t v) { return (int16_t)(v & 0xFFFFu); }
+static inline int32_t hi16(uint32_t v) { return (int16_t)(v >> 16); }
+
+#define likely(x)   __builtin_expect(!!(x), 1)
+#define unlikely(x) __builtin_expect(!!(x), 0)
+
 static inline int popcount16(uint32_t v)
 {
-    return __builtin_popcount(v & 0xFFFFu);
+    /* A table: __builtin_popcount is a library call where the host has no
+     * popcount instruction enabled (x86-64 baseline, 32-bit ARM) */
+    static const uint8_t nib[16] = { 0, 1, 1, 2, 1, 2, 2, 3, 1, 2, 2, 3, 2, 3, 3, 4 };
+    return nib[v & 15u] + nib[(v >> 4) & 15u] + nib[(v >> 8) & 15u] + nib[(v >> 12) & 15u];
 }
+
+/* Register lists: for (l = list; l; l &= l - 1) visits the set bits in
+ * ascending order; this is the register of the lowest. */
+static inline uint32_t low_reg(uint32_t l) { return (uint32_t)__builtin_ctz(l); }
 
 /* ====================================================================== */
 /* State helpers                                                          */
@@ -446,9 +471,11 @@ static void lockup(struct cm_cpu *c)
 static void take_exception(struct cm_cpu *c, int exc, uint32_t ret_addr)
 {
     int was_psp = psp_active(c);
+    int fp = (c->control & CONTROL_FPCA) != 0;      /* an FP context: the extended frame */
     uint32_t sp = c->r[13];
-    uint32_t align = (c->ccr & CCR_STKALIGN) ? (sp >> 2) & 1u : 0u;
-    uint32_t frame = (sp - 0x20u) & ~(align << 2);
+    uint32_t align = (fp || (c->ccr & CCR_STKALIGN)) ? (sp >> 2) & 1u : 0u;
+    uint32_t size = fp ? 0x68u : 0x20u;
+    uint32_t frame = (sp - size) & ~(align << 2);
     uint32_t words[8] = {
         c->r[0], c->r[1], c->r[2], c->r[3], c->r[12], c->r[14], ret_addr,
         (cm_xpsr(c) & ~(1u << 9)) | (align << 9),
@@ -456,10 +483,28 @@ static void take_exception(struct cm_cpu *c, int exc, uint32_t ret_addr)
     int stack_err = 0;
     for (int i = 0; i < 8; i++)
         if (bus_write(c, frame + 4u * (uint32_t)i, 4, words[i], 1)) stack_err = 1;
+    if (fp) {
+        if (!(c->fpccr & FPCCR_LSPEN)) {            /* S0-S15 and FPSCR now */
+            for (int i = 0; i < 16; i++)
+                if (bus_write(c, frame + 0x20u + 4u * (uint32_t)i, 4, c->s[i], 1)) stack_err = 1;
+            if (bus_write(c, frame + 0x60u, 4, c->fpscr, 1)) stack_err = 1;
+        } else {                                    /* lazily: room for them, saved at the first FP instruction */
+            int pri = exec_priority(c);             /* UpdateFPCCR: which faults the lazy save could raise */
+            c->fpcar = frame + 0x20u;
+            c->fpccr = (c->fpccr & ~(FPCCR_USER | FPCCR_THREAD | FPCCR_HFRDY | FPCCR_MMRDY | FPCCR_BFRDY | FPCCR_MONRDY))
+                     | FPCCR_LSPACT | (privileged(c) ? 0 : FPCCR_USER) | (in_handler(c) ? 0 : FPCCR_THREAD)
+                     | (pri > -1 ? FPCCR_HFRDY : 0)
+                     | ((c->shcsr_ena & SHCSR_MEMFAULTENA) && pri > group_prio(c, exc_prio(c, CM_EXC_MEMMANAGE)) ? FPCCR_MMRDY : 0)
+                     | ((c->shcsr_ena & SHCSR_BUSFAULTENA) && pri > group_prio(c, exc_prio(c, CM_EXC_BUSFAULT)) ? FPCCR_BFRDY : 0)
+                     | ((c->demcr & (1u << 16)) && pri > group_prio(c, exc_prio(c, CM_EXC_DEBUGMON)) ? FPCCR_MONRDY : 0);
+        }
+    }
     c->r[13] = frame;
 
-    if (in_handler(c)) c->r[14] = 0xFFFFFFF1u;
-    else c->r[14] = was_psp ? 0xFFFFFFFDu : 0xFFFFFFF9u;
+    uint32_t nofp = fp ? 0 : 0x10u;
+    if (in_handler(c)) c->r[14] = 0xFFFFFFE1u | nofp;
+    else c->r[14] = (was_psp ? 0xFFFFFFEDu : 0xFFFFFFE9u) | nofp;
+    c->control &= ~CONTROL_FPCA;
 
     c->ipsr = (uint32_t)exc;
     c->control &= ~CONTROL_SPSEL;
@@ -562,7 +607,8 @@ static void exception_return(struct cm_cpu *c, uint32_t exc_return)
     int to_thread, use_psp;
 
     if (!c->active[ret_exc]) goto invpc;
-    switch (kind) {
+    int fp = !(kind & 0x10u);                       /* an extended frame */
+    switch (kind | 0x10u) {
     case 0x0FFFFFF1u:
         if (nested_activation(c) == 1) goto invpc;
         to_thread = 0; use_psp = 0; break;
@@ -575,6 +621,7 @@ static void exception_return(struct cm_cpu *c, uint32_t exc_return)
     default:
         goto invpc;
     }
+    if ((kind & 0x0FFFFFE0u) != 0x0FFFFFE0u) goto invpc;
 
     c->active[ret_exc] = 0;
     if (ret_exc != CM_EXC_NMI) c->faultmask = 0;
@@ -601,7 +648,28 @@ static void exception_return(struct cm_cpu *c, uint32_t exc_return)
             cm_pend(c, CM_EXC_HARDFAULT);
             return;
         }
-        uint32_t newsp = frame + 0x20u + (((w[7] >> 9) & 1u) << 2);
+        if (fp) {
+            if (c->fpccr & FPCCR_LSPACT) c->fpccr &= ~FPCCR_LSPACT;   /* never saved: still in the registers */
+            else {
+                uint32_t v[17];
+                int ferr = 0;
+                for (int i = 0; i < 17; i++)
+                    if (bus_read(c, frame + 0x20u + 4u * (uint32_t)i, 4, &v[i], 1)) ferr = 1;
+                if (ferr) {
+                    c->cfsr |= CM_BFSR_UNSTKERR;
+                    c->hfsr |= CM_HFSR_FORCED;
+                    c->check_irq = 1;
+                    cm_pend(c, CM_EXC_HARDFAULT);
+                    return;
+                }
+                memcpy(c->s, v, sizeof(uint32_t) * 16);
+                c->fpscr = v[16] & FPSCR_MASK;
+            }
+            c->control |= CONTROL_FPCA;
+        } else {
+            c->control &= ~CONTROL_FPCA;
+        }
+        uint32_t newsp = frame + (fp ? 0x68u : 0x20u) + (((w[7] >> 9) & 1u) << 2);
         c->r[13] = newsp & ~3u;
         c->r[0] = w[0]; c->r[1] = w[1]; c->r[2] = w[2]; c->r[3] = w[3];
         c->r[12] = w[4]; c->r[14] = w[5];
@@ -880,8 +948,8 @@ static int scs_read(struct cm_cpu *c, uint32_t a, uint32_t *v, int effects)
     case 0xF34: *v = c->fpccr; break;
     case 0xF38: *v = c->fpcar; break;
     case 0xF3C: *v = c->fpdscr; break;
-    case 0xF40: *v = 0x10110021u; break;           /* MVFR0 */
-    case 0xF44: *v = 0x11000011u; break;           /* MVFR1 */
+    case 0xF40: *v = 0x10110021u; break;           /* MVFR0: single precision, square root, divide */
+    case 0xF44: *v = 0x11000011u; break;           /* MVFR1: FMA, half precision, FTZ, default NaN */
     default: break;
     }
     return 0;
@@ -959,16 +1027,20 @@ static int scs_write(struct cm_cpu *c, uint32_t a, uint32_t v, uint32_t mask)
 
     switch (off) {
     case 0x008: c->actlr = merge(c->actlr, v, mask) & 0x307u; break;
+    /* SysTick: the batch running was planned with the old settings, so it
+     * ends here and the next one runs to the new next wrap */
     case 0x010: {
         uint32_t nv = merge(c->syst_csr, v, mask) & 7u;
         c->syst_csr = (c->syst_csr & SYST_COUNTFLAG) | nv;
+        c->stop_batch = 1;
         break;
     }
-    case 0x014: c->syst_rvr = merge(c->syst_rvr, v, mask) & 0xFFFFFFu; break;
+    case 0x014: c->syst_rvr = merge(c->syst_rvr, v, mask) & 0xFFFFFFu; c->stop_batch = 1; break;
     case 0x018:                                     /* any write clears */
         c->syst_cvr = 0;
         c->syst_acc = 0;
         c->syst_csr &= ~SYST_COUNTFLAG;
+        c->stop_batch = 1;
         break;
     case 0xD04: {
         uint32_t w = v & mask;
@@ -1030,7 +1102,7 @@ static int scs_write(struct cm_cpu *c, uint32_t a, uint32_t v, uint32_t mask)
         if ((int)irq < c->num_irq) cm_pend(c, CM_EXC_IRQ0 + (int)irq);
         break;
     }
-    case 0xF34: c->fpccr = merge(c->fpccr, v, mask) & 0xC0000001u; break;  /* ASPEN, LSPEN, LSPACT */
+    case 0xF34: c->fpccr = merge(c->fpccr, v, mask) & 0xC000017Bu; break;
     case 0xF38: c->fpcar = merge(c->fpcar, v, mask) & ~7u; break;
     case 0xF3C: c->fpdscr = merge(c->fpdscr, v, mask) & 0x07C00000u; break;
     default: break;
@@ -1148,7 +1220,35 @@ static inline void set_nz(struct cm_cpu *c, uint32_t r)
  * the fault and return 0. "strict" accesses must be naturally aligned
  * (LDM, STM, LDRD, STRD, exclusives); others fault only when unaligned
  * accesses trap (CCR.UNALIGN_TRP). */
-static int ld(struct cm_cpu *c, uint32_t a, int n, uint32_t *v, int strict, int unpriv)
+static int ld_slow(struct cm_cpu *c, uint32_t a, int n, uint32_t *v, int strict, int unpriv);
+static int st_slow(struct cm_cpu *c, uint32_t a, int n, uint32_t v, int strict, int unpriv);
+
+/* The common case inline: aligned, in RAM or flash. Everything else (and
+ * every check) is in ld_slow and st_slow. */
+static inline int ld(struct cm_cpu *c, uint32_t a, int n, uint32_t *v, int strict, int unpriv)
+{
+    if (likely(!(a & (uint32_t)(n - 1)))) {
+        struct cm_region *r = region_for(c->bus, a, (uint32_t)n);
+        if (likely(r != NULL)) { *v = get_le(r->mem + (a - r->base), n); return 1; }
+    }
+    return ld_slow(c, a, n, v, strict, unpriv);
+}
+
+static inline int st(struct cm_cpu *c, uint32_t a, int n, uint32_t v, int strict, int unpriv)
+{
+    if (likely(!(a & (uint32_t)(n - 1)))) {
+        struct cm_region *r = region_for(c->bus, a, (uint32_t)n);
+        if (likely(r != NULL && r->writable)) {
+            uint8_t *p = r->mem + (a - r->base);
+            if (get_le(p, n) != (n == 4 ? v : v & ((1u << (8 * n)) - 1u))) c->mem_changes++;
+            put_le(p, n, v);
+            return 1;
+        }
+    }
+    return st_slow(c, a, n, v, strict, unpriv);
+}
+
+static __attribute__((noinline)) int ld_slow(struct cm_cpu *c, uint32_t a, int n, uint32_t *v, int strict, int unpriv)
 {
     if ((a & (uint32_t)(n - 1)) && (strict || (c->ccr & CCR_UNALIGN_TRP))) {
         usage_fault(c, CM_UFSR_UNALIGNED);
@@ -1158,7 +1258,7 @@ static int ld(struct cm_cpu *c, uint32_t a, int n, uint32_t *v, int strict, int 
     return 1;
 }
 
-static int st(struct cm_cpu *c, uint32_t a, int n, uint32_t v, int strict, int unpriv)
+static __attribute__((noinline)) int st_slow(struct cm_cpu *c, uint32_t a, int n, uint32_t v, int strict, int unpriv)
 {
     if ((a & (uint32_t)(n - 1)) && (strict || (c->ccr & CCR_UNALIGN_TRP))) {
         usage_fault(c, CM_UFSR_UNALIGNED);
@@ -1433,9 +1533,8 @@ static void exec16(struct cm_cpu *c, uint32_t hw)
             uint32_t list = (hw & 0xFFu) | ((hw & 0x100u) << 6);
             uint32_t addr = c->r[13] - 4u * (uint32_t)popcount16(list);
             uint32_t a = addr;
-            for (uint32_t i = 0; i < 15; i++) {
-                if (!((list >> i) & 1u)) continue;
-                if (!st(c, a, 4, c->r[i], 1, 0)) return;
+            for (uint32_t l = list; l; l &= l - 1) {
+                if (!st(c, a, 4, c->r[low_reg(l)], 1, 0)) return;
                 a += 4;
             }
             W(c, 13, addr);
@@ -1464,13 +1563,11 @@ static void exec16(struct cm_cpu *c, uint32_t hw)
         case 0xC: case 0xD: {                      /* POP */
             uint32_t list = (hw & 0xFFu) | ((hw & 0x100u) << 7);
             uint32_t a = c->r[13], vals[16];
-            for (uint32_t i = 0; i < 16; i++) {
-                if (!((list >> i) & 1u)) continue;
-                if (!ld(c, a, 4, &vals[i], 1, 0)) return;
+            for (uint32_t l = list; l; l &= l - 1) {
+                if (!ld(c, a, 4, &vals[low_reg(l)], 1, 0)) return;
                 a += 4;
             }
-            for (uint32_t i = 0; i < 8; i++)
-                if ((list >> i) & 1u) c->r[i] = vals[i];
+            for (uint32_t l = list & 0xFFu; l; l &= l - 1) c->r[low_reg(l)] = vals[low_reg(l)];
             W(c, 13, a);
             if (list & 0x8000u) bx_write_pc(c, vals[15]);
             return;
@@ -1498,18 +1595,15 @@ static void exec16(struct cm_cpu *c, uint32_t hw)
         if (!list) { undefined(c); return; }
         if (hw & 0x800u) {
             uint32_t vals[8];
-            for (uint32_t i = 0; i < 8; i++) {
-                if (!((list >> i) & 1u)) continue;
-                if (!ld(c, a, 4, &vals[i], 1, 0)) return;
+            for (uint32_t l = list; l; l &= l - 1) {
+                if (!ld(c, a, 4, &vals[low_reg(l)], 1, 0)) return;
                 a += 4;
             }
-            for (uint32_t i = 0; i < 8; i++)
-                if ((list >> i) & 1u) c->r[i] = vals[i];
+            for (uint32_t l = list; l; l &= l - 1) c->r[low_reg(l)] = vals[low_reg(l)];
             if (!((list >> rn) & 1u)) c->r[rn] = a;
         } else {
-            for (uint32_t i = 0; i < 8; i++) {
-                if (!((list >> i) & 1u)) continue;
-                if (!st(c, a, 4, c->r[i], 1, 0)) return;
+            for (uint32_t l = list; l; l &= l - 1) {
+                if (!st(c, a, 4, c->r[low_reg(l)], 1, 0)) return;
                 a += 4;
             }
             c->r[rn] = a;
@@ -1553,19 +1647,16 @@ static void ldst_multiple(struct cm_cpu *c, uint32_t hw1, uint32_t hw2)
 
     if (load) {
         uint32_t vals[16];
-        for (uint32_t i = 0; i < 16; i++) {
-            if (!((list >> i) & 1u)) continue;
-            if (!ld(c, a, 4, &vals[i], 1, 0)) return;
+        for (uint32_t l = list; l; l &= l - 1) {
+            if (!ld(c, a, 4, &vals[low_reg(l)], 1, 0)) return;
             a += 4;
         }
-        for (uint32_t i = 0; i < 15; i++)
-            if ((list >> i) & 1u) W(c, i, vals[i]);
+        for (uint32_t l = list & 0x7FFFu; l; l &= l - 1) W(c, low_reg(l), vals[low_reg(l)]);
         if (wback && !((list >> rn) & 1u)) W(c, rn, end);
         if (list & 0x8000u) bx_write_pc(c, vals[15]);
     } else {
-        for (uint32_t i = 0; i < 15; i++) {
-            if (!((list >> i) & 1u)) continue;
-            if (!st(c, a, 4, c->r[i], 1, 0)) return;
+        for (uint32_t l = list & 0x7FFFu; l; l &= l - 1) {
+            if (!st(c, a, 4, c->r[low_reg(l)], 1, 0)) return;
             a += 4;
         }
         if (wback) W(c, rn, end);
@@ -1711,6 +1802,7 @@ static void exec_msr(struct cm_cpu *c, uint32_t rn, uint32_t mask, uint32_t sysm
     uint32_t v = c->r[rn];
     if (!msr_mrs_sysm_ok(sysm)) { undefined(c); return; }
     if (sysm <= 3) {                               /* APSR variants */
+        if (mask & 1u) c->ge = (v >> 16) & 15u;     /* APSR_g (DSP) */
         if (mask & 2u) {
             c->n = v >> 31; c->z = (v >> 30) & 1u; c->c = (v >> 29) & 1u;
             c->v = (v >> 28) & 1u; c->q = (v >> 27) & 1u;
@@ -1733,7 +1825,7 @@ static void exec_msr(struct cm_cpu *c, uint32_t rn, uint32_t mask, uint32_t sysm
         break;
     case 20: {
         int was_psp = psp_active(c);
-        c->control = (c->control & ~CONTROL_NPRIV) | (v & CONTROL_NPRIV);
+        c->control = (c->control & ~(CONTROL_NPRIV | CONTROL_FPCA)) | (v & (CONTROL_NPRIV | CONTROL_FPCA));
         if (!in_handler(c)) c->control = (c->control & ~CONTROL_SPSEL) | (v & CONTROL_SPSEL);
         sp_switch(c, was_psp);
         break;
@@ -1837,7 +1929,16 @@ static void dp_plain_imm(struct cm_cpu *c, uint32_t hw1, uint32_t hw2)
     case 0x0C: W(c, rd, (imm16 << 16) | (c->r[rd] & 0xFFFFu)); return;   /* MOVT */
     case 0x10: case 0x12: case 0x18: case 0x1A: {  /* SSAT, USAT */
         uint32_t sh = (hw1 >> 5) & 1u;
-        if ((op & 2u) && imm5 == 0) { undefined(c); return; }   /* SSAT16/USAT16: DSP */
+        if ((op & 2u) && imm5 == 0) {              /* SSAT16, USAT16 */
+            if (hw2 & 0x30u) { undefined(c); return; }
+            uint32_t bits = hw2 & 15u, r = 0;
+            int s1 = 0, s2 = 0;
+            if (op & 8u) r = unsigned_sat(lo16(a), bits, &s1) | (unsigned_sat(hi16(a), bits, &s2) << 16);
+            else r = (signed_sat(lo16(a), bits + 1u, &s1) & 0xFFFFu) | (signed_sat(hi16(a), bits + 1u, &s2) << 16);
+            W(c, rd, r);
+            if (s1 || s2) c->q = 1;
+            return;
+        }
         int t; uint32_t n, dummy;
         decode_imm_shift(sh << 1, imm5, &t, &n);
         int64_t opnd = (int32_t)shift_c(a, t, n, c->c, &dummy);
@@ -1871,6 +1972,120 @@ static void dp_plain_imm(struct cm_cpu *c, uint32_t hw1, uint32_t hw2)
     }
 }
 
+/* ---------------------------------------------------------------------- */
+/* DSP extension (ARMv7E-M)                                                */
+/* ---------------------------------------------------------------------- */
+
+/* A lane of a packed value, sign- or zero-extended */
+static inline int64_t lane(uint32_t v, int at, int w, int sgn)
+{
+    uint32_t x = (v >> at) & ((1u << w) - 1u);
+    return sgn ? (int64_t)(int32_t)sext(x, (unsigned)w) : (int64_t)x;
+}
+
+/* Parallel addition and subtraction, signed and unsigned (A5.3.16) */
+static void parallel(struct cm_cpu *c, uint32_t hw1, uint32_t hw2)
+{
+    uint32_t op1 = (hw1 >> 4) & 7u, op2 = (hw2 >> 4) & 3u, sgn = !((hw2 >> 6) & 1u);
+    uint32_t a = c->r[hw1 & 15u], b = c->r[hw2 & 15u], rd = (hw2 >> 8) & 15u;
+    /* op1: 000 ADD8, 001 ADD16, 010 ASX, 100 SUB8, 101 SUB16, 110 SAX;
+     * op2: 00 plain (sets GE), 01 saturating, 10 halving */
+    if (op2 == 3u || op1 == 3u || op1 == 7u) { undefined(c); return; }
+    int w = (op1 == 0u || op1 == 4u) ? 8 : 16, lanes = 32 / w;
+    uint32_t res = 0, ge = 0;
+    for (int i = 0; i < lanes; i++) {
+        int64_t x = lane(a, i * w, w, (int)sgn), y, r;
+        int sub;
+        if (op1 == 2u || op1 == 6u) {              /* ASX, SAX: the halves crossed */
+            y = lane(b, (1 - i) * 16, 16, (int)sgn);
+            sub = (op1 == 2u) ? (i == 0) : (i == 1);
+        } else {
+            y = lane(b, i * w, w, (int)sgn);
+            sub = (op1 & 4u) != 0;
+        }
+        r = sub ? x - y : x + y;
+        int64_t out;
+        if (op2 == 1u) {                           /* QADD16, UQADD8, ...: saturate, no GE, no Q */
+            int64_t hi = sgn ? ((int64_t)1 << (w - 1)) - 1 : ((int64_t)1 << w) - 1;
+            int64_t lo = sgn ? -((int64_t)1 << (w - 1)) : 0;
+            out = r > hi ? hi : r < lo ? lo : r;
+        } else if (op2 == 2u) {                    /* SHADD16, UHSUB8, ...: halve */
+            out = r >> 1;
+        } else {
+            out = r;
+            int g = sgn ? r >= 0 : (sub ? r >= 0 : r >= ((int64_t)1 << w));
+            if (g) ge |= (w == 8 ? 1u : 3u) << (w == 8 ? i : 2 * i);
+        }
+        res |= ((uint32_t)out & ((1u << w) - 1u)) << (i * w);
+    }
+    if (op2 == 0u) c->ge = ge;
+    W(c, rd, res);
+}
+
+static inline uint32_t sat32(int64_t v, int *sat)
+{
+    if (v > INT32_MAX) { *sat = 1; return 0x7FFFFFFFu; }
+    if (v < INT32_MIN) { *sat = 1; return 0x80000000u; }
+    return (uint32_t)v;
+}
+
+/* Multiply, multiply accumulate and absolute difference: the DSP forms (A5.3.17) */
+static void multiply_dsp(struct cm_cpu *c, uint32_t hw1, uint32_t hw2)
+{
+    uint32_t op1 = (hw1 >> 4) & 7u, op2 = (hw2 >> 4) & 3u;
+    uint32_t rn = hw1 & 15u, ra = hw2 >> 12, rd = (hw2 >> 8) & 15u, rm = hw2 & 15u;
+    uint32_t n = c->r[rn], m = c->r[rm], acc = ra == 15u ? 0 : c->r[ra];
+    int64_t r;
+    int q = 0;
+    switch (op1) {
+    case 1: {                                      /* SMLA<x><y>, SMUL<x><y> */
+        int32_t x = (op2 & 2u) ? hi16(n) : lo16(n), y = (op2 & 1u) ? hi16(m) : lo16(m);
+        r = (int64_t)x * y + (int32_t)acc;
+        if (r != (int32_t)r) q = 1;
+        break;
+    }
+    case 2: case 4: {                              /* SMLAD(X), SMUAD(X), SMLSD(X), SMUSD(X) */
+        if (op2 & 2u) { undefined(c); return; }
+        uint32_t mm = (op2 & 1u) ? ror32(m, 16) : m;
+        int64_t p1 = (int64_t)lo16(n) * lo16(mm), p2 = (int64_t)hi16(n) * hi16(mm);
+        r = (op1 == 2 ? p1 + p2 : p1 - p2) + (int32_t)acc;
+        if (r != (int32_t)r) q = 1;
+        break;
+    }
+    case 3: {                                      /* SMLAW<y>, SMULW<y> */
+        if (op2 & 2u) { undefined(c); return; }
+        int32_t y = (op2 & 1u) ? hi16(m) : lo16(m);
+        r = ((int64_t)(int32_t)n * y + (int64_t)(int32_t)acc * 65536) >> 16;
+        if (r != (int32_t)r) q = 1;
+        break;
+    }
+    case 5: case 6: {                              /* SMMLA(R), SMMUL(R), SMMLS(R) */
+        if (op2 & 2u) { undefined(c); return; }
+        if (op1 == 6 && ra == 15u) { undefined(c); return; }
+        int64_t p = (int64_t)(int32_t)n * (int32_t)m;
+        uint64_t t = ((uint64_t)acc << 32) + (uint64_t)(op1 == 5 ? p : -p);
+        if (op2 & 1u) t += 0x80000000u;
+        W(c, rd, (uint32_t)(t >> 32));
+        return;
+    }
+    case 7: {                                      /* USAD8, USADA8 */
+        if (op2 != 0) { undefined(c); return; }
+        uint32_t sum = acc;
+        for (int i = 0; i < 32; i += 8) {
+            int32_t d = (int32_t)((n >> i) & 0xFFu) - (int32_t)((m >> i) & 0xFFu);
+            sum += (uint32_t)(d < 0 ? -d : d);
+        }
+        W(c, rd, sum);
+        return;
+    }
+    default:
+        undefined(c);
+        return;
+    }
+    W(c, rd, (uint32_t)r);
+    if (q) c->q = 1;                               /* SMUAD too: 0x8000 * 0x8000 twice is 2^31 */
+}
+
 static void dp_register(struct cm_cpu *c, uint32_t hw1, uint32_t hw2)
 {
     uint32_t op1 = (hw1 >> 4) & 15u, op2 = (hw2 >> 4) & 15u;
@@ -1891,7 +2106,14 @@ static void dp_register(struct cm_cpu *c, uint32_t hw1, uint32_t hw2)
         case 1: v = m & 0xFFFFu; break;            /* UXTAH, UXTH */
         case 4: v = sext(m, 8); break;             /* SXTAB, SXTB */
         case 5: v = m & 0xFFu; break;              /* UXTAB, UXTB */
-        default: undefined(c); return;             /* SXTB16, UXTB16 (DSP) */
+        case 2: case 3: {                          /* SXTAB16, SXTB16, UXTAB16, UXTB16 */
+            uint32_t b0 = m & 0xFFu, b2 = (m >> 16) & 0xFFu;
+            if (op1 == 2u) { b0 = sext(b0, 8) & 0xFFFFu; b2 = sext(b2, 8) & 0xFFFFu; }
+            uint32_t a = rn == 15 ? 0 : c->r[rn];
+            W(c, rd, ((a + b0) & 0xFFFFu) | (((a >> 16) + b2) << 16));
+            return;
+        }
+        default: undefined(c); return;
         }
         W(c, rd, rn == 15 ? v : c->r[rn] + v);
         return;
@@ -1909,10 +2131,26 @@ static void dp_register(struct cm_cpu *c, uint32_t hw1, uint32_t hw2)
         }
         case 7: W(c, rd, sext(((m & 0xFFu) << 8) | ((m >> 8) & 0xFFu), 16)); return;  /* REVSH */
         case 12: W(c, rd, m ? (uint32_t)__builtin_clz(m) : 32u); return;              /* CLZ */
-        default: undefined(c); return;             /* QADD, SEL, ... (DSP) */
+        case 0: case 1: case 2: case 3: {          /* QADD, QDADD, QSUB, QDSUB */
+            int sat = 0;
+            int64_t x = (int32_t)c->r[rn];
+            if (hw2 & 0x10u) x = (int32_t)sat32(2 * x, &sat);   /* doubled first */
+            uint32_t r = sat32((hw2 & 0x20u) ? (int64_t)(int32_t)m - x : (int64_t)(int32_t)m + x, &sat);
+            W(c, rd, r);
+            if (sat) c->q = 1;
+            return;
+        }
+        case 8: {                                  /* SEL */
+            uint32_t n = c->r[rn], r = 0;
+            for (int i = 0; i < 4; i++) r |= (((c->ge >> i) & 1u) ? n : m) & (0xFFu << (8 * i));
+            W(c, rd, r);
+            return;
+        }
+        default: undefined(c); return;
         }
     }
-    undefined(c);                                  /* parallel add/subtract (DSP) */
+    if ((op1 & 8u) && (op2 & 0x8u) == 0) { parallel(c, hw1, hw2); return; }   /* parallel add/subtract */
+    undefined(c);
 }
 
 static void multiply(struct cm_cpu *c, uint32_t hw1, uint32_t hw2)
@@ -1926,7 +2164,8 @@ static void multiply(struct cm_cpu *c, uint32_t hw1, uint32_t hw2)
         else undefined(c);
         return;
     }
-    undefined(c);                                  /* SMLA<x><y> and other DSP forms */
+    if (hw2 & 0xC0u) { undefined(c); return; }
+    multiply_dsp(c, hw1, hw2);
 }
 
 static void long_multiply(struct cm_cpu *c, uint32_t hw1, uint32_t hw2)
@@ -1962,15 +2201,220 @@ static void long_multiply(struct cm_cpu *c, uint32_t hw1, uint32_t hw2)
         W(c, hi, q);                               /* Rd is in bits 11:8 */
         return;
     }
+    case 0x48: case 0x49: case 0x4A: case 0x4B: {   /* SMLAL<x><y> */
+        int32_t x = (op2 & 2u) ? hi16(c->r[rn]) : lo16(c->r[rn]);
+        int32_t y = (op2 & 1u) ? hi16(c->r[rm]) : lo16(c->r[rm]);
+        r = (uint64_t)((int64_t)x * y) + (((uint64_t)c->r[hi] << 32) | c->r[lo]);
+        break;
+    }
+    case 0x4C: case 0x4D: case 0x5C: case 0x5D: {   /* SMLALD(X), SMLSLD(X) */
+        uint32_t n = c->r[rn], m = (op2 & 1u) ? ror32(c->r[rm], 16) : c->r[rm];
+        int64_t p1 = (int64_t)lo16(n) * lo16(m), p2 = (int64_t)hi16(n) * hi16(m);
+        r = (uint64_t)(op1 == 4 ? p1 + p2 : p1 - p2) + (((uint64_t)c->r[hi] << 32) | c->r[lo]);
+        break;
+    }
+    case 0x66:                                     /* UMAAL */
+        r = (uint64_t)c->r[rn] * c->r[rm] + c->r[hi] + c->r[lo];
+        break;
     default:
-        undefined(c);                              /* SMLALxy, UMAAL, ... (DSP) */
+        undefined(c);
         return;
     }
     W(c, lo, (uint32_t)r);
     W(c, hi, (uint32_t)(r >> 32));
 }
 
-static void coprocessor(struct cm_cpu *c, uint32_t hw2)
+/* ---------------------------------------------------------------------- */
+/* Floating point (FPv4-SP-D16, A6)                                         */
+/* ---------------------------------------------------------------------- */
+
+/* ExecuteFPCheck: save the lazily stacked context, start a new one */
+static void fp_check(struct cm_cpu *c)
+{
+    if (c->fpccr & FPCCR_LSPACT) {                 /* PreserveFPState */
+        int priv = !(c->fpccr & FPCCR_USER);
+        for (int i = 0; i < 16; i++) bus_write(c, c->fpcar + 4u * (uint32_t)i, 4, c->s[i], priv);
+        bus_write(c, c->fpcar + 0x40u, 4, c->fpscr, priv);
+        c->fpccr &= ~FPCCR_LSPACT;
+    }
+    if ((c->fpccr & FPCCR_ASPEN) && !(c->control & CONTROL_FPCA)) {
+        c->fpscr = (c->fpscr & ~0x07C00000u) | (c->fpdscr & 0x07C00000u);
+        c->control |= CONTROL_FPCA;
+    }
+}
+
+/* VLDR, VSTR, VLDM, VSTM, VPUSH, VPOP (A6.5) */
+static void fp_ldst(struct cm_cpu *c, uint32_t hw1, uint32_t hw2, int dbl)
+{
+    uint32_t p = BIT(hw1, 8), u = BIT(hw1, 7), dbit = BIT(hw1, 6), w = BIT(hw1, 5), l = BIT(hw1, 4);
+    uint32_t rn = hw1 & 15u, vd = hw2 >> 12, imm8 = hw2 & 0xFFu;
+    uint32_t d = dbl ? (dbit << 4) | vd : (vd << 1) | dbit;
+    if (p && !w) {                                 /* VLDR, VSTR */
+        if (dbl && d > 15) { undefined(c); return; }
+        uint32_t base = rn == 15 ? (c->r[15] + 4u) & ~3u : c->r[rn];
+        uint32_t a = u ? base + imm8 * 4u : base - imm8 * 4u;
+        fp_check(c);
+        uint32_t first = dbl ? 2u * d : d, n = dbl ? 2u : 1u, v[2];
+        if (l) {
+            for (uint32_t i = 0; i < n; i++) if (!ld(c, a + 4u * i, 4, &v[i], 1, 0)) return;
+            for (uint32_t i = 0; i < n; i++) c->s[first + i] = v[i];
+        } else {
+            for (uint32_t i = 0; i < n; i++) if (!st(c, a + 4u * i, 4, c->s[first + i], 1, 0)) return;
+        }
+        return;
+    }
+    if (p == u || (p && !w)) { undefined(c); return; }   /* (P, U) must be (0, 1) or (1, 0) with W */
+    uint32_t words = dbl ? (imm8 / 2u) * 2u : imm8, regs = dbl ? imm8 / 2u : imm8;
+    if (rn == 15 || regs == 0 || (dbl ? d + regs > 16 : d + regs > 32)) { undefined(c); return; }
+    uint32_t base = c->r[rn], imm = imm8 * 4u;
+    uint32_t a = u ? base : base - imm;
+    uint32_t first = dbl ? 2u * d : d;
+    fp_check(c);
+    if (l) {
+        uint32_t v[32];
+        for (uint32_t i = 0; i < words; i++) if (!ld(c, a + 4u * i, 4, &v[i], 1, 0)) return;
+        for (uint32_t i = 0; i < words; i++) c->s[first + i] = v[i];
+    } else {
+        for (uint32_t i = 0; i < words; i++) if (!st(c, a + 4u * i, 4, c->s[first + i], 1, 0)) return;
+    }
+    if (w) W(c, rn, u ? base + imm : base - imm);
+}
+
+/* VMOV of two core registers to and from two singles or a doubleword (A6.7) */
+static void fp_move64(struct cm_cpu *c, uint32_t hw1, uint32_t hw2, int dbl)
+{
+    uint32_t to_arm = BIT(hw1, 4), rt2 = hw1 & 15u, rt = hw2 >> 12, m;
+    if ((hw2 & 0xD0u) != 0x10u) { undefined(c); return; }
+    if (dbl) m = 2u * ((BIT(hw2, 5) << 4) | (hw2 & 15u));
+    else m = ((hw2 & 15u) << 1) | BIT(hw2, 5);
+    if (m > 30 || rt == 13 || rt == 15 || rt2 == 13 || rt2 == 15 || (to_arm && rt == rt2)) { undefined(c); return; }
+    fp_check(c);
+    if (to_arm) { W(c, rt, c->s[m]); W(c, rt2, c->s[m + 1]); }
+    else { c->s[m] = c->r[rt]; c->s[m + 1] = c->r[rt2]; }
+}
+
+/* VMOV between a core register and a single or half a doubleword, VMRS, VMSR (A6.6) */
+static void fp_move32(struct cm_cpu *c, uint32_t hw1, uint32_t hw2, int cbit)
+{
+    uint32_t a = (hw1 >> 5) & 7u, l = BIT(hw1, 4), rt = hw2 >> 12;
+    if (!cbit && a == 0) {                         /* VMOV Sn, Rt / Rt, Sn */
+        uint32_t n = ((hw1 & 15u) << 1) | BIT(hw2, 7);
+        if (rt == 13 || rt == 15) { undefined(c); return; }
+        fp_check(c);
+        if (l) W(c, rt, c->s[n]); else c->s[n] = c->r[rt];
+        return;
+    }
+    if (!cbit && a == 7u) {                        /* VMRS, VMSR */
+        if ((hw1 & 15u) != 1u || rt == 13 || (!l && rt == 15)) { undefined(c); return; }
+        fp_check(c);
+        if (!l) c->fpscr = c->r[rt] & FPSCR_MASK;
+        else if (rt == 15) {                       /* APSR_nzcv */
+            c->n = c->fpscr >> 31; c->z = (c->fpscr >> 30) & 1u;
+            c->c = (c->fpscr >> 29) & 1u; c->v = (c->fpscr >> 28) & 1u;
+        } else W(c, rt, c->fpscr);
+        return;
+    }
+    if (cbit && (a & 6u) == 0 && (hw2 & 0x60u) == 0) {   /* VMOV.32 Dd[x], Rt / Rt, Dn[x] */
+        uint32_t dn = (BIT(hw2, 7) << 4) | (hw1 & 15u), x = BIT(hw1, 5);
+        if (dn > 15 || rt == 13 || rt == 15) { undefined(c); return; }
+        fp_check(c);
+        if (l) W(c, rt, c->s[2u * dn + x]); else c->s[2u * dn + x] = c->r[rt];
+        return;
+    }
+    undefined(c);
+}
+
+/* Floating-point data processing (A6.4) */
+static void fp_data(struct cm_cpu *c, uint32_t hw1, uint32_t hw2, int dbl)
+{
+    if (dbl) { undefined(c); return; }             /* no double precision on FPv4-SP */
+    uint32_t o1 = (BIT(hw1, 7) << 2) | ((hw1 >> 4) & 3u), opc2 = hw1 & 15u, op = BIT(hw2, 6);
+    uint32_t d = ((hw2 >> 12) << 1) | BIT(hw1, 6);
+    uint32_t n = ((hw1 & 15u) << 1) | BIT(hw2, 7);
+    uint32_t m = ((hw2 & 15u) << 1) | BIT(hw2, 5);
+    uint32_t *f = &c->fpscr;
+    uint32_t *s = c->s;
+
+    if (o1 == 7u && op == 0) {                     /* VMOV (immediate) */
+        if (hw2 & 0xA0u) { undefined(c); return; }
+        fp_check(c);
+        s[d] = fp_expand_imm(((hw1 & 15u) << 4) | (hw2 & 15u));
+        return;
+    }
+    if (o1 == 7u) {
+        uint32_t t = BIT(hw2, 7);
+        switch (opc2) {
+        case 0: fp_check(c); s[d] = t ? fp_abs(s[m]) : s[m]; return;          /* VABS, VMOV */
+        case 1: fp_check(c); s[d] = t ? fp_sqrt(s[m], f) : fp_neg(s[m]); return;   /* VSQRT, VNEG */
+        case 2: case 3: {                          /* VCVTB, VCVTT */
+            int low = t ? 16 : 0;
+            fp_check(c);
+            if (opc2 == 2) s[d] = fp_half_to_single((s[m] >> low) & 0xFFFFu, f);
+            else s[d] = (s[d] & ~(0xFFFFu << low)) | (fp_single_to_half(s[m], f) << low);
+            return;
+        }
+        case 4: case 5: {                          /* VCMP, VCMPE */
+            if (opc2 == 5 && (hw2 & 0x2Fu)) { undefined(c); return; }
+            fp_check(c);
+            uint32_t nzcv = fp_compare(s[d], opc2 == 5 ? 0 : s[m], (int)t, f);
+            *f = (*f & 0x0FFFFFFFu) | (nzcv << 28);
+            return;
+        }
+        case 8:                                    /* VCVT.F32.<S32|U32> */
+            fp_check(c);
+            s[d] = fp_from_fixed(s[m], 32, 0, !t, 0, f);
+            return;
+        case 12: case 13:                          /* VCVT{R}.<S32|U32>.F32 */
+            fp_check(c);
+            s[d] = fp_to_fixed(s[m], 32, 0, opc2 == 12, (int)t, f);
+            return;
+        case 10: case 11: case 14: case 15: {      /* VCVT between floating point and fixed point */
+            int size = t ? 32 : 16, unsign = (int)(opc2 & 1u);
+            int frac = size - (int)(((hw2 & 15u) << 1) | BIT(hw2, 5));
+            if (frac < 0) { undefined(c); return; }
+            fp_check(c);
+            if (opc2 & 4u) {
+                uint32_t r = fp_to_fixed(s[d], size, frac, unsign, 1, f);
+                s[d] = size == 32 || unsign ? r : sext(r, 16);
+            } else {
+                s[d] = fp_from_fixed(s[d], size, frac, unsign, 1, f);
+            }
+            return;
+        }
+        default:
+            undefined(c);
+            return;
+        }
+    }
+    fp_check(c);
+    switch (o1) {
+    case 0: {                                      /* VMLA, VMLS */
+        uint32_t p = fp_mul(s[n], s[m], f);
+        s[d] = fp_add(s[d], op ? fp_neg(p) : p, f);
+        return;
+    }
+    case 1: {                                      /* VNMLA, VNMLS */
+        uint32_t p = fp_mul(s[n], s[m], f);
+        s[d] = fp_add(fp_neg(s[d]), op ? fp_neg(p) : p, f);
+        return;
+    }
+    case 2: {                                      /* VMUL, VNMUL */
+        uint32_t p = fp_mul(s[n], s[m], f);
+        s[d] = op ? fp_neg(p) : p;
+        return;
+    }
+    case 3: s[d] = op ? fp_sub(s[n], s[m], f) : fp_add(s[n], s[m], f); return;   /* VADD, VSUB */
+    case 4:                                        /* VDIV */
+        if (op) { undefined(c); return; }
+        s[d] = fp_div(s[n], s[m], f);
+        return;
+    case 5: s[d] = fp_muladd(fp_neg(s[d]), op ? fp_neg(s[n]) : s[n], s[m], f); return;   /* VFNMA, VFNMS */
+    case 6: s[d] = fp_muladd(s[d], op ? fp_neg(s[n]) : s[n], s[m], f); return;          /* VFMA, VFMS */
+    default: undefined(c); return;
+    }
+}
+
+static void coprocessor(struct cm_cpu *c, uint32_t hw1, uint32_t hw2)
 {
     uint32_t cp = (hw2 >> 8) & 15u;
     if (cp == 10 || cp == 11) {
@@ -1979,7 +2423,19 @@ static void coprocessor(struct cm_cpu *c, uint32_t hw2)
             usage_fault(c, CM_UFSR_NOCP);
             return;
         }
-        undefined(c);                              /* FPU instructions: not yet */
+        int dbl = cp == 11;
+        if (hw1 & 0x1000u) { undefined(c); return; }          /* T = 1: not an FP instruction */
+        if ((hw1 & 0x0E00u) == 0x0C00u) {                     /* 110x: loads, stores, 64-bit moves */
+            if ((hw1 & 0x01E0u) == 0x0040u) fp_move64(c, hw1, hw2, dbl);
+            else fp_ldst(c, hw1, hw2, dbl);
+            return;
+        }
+        if ((hw1 & 0x0F00u) == 0x0E00u) {
+            if (hw2 & 0x10u) fp_move32(c, hw1, hw2, dbl);
+            else fp_data(c, hw1, hw2, dbl);
+            return;
+        }
+        undefined(c);
         return;
     }
     usage_fault(c, CM_UFSR_NOCP);
@@ -1999,10 +2455,15 @@ static void exec32(struct cm_cpu *c, uint32_t hw1, uint32_t hw2)
             int t; uint32_t n, cy;
             decode_imm_shift((hw2 >> 4) & 3u, imm5, &t, &n);
             uint32_t opnd = shift_c(R(c, rm), t, n, c->c, &cy);
+            if (op == 6u && !s && !(hw2 & 0x10u)) {  /* PKHBT, PKHTB */
+                uint32_t v = c->r[rn];
+                W(c, rd, (hw2 & 0x20u) ? (v & 0xFFFF0000u) | (opnd & 0xFFFFu) : (opnd & 0xFFFF0000u) | (v & 0xFFFFu));
+                return;
+            }
             if (!dp_op(c, op, (int)s, rn, rd, opnd, cy)) undefined(c);
             return;
         }
-        coprocessor(c, hw2);
+        coprocessor(c, hw1, hw2);
         return;
     }
     if (op1 == 2) {
@@ -2020,7 +2481,7 @@ static void exec32(struct cm_cpu *c, uint32_t hw1, uint32_t hw2)
         return;
     }
     /* op1 == 3 */
-    if (op2 & 0x40u) { coprocessor(c, hw2); return; }
+    if (op2 & 0x40u) { coprocessor(c, hw1, hw2); return; }
     if ((op2 & 0x60u) == 0x00u) {                  /* loads and stores */
         if ((op2 & 0x67u) == 0x07u) { undefined(c); return; }
         if (!(op2 & 1u) && (op2 & 0x10u)) { undefined(c); return; }
@@ -2037,9 +2498,6 @@ static void exec32(struct cm_cpu *c, uint32_t hw1, uint32_t hw2)
 /* Run loop                                                               */
 /* ====================================================================== */
 
-#define likely(x)   __builtin_expect(!!(x), 1)
-#define unlikely(x) __builtin_expect(!!(x), 0)
-
 uint32_t cm_run(struct cm_cpu *c, uint32_t max)
 {
     uint64_t start = c->cycles, end = c->cycles + max;
@@ -2049,33 +2507,41 @@ uint32_t cm_run(struct cm_cpu *c, uint32_t max)
     uint32_t cbase = 0, csize = 0;
 
     while (c->cycles < end) {
-        if (unlikely(c->check_irq)) {
-            c->check_irq = 0;
-            if (try_take_pending(c)) { c->cycles++; continue; }
+        if (unlikely(c->attn_pre)) {
+            if (c->check_irq) {
+                c->check_irq = 0;
+                if (try_take_pending(c)) { c->cycles++; continue; }
+            }
+            if (c->lockup | c->sleeping | c->stop_batch) break;
         }
-        if (unlikely(c->lockup | c->sleeping | c->stop_batch)) break;
 
         uint32_t pc = c->r[15], hw1, hw2 = 0;
         uint32_t off = pc - cbase;
         if (likely(off + 4u <= csize && c->tbit)) {
-            hw1 = (uint32_t)cmem[off] | ((uint32_t)cmem[off + 1] << 8);
-            if ((hw1 >> 11) >= 0x1Du) {
-                hw2 = (uint32_t)cmem[off + 2] | ((uint32_t)cmem[off + 3] << 8);
+            uint32_t w;                            /* both halfwords; the host is little-endian */
+            memcpy(&w, cmem + off, 4);
+            hw1 = w & 0xFFFFu;
+            if (hw1 >= 0xE800u) {                  /* 32-bit: hw1[15:11] is 0b11101 or more */
+                hw2 = w >> 16;
                 c->next_pc = pc + 4u;
             } else {
                 c->next_pc = pc + 2u;
             }
         } else {
-            /* Slow path: new region, region end, T bit clear or a fault */
+            /* Slow path: new region, region end, T bit clear or a fault.
+             * (Separate locals: taking hw1's address would keep it in memory
+             * on the fast path too.) */
             struct cm_region *r = region_for(c->bus, pc, 2);
             if (r && r->exec && c->tbit) { cmem = r->mem; cbase = r->base; csize = r->size; }
+            uint32_t h1 = 0, h2 = 0;
             if (!c->tbit) {
                 usage_fault(c, CM_UFSR_INVSTATE);
-            } else if (fetch16(c, pc, &hw1)) {
-                int wide = (hw1 >> 11) >= 0x1Du;
-                if (!wide || fetch16(c, pc + 2u, &hw2))
+            } else if (fetch16(c, pc, &h1)) {
+                int wide = h1 >= 0xE800u;
+                if (!wide || fetch16(c, pc + 2u, &h2))
                     c->next_pc = pc + (wide ? 4u : 2u);
             }
+            hw1 = h1; hw2 = h2;
             if (c->sync_exc) {
                 c->cycles++;
                 take_sync(c);
@@ -2083,26 +2549,30 @@ uint32_t cm_run(struct cm_cpu *c, uint32_t max)
             }
         }
 
-        if (unlikely(c->it & 0xFu) && !cond_pass(c, c->it >> 4)) {
+        if (unlikely(c->it & 0xFu) && !cond_pass(c, (uint32_t)c->it >> 4)) {
             /* condition failed: no effect */
-        } else if ((hw1 >> 11) >= 0x1Du) {
+        } else if (hw1 >= 0xE800u) {
             exec32(c, hw1, hw2);
         } else {
             exec16(c, hw1);
         }
         c->cycles++;
 
-        if (unlikely(c->sync_exc)) {
+        if (likely(!c->attn_post)) {               /* no fault, IT block or exception return */
+            c->r[15] = c->next_pc;
+            continue;
+        }
+        if (c->sync_exc) {
             if (c->sync_exc == CM_EXC_SVCALL && in_it(c)) it_advance(c);
             take_sync(c);
             continue;
         }
-        if (unlikely(c->it)) {
+        if (c->it) {
             if (c->it_set) c->it_set = 0;
             else it_advance(c);
         }
         c->r[15] = c->next_pc;
-        if (unlikely(c->exc_ret_pending)) {
+        if (c->exc_ret_pending) {
             c->exc_ret_pending = 0;
             exception_return(c, c->exc_ret_value);
         }

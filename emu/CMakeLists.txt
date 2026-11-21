@@ -9,6 +9,7 @@ endif()
 
 set(SL_SOURCES
   core/armv7m.c
+  core/fparith.c
   soc/soc.c
   soc/rcc.c
   soc/flash.c
@@ -18,7 +19,16 @@ set(SL_SOURCES
   soc/tim.c
   soc/adc.c
   soc/dac.c
+  soc/i2c.c
+  soc/spi.c
   board/board.c
+  board/bus.c
+  parts/ssd1306.c
+  parts/w25q.c
+  parts/max7219.c
+  parts/st7789.c
+  parts/bmp280.c
+  parts/scd41.c
   soc/vm.c
   gen/g431_data.c
 )
@@ -28,7 +38,7 @@ target_include_directories(slemu PUBLIC include PRIVATE core soc gen)
 target_compile_options(slemu PRIVATE -Wall -Wextra -Wno-unused-parameter)
 set_property(TARGET slemu PROPERTY POSITION_INDEPENDENT_CODE ON)
 find_package(Threads REQUIRED)
-target_link_libraries(slemu PUBLIC Threads::Threads)
+target_link_libraries(slemu PUBLIC Threads::Threads m)
 
 # Host-only tools and tests (not built for Android)
 if(NOT ANDROID)
@@ -36,11 +46,13 @@ if(NOT ANDROID)
   set_target_properties(slemu-cli PROPERTIES OUTPUT_NAME slemu)
   target_link_libraries(slemu-cli PRIVATE slemu)
 
-  add_library(cmtest SHARED ../tests/cpu/harness.c core/armv7m.c)
+  add_library(cmtest SHARED ../tests/cpu/harness.c core/armv7m.c core/fparith.c)
   target_include_directories(cmtest PRIVATE core)
+  target_link_libraries(cmtest PRIVATE m)
 
-  add_executable(exc_test ../tests/cpu/exc_test.c core/armv7m.c)
+  add_executable(exc_test ../tests/cpu/exc_test.c core/armv7m.c core/fparith.c)
   target_include_directories(exc_test PRIVATE core)
+  target_link_libraries(exc_test PRIVATE m)
 
   # The exception test firmware needs the ARM cross assembler
   find_program(ARM_AS arm-none-eabi-as)

@@ -1,0 +1,148 @@
+\ The sample code the Board tab gives for rotary encoders, as generated  ok.
+\ (SamplesTest checks that it still matches): TIM2 on PA0/PA1, TIM4 on PB6/PB7.  ok.
+#!attach 1 encoder PA0 PA1 PC3
+#!attach 2 encoder PB6 PB7 PC2
+  ok.
+\ enc: rotary encoder, KY-040: CLK PA0, DT PA1 on TIM2 in encoder mode, SW PC3  ok.
+\ Paste all of it into the console, or put it in a file after wiring.fs.  ok.
+  ok.
+\ PA0 (pin 12) → encoder CLK (A); + → 3V3, GND → GND; the module pulls CLK and DT up (10 kΩ)  ok.
+$48000000 constant enc-clk-port  \ GPIOA  ok.
+0 constant enc-clk-pin  ok.
+$40000000 constant enc-timer  \ TIM2  ok.
+1 constant enc-clk-ch  ok.
+1 constant enc-clk-af  ok.
+\ PA1 (pin 13) → encoder DT (B)  ok.
+$48000000 constant enc-dt-port  \ GPIOA  ok.
+1 constant enc-dt-pin  ok.
+2 constant enc-dt-ch  ok.
+1 constant enc-dt-af  ok.
+\ PC3 (pin 11) → encoder SW, the push switch to GND: turn on the pin's pull-up  ok.
+$48000800 constant enc-sw-port  \ GPIOC  ok.
+3 constant enc-sw-pin  ok.
+  ok.
+\ ms: wait n milliseconds, counted by SysTick at 16 MHz  ok.
+\ (lib_systick uses SysTick too: with it loaded, use its delay-ms)  ok.
+: ms ( n -- )  ok.
+  15999 $E000E014 !  0 $E000E018 !  5 $E000E010 ! \ SysTick: wrap every 16000 cycles  ok.
+  0 ?do begin $E000E010 @ $10000 and until loop   \ count the wraps  ok.
+  0 $E000E010 ! ;                                 \ SysTick off again  ok.
+  ok.
+: enc-count ( -- n )                     \ the counter, signed: up one way, down the other  ok.
+  enc-timer $24 + @ ;                    \ TIM2 counts in 32 bits  ok.
+: enc-steps ( -- n ) enc-count 4 / ;     \ detents: four edges each  ok.
+: enc-pressed? ( -- flag )               \ the push switch, low while pressed  ok.
+  enc-sw-port $10 + @ 1 enc-sw-pin lshift and 0= ;  ok.
+: enc-zero ( -- ) 0 enc-timer $24 + ! ;  \ count from here  ok.
+  ok.
+: enc-init ( -- )  ok.
+  1 0 lshift $4002104C bis!                       \ RCC AHB2ENR: clock for GPIOA  ok.
+  1 2 lshift $4002104C bis!                       \ RCC AHB2ENR: clock for GPIOC  ok.
+  1 0 lshift $40021058 bis!                       \ RCC APB1ENR1: clock for TIM2  ok.
+  %11 enc-clk-pin 2* lshift enc-clk-port bic!     \ MODER: clear the two bits  ok.
+  %10 enc-clk-pin 2* lshift enc-clk-port bis!     \ MODER: 10 = alternate function  ok.
+  $F enc-clk-pin 4 * lshift enc-clk-port $20 + bic! \ AFRL: clear the four bits  ok.
+  enc-clk-af enc-clk-pin 4 * lshift enc-clk-port $20 + bis! \ AFRL: AF1 = TIM2 CH1  ok.
+  %11 enc-dt-pin 2* lshift enc-dt-port bic!       \ MODER: clear the two bits  ok.
+  %10 enc-dt-pin 2* lshift enc-dt-port bis!       \ MODER: 10 = alternate function  ok.
+  $F enc-dt-pin 4 * lshift enc-dt-port $20 + bic! \ AFRL: clear the four bits  ok.
+  enc-dt-af enc-dt-pin 4 * lshift enc-dt-port $20 + bis! \ AFRL: AF1 = TIM2 CH2  ok.
+  %11 enc-sw-pin 2* lshift enc-sw-port bic!       \ MODER: 00 = input  ok.
+  %11 enc-sw-pin 2* lshift enc-sw-port $0C + bic! \ PUPDR: clear the two bits  ok.
+  %01 enc-sw-pin 2* lshift enc-sw-port $0C + bis! \ PUPDR: 01 = pull-up; the module has none for SW  ok.
+  0 enc-timer !                                   \ CR1: stopped while setting it up  ok.
+  3 enc-timer 8 + !                               \ SMCR: encoder mode 3, both inputs' edges: 4 a detent  ok.
+  $0101 enc-timer $18 + !                         \ CCMR1: CC1S and CC2S = 01, CH1 and CH2 inputs from their pins  ok.
+  0 enc-timer $20 + !                             \ CCER: neither input inverted  ok.
+  -1 enc-timer $2C + !                            \ ARR: count over the whole range, then wrap  ok.
+  0 enc-timer $24 + !                             \ CNT: 0  ok.
+  1 enc-timer ! ;                                 \ CR1: CEN, on  ok.
+  ok.
+\ Each detent as it is turned, and the push, until a key is pressed  ok.
+: enc-demo ( -- )  ok.
+  enc-init 0  ok.
+  begin  ok.
+    enc-steps 2dup <> if dup . then nip  ok.
+    enc-pressed? if ." push " begin 20 ms enc-pressed? 0= until then  ok.
+    20 ms key?  ok.
+  until drop ;  ok.
+  ok.
+\ Try it: enc-init enc-steps .   or   enc-demo (turn it; Enter stops it)  ok.
+  ok.
+\ enc2: rotary encoder, KY-040: CLK PB6, DT PB7 on TIM4 in encoder mode, SW PC2  ok.
+\ Paste all of it into the console, or put it in a file after wiring.fs.  ok.
+  ok.
+\ PB6 (pin 59) → encoder CLK (A); + → 3V3, GND → GND; the module pulls CLK and DT up (10 kΩ)  ok.
+$48000400 constant enc2-clk-port  \ GPIOB  ok.
+6 constant enc2-clk-pin  ok.
+$40000800 constant enc2-timer  \ TIM4  ok.
+1 constant enc2-clk-ch  ok.
+2 constant enc2-clk-af  ok.
+\ PB7 (pin 60) → encoder DT (B)  ok.
+$48000400 constant enc2-dt-port  \ GPIOB  ok.
+7 constant enc2-dt-pin  ok.
+2 constant enc2-dt-ch  ok.
+2 constant enc2-dt-af  ok.
+\ PC2 (pin 10) → encoder SW, the push switch to GND: turn on the pin's pull-up  ok.
+$48000800 constant enc2-sw-port  \ GPIOC  ok.
+2 constant enc2-sw-pin  ok.
+  ok.
+\ ms: wait n milliseconds, counted by SysTick at 16 MHz  ok.
+\ (lib_systick uses SysTick too: with it loaded, use its delay-ms)  ok.
+: ms ( n -- ) Redefine ms.  ok.
+  15999 $E000E014 !  0 $E000E018 !  5 $E000E010 ! \ SysTick: wrap every 16000 cycles  ok.
+  0 ?do begin $E000E010 @ $10000 and until loop   \ count the wraps  ok.
+  0 $E000E010 ! ;                                 \ SysTick off again  ok.
+  ok.
+: enc2-count ( -- n )                        \ the counter, signed: up one way, down the other  ok.
+  enc2-timer $24 + @ 16 lshift 16 arshift ;  \ 16 bits, sign-extended  ok.
+: enc2-steps ( -- n ) enc2-count 4 / ;       \ detents: four edges each  ok.
+: enc2-pressed? ( -- flag )                  \ the push switch, low while pressed  ok.
+  enc2-sw-port $10 + @ 1 enc2-sw-pin lshift and 0= ;  ok.
+: enc2-zero ( -- ) 0 enc2-timer $24 + ! ;    \ count from here  ok.
+  ok.
+: enc2-init ( -- )  ok.
+  1 1 lshift $4002104C bis!                       \ RCC AHB2ENR: clock for GPIOB  ok.
+  1 2 lshift $4002104C bis!                       \ RCC AHB2ENR: clock for GPIOC  ok.
+  1 2 lshift $40021058 bis!                       \ RCC APB1ENR1: clock for TIM4  ok.
+  %11 enc2-clk-pin 2* lshift enc2-clk-port bic!   \ MODER: clear the two bits  ok.
+  %10 enc2-clk-pin 2* lshift enc2-clk-port bis!   \ MODER: 10 = alternate function  ok.
+  $F enc2-clk-pin 4 * lshift enc2-clk-port $20 + bic! \ AFRL: clear the four bits  ok.
+  enc2-clk-af enc2-clk-pin 4 * lshift enc2-clk-port $20 + bis! \ AFRL: AF2 = TIM4 CH1  ok.
+  %11 enc2-dt-pin 2* lshift enc2-dt-port bic!     \ MODER: clear the two bits  ok.
+  %10 enc2-dt-pin 2* lshift enc2-dt-port bis!     \ MODER: 10 = alternate function  ok.
+  $F enc2-dt-pin 4 * lshift enc2-dt-port $20 + bic! \ AFRL: clear the four bits  ok.
+  enc2-dt-af enc2-dt-pin 4 * lshift enc2-dt-port $20 + bis! \ AFRL: AF2 = TIM4 CH2  ok.
+  %11 enc2-sw-pin 2* lshift enc2-sw-port bic!     \ MODER: 00 = input  ok.
+  %11 enc2-sw-pin 2* lshift enc2-sw-port $0C + bic! \ PUPDR: clear the two bits  ok.
+  %01 enc2-sw-pin 2* lshift enc2-sw-port $0C + bis! \ PUPDR: 01 = pull-up; the module has none for SW  ok.
+  0 enc2-timer !                                  \ CR1: stopped while setting it up  ok.
+  3 enc2-timer 8 + !                              \ SMCR: encoder mode 3, both inputs' edges: 4 a detent  ok.
+  $0101 enc2-timer $18 + !                        \ CCMR1: CC1S and CC2S = 01, CH1 and CH2 inputs from their pins  ok.
+  0 enc2-timer $20 + !                            \ CCER: neither input inverted  ok.
+  $FFFF enc2-timer $2C + !                        \ ARR: count over the whole range, then wrap  ok.
+  0 enc2-timer $24 + !                            \ CNT: 0  ok.
+  1 enc2-timer ! ;                                \ CR1: CEN, on  ok.
+  ok.
+\ Each detent as it is turned, and the push, until a key is pressed  ok.
+: enc2-demo ( -- )  ok.
+  enc2-init 0  ok.
+  begin  ok.
+    enc2-steps 2dup <> if dup . then nip  ok.
+    enc2-pressed? if ." push " begin 20 ms enc2-pressed? 0= until then  ok.
+    20 ms key?  ok.
+  until drop ;  ok.
+  ok.
+\ Try it: enc2-init enc2-steps .   or   enc2-demo (turn it; Enter stops it)  ok.
+  ok.
+enc-init enc2-init enc-steps . enc2-steps . 0 0  ok.
+#!turn 1 3
+#!turn 2 -2
+200 ms enc-steps . enc2-steps . enc2-count . 3 -2 -8  ok.
+#!turn 1 -4
+200 ms enc-steps . enc-count . -1 -4  ok.
+enc-pressed? . 0  ok.
+#!input 1 1
+20 ms enc-pressed? . -1  ok.
+#!input 1 0
+20 ms enc-pressed? . 0  ok.

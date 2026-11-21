@@ -4,8 +4,9 @@ An Android app for learning how the STM32G431 works. It emulates an
 STM32G431RB, register for register, and runs the unmodified
 [Mecrisp-Stellaris](https://mecrisp.sourceforge.net/) Forth for the G431
 or firmware you build yourself, with a virtual breadboard of buttons,
-LEDs, potentiometers and sounders. Displays, sensors and more follow in
-the next milestones (see [docs/design.md](docs/design.md)).
+LEDs, potentiometers, sounders, displays, sensors, an SPI flash and a
+rotary encoder. Views for learning the registers, the clock tree and
+faults follow in the next milestones (see [docs/design.md](docs/design.md)).
 
 <p>
   <a href="https://github.com/user-attachments/assets/1a55c2fd-3d18-4490-b4b9-a4ee30c0245f"><img width="150" alt="Screenshot_20261120-164003" src="https://github.com/user-attachments/assets/1a55c2fd-3d18-4490-b4b9-a4ee30c0245f" /></a>
@@ -15,7 +16,19 @@ the next milestones (see [docs/design.md](docs/design.md)).
   <a href="https://github.com/user-attachments/assets/7fd1d107-c9e8-4004-ad89-2df79d6b94e8"><img width="150" alt="Screenshot_20261120-164113" src="https://github.com/user-attachments/assets/7fd1d107-c9e8-4004-ad89-2df79d6b94e8" /></a>
 </p>
 
-**Status:** milestone 2, the breadboard:
+**Status:** milestone 3, the bus parts:
+
+- on I2C: the SSD1306 OLED, the BMP280 pressure sensor (or the phone's
+  barometer) and the SCD41 CO2 sensor; on SPI: the W25Q flash with a hex
+  view, the MAX7219 LED matrix and the ST7789 colour display
+- the KY-040 rotary encoder on a timer in encoder mode: swipe to turn it
+- each with a close-up or sheet showing what its controller holds, and
+  sample code that runs as pasted
+- the Scope decodes I2C and SPI, from the on-chip peripherals and from
+  bit-banged pins, and says what the part made of each transfer
+- the Cortex-M4's DSP instructions and its single-precision FPU
+
+Milestone 2, the breadboard:
 
 - the Board tab: the chip's pins as two headers along the screen's long
   edges (in LQFP64-to-DIP adapter order or by port), parts in between with
@@ -29,7 +42,7 @@ the next milestones (see [docs/design.md](docs/design.md)).
   piezo and the speaker
 - parts can float over the Console and Editor while you type
 - the Scope tab: every part's pin over time, logic levels, voltages and
-  PWM, 1 ms to 5 s, Hold, trigger on an edge, two cursors
+  PWM, Hold, trigger on an edge, two cursors
 
 Milestone 1, the chip and the console:
 
@@ -47,9 +60,10 @@ Milestone 1, the chip and the console:
 
 ## Trying it
 
-Every push builds a debug APK on GitHub Actions. Open the latest run under
-**Actions → CI**, download the `solderless-debug` artifact, unzip it and
-install the APK (you may need to allow installing from unknown sources).
+Each release on the **Releases** page has a signed APK. Every push also
+builds a debug APK on GitHub Actions: open the latest run under
+**Actions → CI**, download the `solderless-debug` artifact and unzip it.
+Either way you may need to allow installing from unknown sources.
 
 The first start opens `first-steps.fs`, a tour of the chip from Forth:
 the chip ID, the clocks, SysTick and a GPIO pin. Send it with

@@ -1,0 +1,146 @@
+\ A power cycle: the parts lose what they hold in RAM; the flash keeps its contents,  ok.
+\ a sensor what it senses.  ok.
+#!attach 1 oled PB8 PB9
+#!attach 2 bmp280 PB8 PB9
+#!attach 3 flash PB12 PB13 PB15 PB14
+#!set 2 pressure_pa 95000
+$48000400 constant GPIOB  ok.
+$40005400 constant I2C1  ok.
+: ms ( n -- ) 15999 $E000E014 !  0 $E000E018 !  5 $E000E010 !  ok.
+  0 ?do begin $E000E010 @ $10000 and until loop  0 $E000E010 ! ;  ok.
+: i2c-init ( -- )  ok.
+  %10 $4002104C bis!  1 21 lshift $40021058 bis!  ok.
+  %1111 16 lshift GPIOB bic!  %1010 16 lshift GPIOB bis!  %11 8 lshift GPIOB 4 + bis!  ok.
+  $FF GPIOB $24 + bic!  $44 GPIOB $24 + bis!  ok.
+  0 I2C1 !  $00310F13 I2C1 $10 + !  1 I2C1 ! ;  ok.
+: isr@ ( -- u ) I2C1 $18 + @ ;  ok.
+: go ( n addr flags -- ) >r 1 lshift swap 16 lshift or r> or 1 13 lshift or I2C1 4 + ! ;  ok.
+: >i2c ( b -- ) begin isr@ %10010 and until  isr@ $10 and 0= if I2C1 $28 + ! else drop then ;  ok.
+: i2c> ( -- b ) begin isr@ %10100 and until  I2C1 $24 + @ ;  ok.
+: end ( -- f ) begin isr@ $20 and until  isr@ $10 and 0=  $30 I2C1 $1C + ! ;  \ STOP; acknowledged?  ok.
+: tc ( -- ) begin isr@ %1010000 and until ;  ok.
+: reg! ( v reg addr -- ) 2 swap 1 25 lshift go >i2c >i2c end drop ;  ok.
+: wr1 ( reg addr -- ) 1 swap 0 go >i2c tc ;                     \ the register pointer; no STOP  ok.
+: rdn ( n addr -- ) 1 10 lshift 1 25 lshift or go ;            \ repeated START, read n, STOP  ok.
+: regs ( reg addr n -- )  \ the registers from reg on, in hex  ok.
+  >r swap over wr1  r@ swap rdn  r> 0 ?do i2c> . loop  end drop ;  ok.
+: reg@ ( reg addr -- b ) tuck wr1 1 swap rdn i2c> end drop ;  ok.
+hex i2c-init AF 0 3C reg! 27 F4 76 reg! F4 76 reg@ . decimal 27  ok.
+: bb-pins ( -- )  ok.
+  %10 $4002104C bis!  ok.
+  %1011 12 lshift GPIOB $18 + !  1 13 lshift 16 lshift GPIOB $18 + !   \ CS and DI high, CLK low  ok.
+  $FF 24 lshift GPIOB bic!  %01000101 24 lshift GPIOB bis! ;          \ PB12, 13, 15 outputs; PB14 input  ok.
+: pin! ( f n -- ) 1 swap lshift swap 0= if 16 lshift then GPIOB $18 + ! ;  ok.
+: do? ( -- f ) GPIOB $10 + @ 1 14 lshift and 0<> ;  ok.
+: bb ( b -- b ) 0 swap 8 0 do dup $80 and 15 pin!  1 13 pin!  swap 2* do? 1 and or swap  0 13 pin!  2* loop drop ;  ok.
+: jedec ( -- ) 0 12 pin! $9F bb drop 0 bb hex. 0 bb hex. 0 bb hex. 1 12 pin! ;  ok.
+bb-pins jedec 000000EF 00000040 00000017  ok.
+#!poke 3 100 48656C6C6F
+#!oled 1
++--------------------------------------------------------------------------------------------------------------------------------+
+|                                                                                                                                |
+|                                                                                                                                |
+|                                                                                                                                |
+|                                                                                                                                |
+|                                                                                                                                |
+|                                                                                                                                |
+|                                                                                                                                |
+|                                                                                                                                |
+|                                                                                                                                |
+|                                                                                                                                |
+|                                                                                                                                |
+|                                                                                                                                |
+|                                                                                                                                |
+|                                                                                                                                |
+|                                                                                                                                |
+|                                                                                                                                |
+|                                                                                                                                |
+|                                                                                                                                |
+|                                                                                                                                |
+|                                                                                                                                |
+|                                                                                                                                |
+|                                                                                                                                |
+|                                                                                                                                |
+|                                                                                                                                |
+|                                                                                                                                |
+|                                                                                                                                |
+|                                                                                                                                |
+|                                                                                                                                |
+|                                                                                                                                |
+|                                                                                                                                |
+|                                                                                                                                |
+|                                                                                                                                |
++--------------------------------------------------------------------------------------------------------------------------------+
+Bus	I2C 0x3C · SCL PB8 · SDA PB9
+Display	on, but dark: the charge pump is off
+Charge pump	off: send 8D 14 before AF
+Addressing	page · columns 0–127 · pages 0–7
+Orientation	segment remap A0 · COM scan C0 · COM pins alternative (DA 12)
+Lines	multiplex 64 · start 0 · offset 0
+Last write	nothing written yet
+Contrast	0x7F
+#!flash 3 100 5
+Bus	SPI · CS PB12 · CLK PB13 · DI PB15 · DO PB14
+Chip	W25Q64 · 8 MB · JEDEC EF 40 17
+Status	BUSY 0 · WEL 0 · BP 000
+Written	000064–000068	5 bytes
+48 65 6C 6C 6F
+#!powercycle
+Mecrisp-Stellaris RA 3.0.2 for STM32G431KB by Matthias Koch
+#!oled 1
++--------------------------------------------------------------------------------------------------------------------------------+
+|                                                                                                                                |
+|                                                                                                                                |
+|                                                                                                                                |
+|                                                                                                                                |
+|                                                                                                                                |
+|                                                                                                                                |
+|                                                                                                                                |
+|                                                                                                                                |
+|                                                                                                                                |
+|                                                                                                                                |
+|                                                                                                                                |
+|                                                                                                                                |
+|                                                                                                                                |
+|                                                                                                                                |
+|                                                                                                                                |
+|                                                                                                                                |
+|                                                                                                                                |
+|                                                                                                                                |
+|                                                                                                                                |
+|                                                                                                                                |
+|                                                                                                                                |
+|                                                                                                                                |
+|                                                                                                                                |
+|                                                                                                                                |
+|                                                                                                                                |
+|                                                                                                                                |
+|                                                                                                                                |
+|                                                                                                                                |
+|                                                                                                                                |
+|                                                                                                                                |
+|                                                                                                                                |
+|                                                                                                                                |
++--------------------------------------------------------------------------------------------------------------------------------+
+Bus	I2C 0x3C · SCL PB8 · SDA PB9
+Display	off (AE)
+Charge pump	off: send 8D 14 before AF
+Addressing	page · columns 0–127 · pages 0–7
+Orientation	segment remap A0 · COM scan C0 · COM pins alternative (DA 12)
+Lines	multiplex 64 · start 0 · offset 0
+Last write	nothing written yet
+Contrast	0x7F
+#!flash 3 100 5
+Bus	SPI · CS PB12 · CLK PB13 · DI PB15 · DO PB14
+Chip	W25Q64 · 8 MB · JEDEC EF 40 17
+Status	BUSY 0 · WEL 0 · BP 000
+Written	000064–000068	5 bytes
+48 65 6C 6C 6F
+#!sensor 2
+Bus	I2C 0x76 · SCL PB8 · SDA PB9
+Reading	950.0 hPa · 21.5 °C
+chip id	not read yet
+calibration	not read yet
+ctrl_meas	0x00  sleep (after power-up)
+config	0x00  standby 0.5 ms, filter off
+last measurement	none yet

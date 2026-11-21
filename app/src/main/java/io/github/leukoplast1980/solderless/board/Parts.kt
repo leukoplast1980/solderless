@@ -5,7 +5,7 @@ import kotlin.math.log10
 import kotlin.math.pow
 import kotlin.math.roundToInt
 
-/** The parts of milestone 2. Each terminal that goes to the chip is a role. */
+/** The parts. Each terminal that goes to the chip is a role. */
 enum class PartType(val prefix: String, val title: String, val roles: List<String>) {
     BUTTON("button", "Button", listOf("")),
     LED("led", "LED", listOf("")),
@@ -13,6 +13,22 @@ enum class PartType(val prefix: String, val title: String, val roles: List<Strin
     POT("pot", "Potentiometer", listOf("")),
     SPEAKER("speaker", "Speaker", listOf("")),
     PIEZO("piezo", "Piezo buzzer", listOf("")),
+    OLED("oled", "OLED display", listOf("scl", "sda")),
+    FLASH("flash", "SPI flash", listOf("cs", "clk", "di", "do")),
+    MATRIX("matrix", "LED matrix", listOf("cs", "clk", "din")),
+    TFT("tft", "Colour display", listOf("cs", "scl", "sda", "dc", "res")),
+    BARO("baro", "Pressure sensor", listOf("scl", "sda")),
+    CO2("co2", "CO₂ sensor", listOf("scl", "sda")),
+    ENCODER("enc", "Rotary encoder", listOf("clk", "dt", "sw")),
+    ;
+
+    /** I2C addresses the part can be set to, the default first */
+    val addresses: List<Int> get() = when (this) {
+        OLED -> listOf(0x3C, 0x3D)
+        BARO -> listOf(0x76, 0x77)
+        CO2 -> listOf(0x62)
+        else -> emptyList()
+    }
 }
 
 enum class LedColour(val title: String, val vfMv: Int, val argb: Long) {
@@ -21,7 +37,7 @@ enum class LedColour(val title: String, val vfMv: Int, val argb: Long) {
 }
 
 /** What a part's pin has to be able to do */
-enum class Need { OUTPUT, INPUT, INPUT_EXTI, PWM, ADC, DAC_OR_PWM }
+enum class Need { OUTPUT, INPUT, INPUT_EXTI, PWM, ADC, DAC_OR_PWM, I2C_SCL, I2C_SDA, CS, SPI_SCK, SPI_MOSI, SPI_MISO, ENC_A, ENC_B }
 
 /** A chip pin given to one role of a part, and the function it is used with. */
 data class PinUse(val pin: String, val function: Function)
@@ -33,6 +49,10 @@ sealed class Function {
     }
     data class Adc(val adc: String, val channel: Int) : Function() { override fun toString() = "${adc} IN$channel" }
     data class Dac(val channel: Int) : Function() { override fun toString() = "DAC1 OUT$channel" }
+    /** An I2C peripheral's SCL or SDA, in alternate function [af] */
+    data class I2c(val periph: String, val signal: String, val af: Int) : Function() { override fun toString() = "$periph $signal" }
+    /** An SPI peripheral's SCK, MOSI or MISO, in alternate function [af] */
+    data class Spi(val periph: String, val signal: String, val af: Int) : Function() { override fun toString() = "$periph $signal" }
 }
 
 data class Part(
@@ -50,6 +70,16 @@ data class Part(
     val interrupt: Boolean = true,          // button wants its own EXTI line
     val dacDrive: Boolean = true,           // speaker on a DAC output, else PWM
     val pinnedOverTabs: Boolean = false,
+    val i2cAddr: Int = 0x3C,                // OLED: 0x3C, or 0x3D with its SA0 strap to 3V3
+    val flashMbit: Int = 64,                // W25Q32, W25Q64, W25Q128
+    val matrixChips: Int = 4,               // MAX7219 modules: one 8 x 8, or a 4-in-1 board
+    val tftRows: Int = 240,                 // ST7789: 240 x 240 (1.3"), or 240 x 320 (2.0")
+    // What a sensor senses, as the user sets it
+    val pressureHpa: Double = 1013.2,
+    val tempC: Double = 21.5,
+    val co2Ppm: Int = 820,
+    val rhPct: Int = 45,
+    val followBarometer: Boolean = false,   // BMP280: the phone's own pressure sensor sets it
 ) {
     fun needs(): List<Need> = when (type) {
         PartType.BUTTON -> listOf(if (interrupt) Need.INPUT_EXTI else Need.INPUT)
@@ -58,7 +88,23 @@ data class Part(
         PartType.POT -> listOf(Need.ADC)
         PartType.SPEAKER -> listOf(if (dacDrive) Need.DAC_OR_PWM else Need.PWM)
         PartType.PIEZO -> listOf(Need.PWM)
+        PartType.OLED, PartType.BARO, PartType.CO2 -> listOf(Need.I2C_SCL, Need.I2C_SDA)
+        PartType.ENCODER -> listOf(Need.ENC_A, Need.ENC_B, Need.INPUT)
+        PartType.FLASH -> listOf(Need.CS, Need.SPI_SCK, Need.SPI_MOSI, Need.SPI_MISO)
+        PartType.MATRIX -> listOf(Need.CS, Need.SPI_SCK, Need.SPI_MOSI)
+        // RES idles high like a chip select, so it stays off PB8 too
+        PartType.TFT -> listOf(Need.CS, Need.SPI_SCK, Need.SPI_MOSI, Need.OUTPUT, Need.CS)
     }
+
+    /** The I2C peripheral a bus part is on, if it is */
+    val i2c: String? get() = (pins.firstOrNull()?.function as? Function.I2c)?.periph
+
+    /** The SPI peripheral an SPI part is on */
+    val spi: String? get() = pins.firstNotNullOfOrNull { (it.function as? Function.Spi)?.periph }
+
+    /** W25Q: the JEDEC capacity byte (0x16 32 Mbit, 0x17 64, 0x18 128) and the name */
+    val flashCap: Int get() = when (flashMbit) { 32 -> 0x16; 128 -> 0x18; else -> 0x17 }
+    val flashName: String get() = "W25Q$flashMbit"
 
     fun vfMv(role: Int): Int = when (type) {
         PartType.RGB_LED -> if (role == 0) 1900 else 3000
@@ -113,6 +159,26 @@ object Passives {
             Passive(p.id, 0, "resistor", "1 kΩ", 1000, "base resistor: about 2.5 mA into the transistor's base"),
             Passive(p.id, 0, "transistor", "NPN (BC337)", 0, "switches the speaker current, which a pin cannot supply"),
             Passive(p.id, 0, "diode", "1N4148", 0, "flyback: the speaker coil kicks back when switched off"),
+        )
+        PartType.OLED -> listOf(Passive(p.id, 0, "on the module", "4.7 kΩ × 2", 4700,
+            "pull-ups on SCL and SDA: I2C lines are open-drain, something has to pull them high"))
+        PartType.ENCODER -> listOf(Passive(p.id, 0, "on the module", "10 kΩ × 2", 10000,
+            "pull-ups on CLK and DT; SW has none fitted: turn on the pin's own pull-up"))
+        PartType.BARO -> listOf(Passive(p.id, 0, "on the module", "10 kΩ × 2", 10000,
+            "pull-ups on SCL and SDA; CSB is pulled high for I2C, SDO sets the address"))
+        PartType.CO2 -> listOf(Passive(p.id, 0, "on the module", "10 kΩ × 2", 10000, "pull-ups on SCL and SDA"))
+        PartType.MATRIX -> listOf(
+            Passive(p.id, 0, "wire", "VCC to 5 V", 0, "the LEDs and the MAX7219 run from 5 V; DIN, CLK and CS take 3.3 V logic, just"),
+            Passive(p.id, 0, "on the module", "10 µF + 100 nF", 0, "decoupling, and RSET setting the LED current"),
+        )
+        PartType.TFT -> listOf(
+            Passive(p.id, 0, "wire", "BLK to 3V3", 0, "the backlight: on; a PWM pin there would dim it"),
+            Passive(p.id, 0, "on the module", "regulator", 0, "the module runs from 3.3 V or 5 V; its logic is 3.3 V"),
+        )
+        PartType.FLASH -> listOf(
+            Passive(p.id, 0, "wire", "WP to 3V3", 0, "write protect: low would lock the status registers"),
+            Passive(p.id, 0, "wire", "HOLD to 3V3", 0, "hold: low would pause the chip in the middle of a transfer"),
+            Passive(p.id, 0, "capacitor", "100 nF", 0, "decoupling, from VCC to GND, close to the chip"),
         )
         else -> emptyList()
     }

@@ -20,6 +20,7 @@
 #include "sl/solderless.h"
 
 #include <pthread.h>
+#include <ctype.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -95,6 +96,12 @@ static int directive(const char *line)
     int n = sscanf(line + 2, "%15s %15s %15s %15s", cmd, a1, a2, a3);
     if (n < 1) return 1;
     if (!strcmp(cmd, "clear")) { nboard = 0; sl_board_set(vm, board, 0); return 0; }
+    if (!strcmp(cmd, "powercycle")) {           /* the supply off and on: chip and parts */
+        sl_power_cycle(vm);
+        sl_sync(vm);                            /* else the prompt from before could pass for the new one */
+        sl_wait_idle(vm, 5000);
+        return 0;
+    }
     if (!strcmp(cmd, "pins")) { print_pins(); return 0; }
     if (!strcmp(cmd, "trace")) {
         int slots[16], k = 0;
@@ -118,6 +125,31 @@ static int directive(const char *line)
         fflush(stdout);
         return 0;
     }
+    if (!strcmp(cmd, "bus")) {
+        /* #!bus: what the scope's decoder saw on the traced pins since the last time */
+        static sl_bus_event ev[512];
+        size_t m = sl_bus_read(vm, ev, 512);
+        uint64_t t0 = m ? ev[0].t0_ns : 0;
+        for (size_t i = 0; i < m; i++) {
+            const sl_bus_event *e = &ev[i];
+            printf("+%llu.%01llu us %s ", (unsigned long long)((e->t0_ns - t0) / 1000), (unsigned long long)((e->t0_ns - t0) % 1000 / 100),
+                   (e->flags & SL_BUS_HW) ? "hw" : "bb");
+            switch (e->kind) {
+            case SL_BUS_I2C_START: printf("S\n"); break;
+            case SL_BUS_I2C_STOP: printf("P\n"); break;
+            case SL_BUS_I2C_ADDR: printf("addr %02X %c %s part %d\n", e->value >> 1, (e->value & 1) ? 'R' : 'W', e->miso ? "ack" : "nack", e->part); break;
+            case SL_BUS_I2C_BYTE: printf("%s %02X %s\n", (e->flags & SL_BUS_READ) ? "read" : "byte", e->value, e->miso ? "ack" : "nack"); break;
+            case SL_BUS_SPI_BYTE: printf("spi %02X/%02X%s mode %d part %d len %llu ns\n", e->value, e->miso,
+                                         (e->flags & SL_BUS_DRIVEN) ? "" : " (MISO not driven)", e->flags & 3, e->part,
+                                         (unsigned long long)(e->t1_ns - e->t0_ns)); break;
+            case SL_BUS_SPI_CS: printf("cs part %d %s\n", e->part, e->value ? "selected" : "released"); break;
+            case SL_BUS_LOST: printf("lost %u\n", (unsigned)e->miso << 16 | e->value); break;
+            default: printf("?\n"); break;
+            }
+        }
+        fflush(stdout);
+        return 0;
+    }
     if (!strcmp(cmd, "audio")) {
         sl_audio_event ev[64];
         uint64_t now;
@@ -132,6 +164,209 @@ static int directive(const char *line)
         return 0;
     }
     if (!strcmp(cmd, "input") && n >= 3) { sl_board_input(vm, atoi(a1), atoi(a2)); return 0; }
+    if (!strcmp(cmd, "attach") && n >= 4 && (!strcmp(a2, "oled") || !strcmp(a2, "bmp280") || !strcmp(a2, "scd41"))
+        && nboard + 2 <= SL_MAX_ATTACH) {
+        /* #!attach N oled|bmp280|scd41 SCL SDA [addr=0x3D] [pull=OHM]: an I2C module with its pull-ups
+         * (OLED 4.7 kohm at 0x3C, BMP280 10 kohm at 0x76, SCD41 10 kohm at 0x62) */
+        char a4[16] = "";
+        sscanf(line + 2, "%*s %*s %*s %*s %15s", a4);
+        int scl = parse_pin(a3), sda = parse_pin(a4);
+        if (scl < 0 || sda < 0) return 1;
+        int dev = !strcmp(a2, "bmp280") ? SL_DEV_BMP280 : !strcmp(a2, "scd41") ? SL_DEV_SCD41 : SL_DEV_SSD1306;
+        int addr = dev == SL_DEV_BMP280 ? 0x76 : dev == SL_DEV_SCD41 ? 0x62 : 0x3C;
+        int pull = dev == SL_DEV_SSD1306 ? 4700 : 10000;
+        const char *q = strstr(line, "addr=");
+        if (q) addr = (int)strtol(q + 5, NULL, 0);
+        q = strstr(line, "pull=");
+        if (q) pull = atoi(q + 5);
+        for (int k = 0; k < 2; k++) {
+            sl_attach *a = &board[nboard++];
+            memset(a, 0, sizeof *a);
+            a->part = atoi(a1); a->kind = SL_ATT_DEVICE; a->dev = dev; a->addr = addr;
+            a->role = k ? SL_SIG_SDA : SL_SIG_SCL; a->pin = k ? sda : scl; a->r_ohm = pull;
+        }
+        sl_board_set(vm, board, nboard);
+        return 0;
+    }
+    if (!strcmp(cmd, "attach") && n >= 4 && !strcmp(a2, "flash") && nboard + 4 <= SL_MAX_ATTACH) {
+        /* #!attach N flash CS CLK DI DO [size=32|64|128]: a W25Q module (WP and HOLD tied high) */
+        char p4[16] = "", p5[16] = "", p6[16] = "";
+        sscanf(line + 2, "%*s %*s %*s %*s %15s %15s %15s", p4, p5, p6);
+        int pins[4] = { parse_pin(a3), parse_pin(p4), parse_pin(p5), parse_pin(p6) };
+        static const int roles[4] = { SL_SIG_CS, SL_SIG_SCK, SL_SIG_MOSI, SL_SIG_MISO };
+        int cap = 0x17;
+        const char *q = strstr(line, "size=");
+        if (q) cap = atoi(q + 5) == 32 ? 0x16 : atoi(q + 5) == 128 ? 0x18 : 0x17;
+        for (int k = 0; k < 4; k++) {
+            if (pins[k] < 0) return 1;
+            sl_attach *a = &board[nboard++];
+            memset(a, 0, sizeof *a);
+            a->part = atoi(a1); a->kind = SL_ATT_DEVICE; a->dev = SL_DEV_W25Q; a->addr = cap;
+            a->role = roles[k]; a->pin = pins[k]; a->r_ohm = roles[k] == SL_SIG_CS ? 10000 : 0;   /* the module pulls CS up */
+        }
+        sl_board_set(vm, board, nboard);
+        return 0;
+    }
+    if (!strcmp(cmd, "attach") && n >= 4 && !strcmp(a2, "matrix") && nboard + 3 <= SL_MAX_ATTACH) {
+        /* #!attach N matrix CS CLK DIN [chips=4]: MAX7219 8x8 module(s) */
+        char p4[16] = "", p5[16] = "";
+        sscanf(line + 2, "%*s %*s %*s %*s %15s %15s", p4, p5);
+        int pins[3] = { parse_pin(a3), parse_pin(p4), parse_pin(p5) };
+        static const int roles[3] = { SL_SIG_CS, SL_SIG_SCK, SL_SIG_MOSI };
+        const char *q = strstr(line, "chips=");
+        int chips = q ? atoi(q + 6) : 1;
+        for (int k = 0; k < 3; k++) {
+            if (pins[k] < 0) return 1;
+            sl_attach *a = &board[nboard++];
+            memset(a, 0, sizeof *a);
+            a->part = atoi(a1); a->kind = SL_ATT_DEVICE; a->dev = SL_DEV_MAX7219; a->addr = chips;
+            a->role = roles[k]; a->pin = pins[k]; a->r_ohm = roles[k] == SL_SIG_CS ? 10000 : 0;
+        }
+        sl_board_set(vm, board, nboard);
+        return 0;
+    }
+    if (!strcmp(cmd, "matrix") && n >= 2) {
+        /* #!matrix N: the LEDs (# lit, . dark), then the state */
+        static uint8_t px[64 * 8];
+        char text[1024];
+        size_t got = sl_device_read(vm, atoi(a1), px, sizeof px, text, sizeof text);
+        int w = (int)got / 8;
+        for (int y = 0; y < 8 && w; y++) {
+            for (int x = 0; x < w; x++) putchar(px[y * w + x] ? '#' : '.');
+            putchar('\n');
+        }
+        fputs(text, stdout);
+        fflush(stdout);
+        return 0;
+    }
+    if (!strcmp(cmd, "attach") && n >= 4 && !strcmp(a2, "tft") && nboard + 5 <= SL_MAX_ATTACH) {
+        /* #!attach N tft CS SCL SDA DC RES [rows=320]: an ST7789 module (CS may be "-" for modules without one) */
+        char p4[16] = "", p5[16] = "", p6[16] = "", p7[16] = "";
+        sscanf(line + 2, "%*s %*s %*s %*s %15s %15s %15s %15s", p4, p5, p6, p7);
+        const char *names[5] = { a3, p4, p5, p6, p7 };
+        static const int roles[5] = { SL_SIG_CS, SL_SIG_SCK, SL_SIG_MOSI, SL_SIG_DC, SL_SIG_RES };
+        const char *q = strstr(line, "rows=");
+        int rows = q ? atoi(q + 5) : 240;
+        for (int k = 0; k < 5; k++) {
+            if (!strcmp(names[k], "-")) continue;
+            int pin = parse_pin(names[k]);
+            if (pin < 0) return 1;
+            sl_attach *a = &board[nboard++];
+            memset(a, 0, sizeof *a);
+            a->part = atoi(a1); a->kind = SL_ATT_DEVICE; a->dev = SL_DEV_ST7789; a->addr = rows;
+            a->role = roles[k]; a->pin = pin; a->r_ohm = roles[k] == SL_SIG_CS || roles[k] == SL_SIG_RES ? 10000 : 0;
+        }
+        sl_board_set(vm, board, nboard);
+        return 0;
+    }
+    if (!strcmp(cmd, "tft") && n >= 2) {
+        /* #!tft N: the screen in 8 x 8 blocks, each as its main colour (. black, W R G B Y C M, o for grey), then the state */
+        static uint8_t px[240 * 320 * 2];
+        char text[1024];
+        size_t got = sl_device_read(vm, atoi(a1), px, sizeof px, text, sizeof text);
+        int h = (int)(got / 480);
+        for (int by = 0; by < h; by += 8) {
+            for (int bx = 0; bx < 240; bx += 8) {
+                int r = 0, g = 0, b = 0;
+                for (int y = by; y < by + 8; y++) for (int x = bx; x < bx + 8; x++) {
+                    unsigned c = px[(y * 240 + x) * 2] | px[(y * 240 + x) * 2 + 1] << 8;
+                    r += (c >> 11) & 31; g += (c >> 6) & 31; b += c & 31;
+                }
+                r /= 64; g /= 64; b /= 64;
+                int R = r > 15, G = g > 15, Bl = b > 15;
+                const char *cs = ".BGCRMYW";
+                char ch = cs[R << 2 | G << 1 | Bl];
+                if (ch == 'W' && (r < 24 || g < 24 || b < 24)) ch = 'o';
+                putchar(ch);
+            }
+            putchar('\n');
+        }
+        fputs(text, stdout);
+        fflush(stdout);
+        return 0;
+    }
+    if (!strcmp(cmd, "flash") && n >= 2) {
+        /* #!flash N [ADDR [LEN]]: the state, then LEN bytes from ADDR as hex (default 32 from 0) */
+        char text[1024];
+        sl_device_read(vm, atoi(a1), NULL, 0, text, sizeof text);
+        fputs(text, stdout);
+        uint32_t at = n >= 3 ? (uint32_t)strtoul(a2, NULL, 0) : 0, len = n >= 4 ? (uint32_t)strtoul(a3, NULL, 0) : 32;
+        uint8_t buf[256];
+        if (len > sizeof buf) len = sizeof buf;
+        size_t got = sl_device_mem(vm, atoi(a1), at, buf, len, 0);
+        for (size_t k = 0; k < got; k++) printf("%s%02X", k % 16 == 0 ? (k ? "\n" : "") : " ", buf[k]);
+        if (got) printf("\n");
+        fflush(stdout);
+        return 0;
+    }
+    if (!strcmp(cmd, "poke") && n >= 4) {
+        /* #!poke N ADDR HEXBYTES: write bytes into a memory part, as a programmer would */
+        uint8_t buf[128]; size_t k = 0;
+        const char *h = line + 2;
+        for (int f = 0; f < 3 && h; f++) { h = strchr(h, ' '); while (h && *h == ' ') h++; }
+        for (; h && isxdigit((unsigned char)h[0]) && isxdigit((unsigned char)h[1]) && k < sizeof buf; h += 2) {
+            unsigned x; sscanf(h, "%2x", &x); buf[k++] = (uint8_t)x;
+        }
+        sl_device_mem(vm, atoi(a1), (uint32_t)strtoul(a2, NULL, 0), buf, k, 1);
+        return 0;
+    }
+    if (!strcmp(cmd, "attach") && n >= 4 && !strcmp(a2, "encoder") && nboard + 5 <= SL_MAX_ATTACH) {
+        /* #!attach N encoder CLK DT [SW] [bounce=US]: a KY-040: contacts A (CLK) and B (DT) to GND with
+         * 10 kohm pull-ups on the module, its push switch (SW) to GND without one */
+        char p4[16] = "", p5[16] = "";
+        sscanf(line + 2, "%*s %*s %*s %*s %15s %15s", p4, p5);
+        int clk = parse_pin(a3), dt = parse_pin(p4), sw = parse_pin(p5);
+        if (clk < 0 || dt < 0) return 1;
+        const char *q = strstr(line, "bounce=");
+        int bounce = q ? atoi(q + 7) : 300;
+        int pins[2] = { clk, dt }, roles[2] = { SL_ROLE_ENC_A, SL_ROLE_ENC_B };
+        for (int k = 0; k < 2; k++) {
+            sl_attach *a = &board[nboard++];
+            memset(a, 0, sizeof *a);
+            a->part = atoi(a1); a->kind = SL_ATT_SWITCH; a->role = roles[k]; a->pin = pins[k]; a->bounce_us = bounce;
+            a = &board[nboard++];
+            memset(a, 0, sizeof *a);
+            a->part = atoi(a1); a->kind = SL_ATT_PULL; a->role = roles[k]; a->pin = pins[k]; a->r_ohm = 10000; a->to_vcc = 1;
+        }
+        if (sw >= 0) {
+            sl_attach *a = &board[nboard++];
+            memset(a, 0, sizeof *a);
+            a->part = atoi(a1); a->kind = SL_ATT_SWITCH; a->role = 0; a->pin = sw; a->bounce_us = 2000;
+        }
+        sl_board_set(vm, board, nboard);
+        return 0;
+    }
+    if (!strcmp(cmd, "turn") && n >= 3) { sl_board_turn(vm, atoi(a1), atoi(a2)); return 0; }
+    if (!strcmp(cmd, "sensor") && n >= 2) {
+        /* #!sensor N: a sensor's state as its sheet shows it */
+        char text[1024];
+        sl_device_read(vm, atoi(a1), NULL, 0, text, sizeof text);
+        fputs(text, stdout);
+        fflush(stdout);
+        return 0;
+    }
+    if (!strcmp(cmd, "set") && n >= 4) {
+        /* #!set N WHAT VALUE: what a sensor senses (pressure_pa, temp_c, co2_ppm, rh, breath) */
+        sl_device_input(vm, atoi(a1), a2, strtod(a3, NULL));
+        return 0;
+    }
+    if (!strcmp(cmd, "oled") && n >= 2) {
+        /* #!oled N: the display as half blocks, two pixel rows per line, then its state */
+        static uint8_t px[128 * 64];
+        char text[1024];
+        if (!sl_device_read(vm, atoi(a1), px, sizeof px, text, sizeof text)) { printf("no such part\n"); return 0; }
+        static const char *const cell[4] = { " ", "\xE2\x96\x80", "\xE2\x96\x84", "\xE2\x96\x88" };   /* space, upper, lower, full */
+        printf("+--------------------------------------------------------------------------------------------------------------------------------+\n");
+        for (int y = 0; y < 64; y += 2) {
+            putchar('|');
+            for (int x = 0; x < 128; x++) fputs(cell[px[y * 128 + x] | px[(y + 1) * 128 + x] << 1], stdout);
+            puts("|");
+        }
+        printf("+--------------------------------------------------------------------------------------------------------------------------------+\n");
+        fputs(text, stdout);
+        fflush(stdout);
+        return 0;
+    }
     if (!strcmp(cmd, "attach") && n >= 4 && nboard < SL_MAX_ATTACH) {
         sl_attach *a = &board[nboard];
         memset(a, 0, sizeof *a);

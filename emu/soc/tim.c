@@ -13,14 +13,19 @@
  * aligned counting, update events (UDIS, URS, UG), repetition counter,
  * one-pulse mode, output compare and PWM modes 1 and 2 with polarity and
  * complementary outputs, MOE on the advanced timers, input capture of pin
- * edges. Not modelled: slave modes and triggers, dead time, break inputs,
- * encoder mode (milestone 3), DMA, dithering.
+ * edges, encoder modes 1-3 (SMS 001, 010, 011: counting on TI1, TI2 or both
+ * edges, up or down by the other input's level, with CC1P and CC2P, DIR set
+ * by the hardware, wrapping at ARR with an update event). Not modelled: the
+ * other slave modes and triggers, the G4's clock-plus-direction and x1
+ * encoder modes, the index input, input filters, dead time, break inputs,
+ * DMA, dithering.
  */
 #include "soc.h"
 
 #include <string.h>
 
 #define CR1    0x00u
+#define SMCR   0x08u
 #define DIER   0x0Cu
 #define SR     0x10u
 #define EGR    0x14u
@@ -271,9 +276,18 @@ void tim_poll_hint(struct sl_soc *s, int idx)
     schedule(s, t);
 }
 
+/* Encoder mode 1, 2 or 3 from SMCR.SMS (bit 16 is SMS[3]); 0 otherwise */
+static int enc_mode(struct sl_soc *s, struct sl_tim *t)
+{
+    uint32_t v = R(s, t)[SMCR / 4];
+    uint32_t sms = (v & 7u) | ((v >> 13) & 8u);
+    return sms >= 1 && sms <= 3 ? (int)sms : 0;
+}
+
 static void start(struct sl_soc *s, struct sl_tim *t)
 {
     uint32_t *r = R(s, t);
+    if (t->nch >= 2 && enc_mode(s, t)) { t->running = 0; return; }   /* the inputs clock it, not time */
     t->running = 1;
     t->t0 = t->t_seen = soc_now_ps(s);
     t->tick = tick_ps(s, t);
@@ -385,6 +399,15 @@ void tim_write(struct sl_soc *s, int idx, uint32_t off, uint32_t v, uint32_t mas
             }
             break;
         }
+        if (off == SMCR && (r[CR1 / 4] & CEN)) {
+            /* switching into or out of encoder mode while counting */
+            int was = enc_mode(s, t) != 0;
+            r[off / 4] = (r[off / 4] & ~wm) | (v & wm);
+            int now_enc = enc_mode(s, t) != 0;
+            if (!was && now_enc && t->running) stop(s, t);
+            else if (was && !now_enc) start(s, t);
+            break;
+        }
         r[off / 4] = (r[off / 4] & ~wm) | (v & wm);
         if (off == BDTR && ((r[BDTR / 4] >> 15) & 1u)) t->moe_warned = 0;
         if (off == CCMR1 || off == CCMR2 || off == CCER || off == BDTR) board_af_outputs_changed(s);
@@ -463,7 +486,43 @@ int tim_output(struct sl_soc *s, int pi, int ch, int neg, struct sl_tim_out *o)
     return 1;
 }
 
-/* An edge on a pin routed to channel ch in input mode: capture. */
+/* Encoder mode: an edge on TI1 or TI2 counts up or down by the level of
+ * the other input (RM0440, counting direction versus encoder signals). */
+static void encoder_edge(struct sl_soc *s, struct sl_tim *t, int c, int level)
+{
+    uint32_t *r = R(s, t);
+    int mode = enc_mode(s, t);
+    if (!(r[CR1 / 4] & CEN)) return;
+    if ((ccmr_field(s, t, 0, 0) & 3u) != 1u || (ccmr_field(s, t, 1, 0) & 3u) != 1u) {
+        if (!t->enc_warned) {
+            t->enc_warned = 1;
+            soc_log(s, LOG_TIMER, "%s is in encoder mode, but CH1 and CH2 are not both inputs: set CC1S and CC2S "
+                    "to 01 in CCMR1 (TI1FP1 on TI1, TI2FP2 on TI2)", t->name);
+        }
+        return;
+    }
+    uint32_t ccer = r[CCER / 4];
+    int ti1 = t->ti[0] ^ (int)((ccer >> 1) & 1u), ti2 = t->ti[1] ^ (int)((ccer >> 5) & 1u);
+    int rising = (level ^ (int)((ccer >> (1 + 4 * c)) & 1u)) != 0;
+    int dir;                                               /* +1 up, -1 down, 0 no count */
+    if (c == 0) {
+        if (mode == 2) return;                             /* mode 2 counts on TI2 only */
+        dir = rising ? (ti2 ? -1 : 1) : (ti2 ? 1 : -1);
+    } else {
+        if (mode == 1) return;                             /* mode 1 counts on TI1 only */
+        dir = rising ? (ti1 ? 1 : -1) : (ti1 ? -1 : 1);
+    }
+    uint32_t cnt = r[CNT / 4] & mask_bits(t), arr = t->arr;
+    int wrap = 0;
+    if (dir > 0) { if (cnt >= arr) { cnt = 0; wrap = 1; } else cnt++; r[CR1 / 4] &= ~DIR; }
+    else { if (cnt == 0) { cnt = arr; wrap = 1; } else cnt--; r[CR1 / 4] |= DIR; }
+    r[CNT / 4] = cnt;
+    if (wrap && !(r[CR1 / 4] & UDIS)) r[SR / 4] |= 1u;
+    update_irqs(s, t);
+}
+
+/* An edge on a pin routed to channel ch in input mode: capture, and in
+ * encoder mode a count. */
 void tim_input_edge(struct sl_soc *s, int pi, int ch, int level)
 {
     int idx = tim_index_of_periph(s, pi);
@@ -472,6 +531,10 @@ void tim_input_edge(struct sl_soc *s, int pi, int ch, int level)
     int c = ch - 1;
     if (c >= t->nch) return;
     uint32_t *r = R(s, t);
+    if (c < 2) {
+        t->ti[c] = level;                                  /* the other input's level, for encoder mode */
+        if (t->nch >= 2 && enc_mode(s, t)) encoder_edge(s, t, c, level);
+    }
     if ((ccmr_field(s, t, c, 0) & 3u) != 1u) return;          /* only TIx on its own channel */
     uint32_t ccer = r[CCER / 4] >> (4 * c);
     if (!(ccer & 1u)) return;
@@ -505,7 +568,8 @@ void tim_clocks_changed(struct sl_soc *s)
 void tim_reset(struct sl_soc *s, int idx)
 {
     struct sl_tim *t = &s->tim[idx];
-    t->running = 0; t->polled = 0; t->moe_warned = 0;
+    t->running = 0; t->polled = 0; t->moe_warned = 0; t->enc_warned = 0;
+    t->ti[0] = t->ti[1] = 1;                               /* inputs pulled up until an edge says otherwise */
     t->t0 = t->t_seen = 0; t->pos0 = 0; t->rep = 0;
     load_shadows(s, t);
     if (t->irq_up >= 0) soc_irq(s, t->irq_up, t->pi, 0);

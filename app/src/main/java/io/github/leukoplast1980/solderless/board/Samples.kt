@@ -16,6 +16,15 @@ object Samples {
     private const val EXTI = 0x40010400L
     private const val SYSCFG = 0x40010000L
 
+    /** RCC enable bit of each I2C */
+    private val I2C_CLOCK = mapOf("I2C1" to 21, "I2C2" to 22, "I2C3" to 30)
+
+    /** RCC enable of each SPI: register, its name, bit */
+    private val SPI_CLOCK = mapOf(
+        "SPI1" to Triple(APB2ENR, "APB2ENR", 12), "SPI2" to Triple(APB1ENR1, "APB1ENR1", 14),
+        "SPI3" to Triple(APB1ENR1, "APB1ENR1", 15),
+    )
+
     /** RCC enable bit of each timer: register, its name, bit */
     private val TIMER_CLOCK = mapOf(
         "TIM2" to Triple(APB1ENR1, "APB1ENR1", 0), "TIM3" to Triple(APB1ENR1, "APB1ENR1", 1),
@@ -81,6 +90,13 @@ object Samples {
             PartType.POT -> pot(c, n, chip, p)
             PartType.PIEZO, PartType.SPEAKER ->
                 if (p.pins[0].function is Function.Dac) dacTone(c, n, chip, p) else pwmTone(c, n, chip, p)
+            PartType.OLED -> oled(c, n, chip, p)
+            PartType.FLASH -> flash(c, n, chip, p)
+            PartType.MATRIX -> matrix(c, n, chip, p)
+            PartType.TFT -> tft(c, n, chip, p)
+            PartType.BARO -> baro(c, n, chip, p)
+            PartType.CO2 -> co2(c, n, chip, p)
+            PartType.ENCODER -> encoder(c, n, chip, p)
         }
         return c.text()
     }
@@ -94,6 +110,19 @@ object Samples {
         PartType.POT -> "potentiometer, wiper on ${p.pins[0].pin} (${p.pins[0].function})"
         PartType.SPEAKER -> "speaker, driven by ${p.pins[0].pin} (${p.pins[0].function})"
         PartType.PIEZO -> "piezo buzzer on ${p.pins[0].pin} (${p.pins[0].function})"
+        PartType.OLED -> "OLED display, SSD1306 128 × 64, on ${p.i2c}: SCL ${p.pins[0].pin}, SDA ${p.pins[1].pin}, address " +
+            "$%02X".format(java.util.Locale.ROOT, p.i2cAddr)
+        PartType.FLASH -> "${p.flashName} flash, ${p.flashMbit / 8} MB, on ${p.spi}: CS ${p.pins[0].pin}, CLK ${p.pins[1].pin}, " +
+            "DI ${p.pins[2].pin}, DO ${p.pins[3].pin}"
+        PartType.MATRIX -> "LED matrix, ${if (p.matrixChips == 1) "MAX7219, 8 × 8" else "${p.matrixChips} × MAX7219, ${8 * p.matrixChips} × 8"}, on " +
+            "${p.spi}: CS ${p.pins[0].pin}, CLK ${p.pins[1].pin}, DIN ${p.pins[2].pin}"
+        PartType.TFT -> "colour display, ST7789 240 × ${p.tftRows}, on ${p.spi}: CS ${p.pins[0].pin}, SCL ${p.pins[1].pin}, " +
+            "SDA ${p.pins[2].pin}, DC ${p.pins[3].pin}, RES ${p.pins[4].pin}"
+        PartType.BARO -> "pressure sensor, BMP280, on ${p.i2c}: SCL ${p.pins[0].pin}, SDA ${p.pins[1].pin}, address " +
+            "$%02X".format(java.util.Locale.ROOT, p.i2cAddr)
+        PartType.CO2 -> "CO₂ sensor, SCD41, on ${p.i2c}: SCL ${p.pins[0].pin}, SDA ${p.pins[1].pin}, address \$62"
+        PartType.ENCODER -> "rotary encoder, KY-040: CLK ${p.pins[0].pin}, DT ${p.pins[1].pin} on " +
+            "${(p.pins[0].function as? Function.Timer)?.timer} in encoder mode, SW ${p.pins[2].pin}"
     }
 
     // ---- pieces --------------------------------------------------------
@@ -107,16 +136,24 @@ object Samples {
     }
 
     /** MODER for one pin: 00 input, 01 output, 10 alternate function, 11 analog */
-    private fun mode(c: Code, base: String, bits: String, what: String) {
+    private fun mode(c: Code, base: String, bits: String, what: String, pushPull: Boolean = true) {
         if (bits == "00") { c.add("  %11 $base-pin 2* lshift $base-port bic!", "MODER: 00 = $what"); return }
         if (bits != "11") c.add("  %11 $base-pin 2* lshift $base-port bic!", "MODER: clear the two bits")
         c.add("  %$bits $base-pin 2* lshift $base-port bis!", "MODER: $bits = $what")
+        // An output drives both levels; the pin may have been open-drain before
+        if (pushPull && (bits == "01" || bits == "10")) c.add("  1 $base-pin lshift $base-port 4 + bic!", "OTYPER: push-pull")
     }
 
-    private fun altFunction(c: Code, base: String, pinBit: Int, f: Function.Timer) {
+    private fun altFunction(c: Code, base: String, pinBit: Int, f: Function) {
+        val (af, what) = when (f) {
+            is Function.Timer -> f.af to "${f.timer} CH${f.channel}"
+            is Function.I2c -> f.af to "${f.periph} ${f.signal}"
+            is Function.Spi -> f.af to "${f.periph} ${f.signal}"
+            else -> return
+        }
         val (shift, off, reg) = if (pinBit < 8) Triple("$base-pin 4 *", "\$20", "AFRL") else Triple("$base-pin 8 - 4 *", "\$24", "AFRH")
         c.add("  \$F $shift lshift $base-port $off + bic!", "$reg: clear the four bits")
-        c.add("  $base-af $shift lshift $base-port $off + bis!", "$reg: AF${f.af} = ${f.timer} CH${f.channel}")
+        c.add("  $base-af $shift lshift $base-port $off + bis!", "$reg: AF$af = $what")
     }
 
     private fun timerClock(c: Code, timer: String) {
@@ -362,6 +399,412 @@ object Samples {
         c.add("    100 ms")
         c.add("  key? until drop ;")
         tryIt(c, "$n-init $n@ .   or   $n-watch (Enter stops it)")
+    }
+
+    private fun oled(c: Code, n: String, chip: ChipPins, p: Part) {
+        val f = p.pins[0].function as? Function.I2c ?: return
+        val i = "$n-i2c"
+        c.add(": $n-isr ( -- u ) $i \$18 + @ ;", "I2C ISR")
+        c.add(": $n-go ( n -- )", "write n bytes to the OLED, STOP after them")
+        c.add("  16 lshift  $n-addr 1 lshift or", "CR2: NBYTES, the address")
+        c.add("  1 25 lshift or  1 13 lshift or  $i 4 + ! ;", "AUTOEND, START")
+        c.add(": >$n ( b -- )", "one byte")
+        c.add("  begin $n-isr 2 and until  $i \$28 + ! ;", "wait for TXIS, then TXDR")
+        c.add(": $n-end ( -- )", "the transfer's STOP")
+        c.add("  begin $n-isr \$20 and until  \$20 $i \$1C + ! ;", "wait for STOPF, clear it in ICR")
+        c.add(": $n? ( -- flag )", "does the OLED answer at its address?")
+        c.add("  0 $n-go  begin $n-isr \$20 and until", "the address alone")
+        c.add("  $n-isr \$10 and 0=  \$30 $i \$1C + ! ;", "no NACKF: it answered")
+        c.add(": $n-cmd ( c -- ) 2 $n-go  0 >$n  >$n  $n-end ;", "control byte 00: a command follows")
+        c.gap()
+        c.add("1024 buffer: $n-buf", "the picture: 8 pages of 128 columns")
+        c.add(": $n-clear ( -- ) $n-buf 1024 0 fill ;")
+        c.add(": $n-pixel ( x y -- )", "x 0..127 from the left, y 0..63 from the top")
+        c.add("  over 128 u< over 64 u< and 0= if 2drop exit then")
+        c.add("  dup 7 and 1 swap lshift -rot", "the bit in its byte")
+        c.add("  3 rshift 7 lshift + $n-buf + cbis! ;", "the byte: page y/8, column x")
+        c.add(": $n-show ( -- )", "the picture to the display")
+        c.add("  \$21 $n-cmd 0 $n-cmd 127 $n-cmd", "columns 0 to 127")
+        c.add("  \$22 $n-cmd 0 $n-cmd 7 $n-cmd", "pages 0 to 7")
+        c.add("  8 0 do")
+        c.add("    129 $n-go  \$40 >$n", "control byte 40: data follows")
+        c.add("    128 0 do  j 7 lshift i + $n-buf + c@ >$n  loop")
+        c.add("    $n-end")
+        c.add("  loop ;")
+        c.gap()
+        c.add(": $n-init ( -- )")
+        gpioClocks(c, chip, p.pins)
+        c.add("  1 ${I2C_CLOCK[f.periph]} lshift $APB1ENR1 bis!", "RCC APB1ENR1: clock for ${f.periph}")
+        for ((r, u) in p.pins.withIndex()) {
+            val base = "$n-${p.type.roles[r]}"
+            mode(c, base, "10", "alternate function", pushPull = false)
+            c.add("  1 $base-pin lshift $base-port 4 + bis!", "OTYPER: open-drain, as I2C needs")
+            altFunction(c, base, bit(chip, u), u.function)
+        }
+        c.add("  0 $i !", "CR1: PE off while setting the timing")
+        c.add("  \$00310F13 $i \$10 + !", "TIMINGR: SCL about 380 kHz from 16 MHz")
+        c.add("  1 $i !", "CR1: PE, on")
+        c.add("  $n? 0= if .\" The OLED does not answer at \" $n-addr hex. cr exit then")
+        c.add("  \$AE $n-cmd", "display off while setting it up")
+        c.add("  \$D5 $n-cmd \$80 $n-cmd", "clock: the default")
+        c.add("  \$A8 $n-cmd 63 $n-cmd", "multiplex: 64 lines")
+        c.add("  \$D3 $n-cmd 0 $n-cmd  \$40 $n-cmd", "no offset, start at line 0")
+        c.add("  \$8D $n-cmd \$14 $n-cmd", "charge pump on: without it the panel stays dark")
+        c.add("  \$20 $n-cmd 0 $n-cmd", "horizontal addressing")
+        c.add("  \$A1 $n-cmd  \$C8 $n-cmd", "column 0 on the left, row 0 at the top")
+        c.add("  \$DA $n-cmd \$12 $n-cmd", "COM pins as 128 × 64 panels are wired")
+        c.add("  \$81 $n-cmd \$CF $n-cmd", "contrast")
+        c.add("  \$A4 $n-cmd  \$A6 $n-cmd", "show the RAM, not inverted")
+        c.add("  $n-clear $n-show", "the RAM holds noise at power-on")
+        c.add("  \$AF $n-cmd ;", "display on")
+        c.gap()
+        c.add("\\ A ball bouncing inside a frame until a key is pressed")
+        c.add("10 variable $n-x  10 variable $n-y  2 variable $n-dx  1 variable $n-dy")
+        c.add(": $n-frame ( -- )")
+        c.add("  128 0 do i 0 $n-pixel  i 63 $n-pixel loop")
+        c.add("  64 0 do 0 i $n-pixel  127 i $n-pixel loop ;")
+        c.add(": $n-ball ( -- )")
+        c.add("  4 0 do 4 0 do  $n-x @ i +  $n-y @ j +  $n-pixel  loop loop ;")
+        c.add(": $n-move ( -- )")
+        c.add("  $n-dx @ $n-x +!  $n-x @ 2 < $n-x @ 122 > or if $n-dx @ negate $n-dx ! then")
+        c.add("  $n-dy @ $n-y +!  $n-y @ 2 < $n-y @ 58 > or if $n-dy @ negate $n-dy ! then ;")
+        c.add(": $n-demo ( -- )")
+        c.add("  $n-init  $n? 0= if exit then")
+        c.add("  begin $n-clear $n-frame $n-ball $n-show $n-move key? until ;")
+        tryIt(c, "$n-init 10 20 $n-pixel $n-show   or   $n-demo (Enter stops it)")
+    }
+
+    private fun flash(c: Code, n: String, chip: ChipPins, p: Part) {
+        val f = p.pins[1].function as? Function.Spi ?: return
+        val sp = "$n-spi"
+        val (reg, regName, clockBit) = SPI_CLOCK.getValue(f.periph)
+        c.add(": $n-sr ( -- u ) $sp 8 + @ ;", "${f.periph} SR")
+        c.add(": >$n> ( b -- b )", "one byte out, one byte in")
+        c.add("  begin $n-sr 2 and until  $sp \$C + c!", "wait for TXE; c! writes one frame")
+        c.add("  begin $n-sr 1 and until  $sp \$C + c@ ;", "wait for RXNE: the byte that came back")
+        c.add(": $n-on ( c -- )", "CS low, then the command byte")
+        c.add("  1 $n-cs-pin lshift 16 lshift $n-cs-port \$18 + !  >$n> drop ;")
+        c.add(": $n-off ( -- ) 1 $n-cs-pin lshift $n-cs-port \$18 + ! ;", "CS high: the command ends here")
+        c.add(": >$n-addr ( a -- )", "24-bit address, high byte first")
+        c.add("  dup 16 rshift >$n> drop  dup 8 rshift >$n> drop  >$n> drop ;")
+        c.add(": $n-status ( -- u ) 5 $n-on 0 >$n> $n-off ;", "status register 1: BUSY bit 0, WEL bit 1")
+        c.add(": $n-wait ( -- ) begin $n-status 1 and 0= until ;", "until a program or erase is done")
+        c.add(": $n-wren ( -- ) 6 $n-on $n-off ;", "write enable, before every program and erase")
+        c.add(": $n-id ( -- )", "JEDEC ID: EF Winbond, 40, then the size")
+        c.add("  \$9F $n-on  0 >$n> hex. 0 >$n> hex. 0 >$n> hex.  $n-off ;")
+        c.add(": $n-read ( a addr u -- )", "u bytes from the flash at a to memory at addr")
+        c.add("  rot 3 $n-on >$n-addr")
+        c.add("  0 ?do 0 >$n> over i + c! loop drop $n-off ;")
+        c.add(": $n-write ( addr u a -- )", "u bytes to the flash at a, within one 256-byte page")
+        c.add("  $n-wren 2 $n-on >$n-addr")
+        c.add("  0 ?do dup i + c@ >$n> drop loop drop $n-off $n-wait ;", "it programs when CS goes high")
+        c.add(": $n-erase ( a -- )", "the 4 KB sector around a, back to FF")
+        c.add("  $n-wren \$20 $n-on >$n-addr $n-off $n-wait ;", "takes about 45 ms")
+        c.gap()
+        c.add(": $n-init ( -- )")
+        gpioClocks(c, chip, p.pins)
+        c.add("  1 $clockBit lshift $reg bis!", "RCC $regName: clock for ${f.periph}")
+        spiReset(c, f.periph)
+        c.add("  $n-off", "CS high before it becomes an output")
+        for ((r, u) in p.pins.withIndex()) {
+            val base = "$n-${p.type.roles[r]}"
+            if (r == 0) mode(c, base, "01", "output")
+            else { mode(c, base, "10", "alternate function"); altFunction(c, base, bit(chip, u), u.function) }
+        }
+        c.add("  \$1700 $sp 4 + !", "CR2: 8-bit frames, RXNE after one byte (FRXTH)")
+        c.add("  \$354 $sp ! ;", "CR1: master, SCK = 16 MHz / 8, SSM and SSI (CS is a GPIO), on")
+        c.gap()
+        c.add("\\ Erase a sector, write a line, read it back")
+        c.add(": $n-hello s\" Hello from Forth\" ;")
+        c.add("64 buffer: $n-buf")
+        c.add(": $n-demo ( -- )")
+        c.add("  $n-init $n-id cr")
+        c.add("  0 $n-erase  $n-hello 0 $n-write")
+        c.add("  0 $n-buf 16 $n-read  $n-buf 16 type ;")
+        tryIt(c, "$n-init $n-id   or   $n-demo")
+    }
+
+    /** SPI setup shared by the SPI parts: clocks, the GPIOs as outputs (high first), the bus pins in their alternate function */
+    /** Pulses the SPI's reset bit: another part's sample may have left bytes in its receive FIFO */
+    private fun spiReset(c: Code, periph: String) {
+        val (reg, _, bit) = SPI_CLOCK.getValue(periph)
+        val (rst, name) = if (reg == APB2ENR) "\$40021040" to "APB2RSTR" else "\$40021038" to "APB1RSTR1"
+        c.add("  1 $bit lshift $rst 2dup bis! bic!", "RCC $name: reset $periph, nothing left in it from another part")
+    }
+
+    private fun spiPins(c: Code, n: String, chip: ChipPins, p: Part, f: Function.Spi) {
+        val (reg, regName, clockBit) = SPI_CLOCK.getValue(f.periph)
+        gpioClocks(c, chip, p.pins)
+        c.add("  1 $clockBit lshift $reg bis!", "RCC $regName: clock for ${f.periph}")
+        spiReset(c, f.periph)
+        for ((r, u) in p.pins.withIndex()) {
+            val base = "$n-${p.type.roles[r]}"
+            if (u.function is Function.Spi) { mode(c, base, "10", "alternate function"); altFunction(c, base, bit(chip, u), u.function) }
+            else {
+                c.add("  1 $base-pin lshift $base-port \$18 + !", "BSRR: high before it becomes an output")
+                mode(c, base, "01", "output")
+            }
+        }
+    }
+
+    private fun matrix(c: Code, n: String, chip: ChipPins, p: Part) {
+        val f = p.pins[1].function as? Function.Spi ?: return
+        val sp = "$n-spi"
+        val ch = p.matrixChips
+        val w = 8 * ch
+        c.add(": $n-sr ( -- u ) $sp 8 + @ ;", "${f.periph} SR")
+        c.add(": >$n ( b -- )", "one byte out")
+        c.add("  begin $n-sr 2 and until  $sp \$C + c! ;", "wait for TXE; c! writes one frame")
+        c.add(": $n-idle ( -- ) begin $n-sr \$80 and 0= until ;", "until BSY clears: the last byte is out")
+        c.add(": $n-select ( -- ) 1 $n-cs-pin lshift 16 lshift $n-cs-port \$18 + ! ;", "CS (LOAD) low")
+        c.add(": $n-load ( -- ) $n-idle 1 $n-cs-pin lshift $n-cs-port \$18 + ! ;", "CS high: each chip takes its 16 bits")
+        c.add(": $n-all ( reg v -- )", "the same register in every chip")
+        c.add("  $n-select  $ch 0 do over >$n dup >$n loop 2drop $n-load ;")
+        c.gap()
+        c.add("${8 * ch} buffer: $n-buf", "the picture: 8 rows of $ch bytes, left to right")
+        c.add(": $n-clear ( -- ) $n-buf ${8 * ch} 0 fill ;")
+        c.add(": $n-pixel ( x y -- )", "x 0..${w - 1} from the left, y 0..7 from the top")
+        c.add("  over $w u< over 8 u< and 0= if 2drop exit then")
+        c.add("  $ch * over 3 rshift + $n-buf +", "the byte: row y, column x/8")
+        c.add("  \$80 rot 7 and rshift swap cbis! ;", "bit 7 is the left LED")
+        c.add(": $n-show ( -- )", "the picture to the LEDs, a row at a time")
+        c.add("  8 0 do")
+        c.add("    $n-select")
+        c.add("    $ch 0 do  j 1+ >$n  j $ch * i + $n-buf + c@ >$n  loop", "register: row + 1; the left chip first")
+        c.add("    $n-load")
+        c.add("  loop ;")
+        c.gap()
+        c.add(": $n-init ( -- )")
+        spiPins(c, n, chip, p, f)
+        c.add("  \$1700 $sp 4 + !", "CR2: 8-bit frames")
+        c.add("  \$354 $sp !", "CR1: master, SCK = 16 MHz / 8 (it takes 10 MHz), SSM and SSI, on")
+        c.add("  \$F 0 $n-all", "display test off")
+        c.add("  9 0 $n-all", "no decoding: each bit is an LED")
+        c.add("  \$B 7 $n-all", "scan all 8 rows: after power-up only row 0 shows")
+        c.add("  \$A 3 $n-all", "intensity 3 of 15")
+        c.add("  $n-clear $n-show", "its rows hold noise at power-up")
+        c.add("  \$C 1 $n-all ;", "out of shutdown: on")
+        c.gap()
+        c.add("\\ A dot bouncing about until a key is pressed")
+        c.add("0 variable $n-x  0 variable $n-y  1 variable $n-dx  1 variable $n-dy")
+        c.add(": $n-move ( -- )")
+        c.add("  $n-dx @ $n-x +!  $n-x @ 0= $n-x @ ${w - 1} = or if $n-dx @ negate $n-dx ! then")
+        c.add("  $n-dy @ $n-y +!  $n-y @ 0= $n-y @ 7 = or if $n-dy @ negate $n-dy ! then ;")
+        c.add(": $n-demo ( -- )")
+        c.add("  $n-init")
+        c.add("  begin $n-clear $n-x @ $n-y @ $n-pixel $n-show $n-move 50 ms key? until ;")
+        tryIt(c, "$n-init 3 3 $n-pixel $n-show   or   $n-demo (Enter stops it)")
+    }
+
+    private fun tft(c: Code, n: String, chip: ChipPins, p: Part) {
+        val f = p.pins[1].function as? Function.Spi ?: return
+        val sp = "$n-spi"
+        val bottom = p.tftRows - 1
+        c.add(": $n-sr ( -- u ) $sp 8 + @ ;", "${f.periph} SR")
+        c.add(": >$n ( b -- )", "one byte out")
+        c.add("  begin $n-sr 2 and until  $sp \$C + c! ;", "wait for TXE; c! writes one frame")
+        c.add(": $n-idle ( -- ) begin $n-sr \$80 and 0= until ;", "until BSY clears: the last byte is out")
+        c.add(": $n-dc ( f -- ) $n-idle  1 $n-dc-pin lshift", "DC changes only after the byte before it is out")
+        c.add("  swap 0= if 16 lshift then $n-dc-port \$18 + ! ;", "BSRR: high for data, low for a command")
+        c.add(": $n-cmd ( c -- )", "CS low, the command with DC low; DC high for what follows")
+        c.add("  1 $n-cs-pin lshift 16 lshift $n-cs-port \$18 + !  0 $n-dc >$n  1 $n-dc ;")
+        c.add(": $n-end ( -- ) $n-idle 1 $n-cs-pin lshift $n-cs-port \$18 + ! ;", "CS high")
+        c.add(": >${n}16 ( u -- ) dup 8 rshift >$n >$n ;", "16 bits, high byte first")
+        c.add(": $n-window ( x0 y0 x1 y1 -- )", "the pixels that follow fill this box, row by row")
+        c.add("  >r >r  \$2A $n-cmd swap >${n}16 r> >${n}16", "CASET: columns")
+        c.add("  \$2B $n-cmd >${n}16 r> >${n}16  \$2C $n-cmd ;", "RASET: rows; RAMWR")
+        c.add(": $n-fill ( x0 y0 x1 y1 colour -- )", "a box in one RGB565 colour")
+        c.add("  >r 2over 2over $n-window  rot - 1+ -rot swap - 1+ *")
+        c.add("  r> swap 0 ?do dup >${n}16 loop drop $n-end ;")
+        c.add(": $n-pixel ( x y colour -- ) >r 2dup $n-window r> >${n}16 $n-end ;")
+        c.add(": $n-reset ( -- )", "a pulse on RES, then the 120 ms it needs")
+        c.add("  1 $n-res-pin lshift 16 lshift $n-res-port \$18 + !  1 ms")
+        c.add("  1 $n-res-pin lshift $n-res-port \$18 + !  120 ms ;")
+        c.gap()
+        c.add(": $n-init ( -- )")
+        spiPins(c, n, chip, p, f)
+        c.add("  \$1700 $sp 4 + !", "CR2: 8-bit frames")
+        c.add("  \$344 $sp !", "CR1: master, SCK = 16 MHz / 2, SSM and SSI, on")
+        c.add("  $n-reset")
+        c.add("  \$11 $n-cmd $n-end 5 ms", "Sleep Out, then 5 ms before the next command")
+        c.add("  \$3A $n-cmd \$55 >$n $n-end", "COLMOD: RGB565, 2 bytes a pixel (18-bit after reset)")
+        c.add("  \$36 $n-cmd 0 >$n $n-end", "MADCTL: row 0 at the top, column 0 on the left")
+        c.add("  \$21 $n-cmd $n-end", "inversion on: this IPS panel shows true colours so")
+        c.add("  \$29 $n-cmd $n-end ;", "Display On")
+        c.gap()
+        c.add("\\ Colour bars, and a box that changes colour until a key is pressed")
+        c.add("create $n-colours  \$FFFF h, \$FFE0 h, \$07FF h, \$07E0 h, \$F81F h, \$F800 h, \$001F h, 0 h,")
+        c.add(": $n-colour ( n -- c ) 7 and 2* $n-colours + h@ ;")
+        c.add(": $n-bars ( -- )")
+        c.add("  8 0 do  i 30 * 0  i 30 * 29 + $bottom  i $n-colour $n-fill  loop ;")
+        c.add(": $n-demo ( -- )")
+        c.add("  $n-init $n-bars")
+        c.add("  0 begin  70 ${p.tftRows / 2 - 50} 169 ${p.tftRows / 2 + 49} 4 pick $n-colour $n-fill  1+  300 ms key? until drop ;")
+        tryIt(c, "$n-init $n-bars   or   $n-demo (Enter stops it)")
+    }
+
+    /** I2C as a master, the words every I2C part's sample uses: start a transfer, a byte out or in, the STOP */
+    private fun i2cWords(c: Code, n: String) {
+        val i = "$n-i2c"
+        c.add(": $n-isr ( -- u ) $i \$18 + @ ;", "I2C ISR")
+        c.add(": $n-go ( n flags -- )", "START a transfer of n bytes")
+        c.add("  swap 16 lshift or  $n-addr 1 lshift or", "CR2: NBYTES, the address, the flags")
+        c.add("  1 13 lshift or  $i 4 + ! ;", "START")
+        c.add("1 25 lshift constant $n-auto", "AUTOEND: STOP after the last byte")
+        c.add("1 10 lshift 1 25 lshift or constant $n-rd", "RD_WRN: a read, and AUTOEND")
+        c.add(": >$n ( b -- )", "one byte out")
+        c.add("  begin $n-isr 2 and until  $i \$28 + ! ;", "wait for TXIS, then TXDR")
+        c.add(": $n> ( -- b )", "one byte in")
+        c.add("  begin $n-isr 4 and until  $i \$24 + @ ;", "wait for RXNE, then RXDR")
+        c.add(": $n-sent ( -- ) begin $n-isr \$40 and until ;", "TC: all bytes out, no STOP yet")
+        c.add(": $n-end ( -- )", "the transfer's STOP")
+        c.add("  begin $n-isr \$20 and until  \$30 $i \$1C + ! ;", "wait for STOPF; clear it and NACKF")
+    }
+
+    private fun i2cInit(c: Code, n: String, chip: ChipPins, p: Part) {
+        val f = p.pins[0].function as Function.I2c
+        val i = "$n-i2c"
+        gpioClocks(c, chip, p.pins)
+        c.add("  1 ${I2C_CLOCK[f.periph]} lshift $APB1ENR1 bis!", "RCC APB1ENR1: clock for ${f.periph}")
+        for ((r, u) in p.pins.withIndex()) {
+            val base = "$n-${p.type.roles[r]}"
+            mode(c, base, "10", "alternate function", pushPull = false)
+            c.add("  1 $base-pin lshift $base-port 4 + bis!", "OTYPER: open-drain, as I2C needs")
+            altFunction(c, base, bit(chip, u), u.function)
+        }
+        c.add("  0 $i !", "CR1: PE off while setting the timing")
+        c.add("  \$00310F13 $i \$10 + !", "TIMINGR: SCL about 380 kHz from 16 MHz")
+        c.add("  1 $i !", "CR1: PE, on")
+    }
+
+    /** Hundredths as a number with two decimals: 2150 prints 21.50 */
+    private fun dot2(c: Code, n: String) {
+        c.add(": $n.2 ( n -- ) dup >r abs s>d <# # # [char] . hold #S r> sign #> type space ;", "2150 prints 21.50")
+    }
+
+    private fun baro(c: Code, n: String, chip: ChipPins, p: Part) {
+        p.pins[0].function as? Function.I2c ?: return
+        i2cWords(c, n)
+        c.add(": $n! ( v reg -- ) 2 $n-auto $n-go  >$n >$n  $n-end ;", "write a register")
+        c.add(": $n-from ( reg n -- )", "point at reg, then read n bytes with $n>")
+        c.add("  1 0 $n-go  swap >$n  $n-sent  $n-rd $n-go ;", "a repeated START turns it round")
+        c.add(": $n@ ( reg -- b ) 1 $n-from $n> $n-end ;", "read a register")
+        c.gap()
+        c.add("24 buffer: $n-cal", "this chip's calibration: dig_T1 .. dig_P9")
+        c.add(": $n-u ( k -- u ) 2* $n-cal + dup c@ swap 1+ c@ 8 lshift or ;", "word k, little-endian, unsigned")
+        c.add(": $n-s ( k -- n ) $n-u dup \$8000 and if \$10000 - then ;", "word k, signed")
+        c.add(": $n-raw ( reg -- adc ) 3 $n-from", "20 bits: msb, lsb, xlsb")
+        c.add("  $n> 12 lshift $n> 4 lshift or $n> 4 rshift or $n-end ;")
+        c.add("0 variable $n-fine  0 variable $n-v1  0 variable $n-v2", "t_fine, and two in-between values")
+        c.add(": $n-t ( -- n )", "°C in hundredths: the datasheet's 32-bit formula")
+        c.add("  \$FA $n-raw")
+        c.add("  dup 3 rshift 0 $n-u 2* - 1 $n-s * 11 arshift")
+        c.add("  swap 4 rshift 0 $n-u - dup * 12 arshift 2 $n-s * 14 arshift +")
+        c.add("  dup $n-fine !  5 * 128 + 8 arshift ;")
+        c.add(": $n-p ( -- pa )", "pascals; after $n-t, which sets t_fine")
+        c.add("  $n-fine @ 1 arshift 64000 - $n-v1 !")
+        c.add("  $n-v1 @ 2 arshift dup * 11 arshift 8 $n-s * $n-v2 !")
+        c.add("  $n-v1 @ 7 $n-s * 2* $n-v2 +!")
+        c.add("  $n-v2 @ 2 arshift 6 $n-s 16 lshift + $n-v2 !")
+        c.add("  $n-v1 @ 2 arshift dup * 13 arshift 5 $n-s * 3 arshift")
+        c.add("  $n-v1 @ 4 $n-s * 1 arshift + 18 arshift $n-v1 !")
+        c.add("  32768 $n-v1 @ + 3 $n-u * 15 arshift $n-v1 !")
+        c.add("  $n-v1 @ 0= if 0 exit then")
+        c.add("  1048576 \$F7 $n-raw - $n-v2 @ 12 arshift - 3125 *")
+        c.add("  dup \$80000000 u< if 2* $n-v1 @ u/mod nip else $n-v1 @ u/mod nip 2* then")
+        c.add("  dup 3 rshift dup * 13 rshift 11 $n-s * 12 arshift $n-v1 !")
+        c.add("  dup 2 rshift 10 $n-s * 13 arshift $n-v2 !")
+        c.add("  $n-v1 @ $n-v2 @ + 9 $n-s + 4 arshift + ;")
+        dot2(c, n)
+        c.add(": $n. ( -- ) $n-t $n.2 .\" °C  \" $n-p $n.2 .\" hPa\" ;", "a reading: 21.50 °C  1013.20 hPa")
+        c.gap()
+        c.add(": $n-init ( -- )")
+        i2cInit(c, n, chip, p)
+        c.add("  \$D0 $n@ \$58 <> if .\" No BMP280 at \" $n-addr hex. cr exit then", "its id: 58")
+        c.add("  \$88 24 $n-from  24 0 do $n> $n-cal i + c! loop  $n-end", "the calibration, 88 to 9F")
+        c.add("  \$10 \$F5 $n!", "config: standby 0.5 ms, IIR filter ×16")
+        c.add("  \$57 \$F4 $n!", "ctrl_meas: temperature ×2, pressure ×16, normal mode")
+        c.add("  50 ms ;", "the first measurement takes 37.5 ms")
+        c.gap()
+        c.add("\\ A reading every half second until a key is pressed")
+        c.add(": $n-demo ( -- ) $n-init  begin $n. cr 500 ms key? until ;")
+        tryIt(c, "$n-init $n.   or   $n-demo (Enter stops it)")
+    }
+
+    private fun co2(c: Code, n: String, chip: ChipPins, p: Part) {
+        p.pins[0].function as? Function.I2c ?: return
+        i2cWords(c, n)
+        c.add(": $n-crc8 ( c b -- c )", "CRC-8, polynomial 31, one byte in")
+        c.add("  xor 8 0 do dup \$80 and if 2* \$31 xor else 2* then \$FF and loop ;")
+        c.add(": $n-crc ( u -- c ) \$FF over 8 rshift $n-crc8 swap \$FF and $n-crc8 ;", "of a 16-bit word, from FF")
+        c.add(": $n-cmd ( c -- ) 2 $n-auto $n-go  dup 8 rshift >$n >$n  $n-end ;", "a 16-bit command")
+        c.add(": $n-cmd+ ( u c -- )", "a command with one word, its CRC after it")
+        c.add("  5 $n-auto $n-go  dup 8 rshift >$n >$n  dup 8 rshift >$n dup >$n $n-crc >$n  $n-end ;")
+        c.add(": $n-answer ( n -- flag )", "read n words; false if it does not answer")
+        c.add("  3 * $n-rd $n-go  begin $n-isr %10100 and until", "RXNE, or NACKF")
+        c.add("  $n-isr \$10 and if $n-end false else true then ;")
+        c.add(": $n-word ( -- u ) $n> 8 lshift $n> or  $n> drop ;", "a word; its CRC not checked here")
+        c.gap()
+        c.add("0 variable $n-ppm  0 variable $n-t  0 variable $n-rh")
+        c.add(": $n-ready? ( -- flag )", "get_data_ready_status")
+        c.add("  \$E4B8 $n-cmd 1 ms  1 $n-answer if $n-word $n-end \$7FF and 0<> else false then ;")
+        c.add(": $n-read ( -- flag )", "read_measurement: CO₂, temperature, humidity")
+        c.add("  \$EC05 $n-cmd 1 ms  3 $n-answer 0= if false exit then", "no new data: it does not answer")
+        c.add("  $n-word $n-ppm !  $n-word $n-t !  $n-word $n-rh !  $n-end true ;")
+        dot2(c, n)
+        c.add(": $n. ( -- ) $n-ppm @ . .\" ppm  \"", "a reading: 820 ppm  22.00 °C  45.00 %")
+        c.add("  $n-t @ 17500 * 65535 / 4500 - $n.2 .\" °C  \"  $n-rh @ 10000 * 65535 / $n.2 .\" %\" ;")
+        c.gap()
+        c.add(": $n-init ( -- )")
+        i2cInit(c, n, chip, p)
+        c.add("  \$3F86 $n-cmd 500 ms", "stop_periodic_measurement: it may still run from before")
+        c.add("  \$21B1 $n-cmd ;", "start_periodic_measurement: a reading every 5 s")
+        c.gap()
+        c.add("\\ The readings as they come, until a key is pressed")
+        c.add(": $n-demo ( -- ) $n-init  begin $n-ready? if $n-read drop $n. cr then 200 ms key? until ;")
+        tryIt(c, "$n-init 5100 ms $n-read . $n.   or   $n-demo (Enter stops it)")
+    }
+
+    private fun encoder(c: Code, n: String, chip: ChipPins, p: Part) {
+        val f = p.pins[0].function as? Function.Timer ?: return
+        val t = "$n-timer"
+        val wide = f.timer == "TIM2"
+        c.add(": $n-count ( -- n )", "the counter, signed: up one way, down the other")
+        if (wide) c.add("  $t \$24 + @ ;", "TIM2 counts in 32 bits")
+        else c.add("  $t \$24 + @ 16 lshift 16 arshift ;", "16 bits, sign-extended")
+        c.add(": $n-steps ( -- n ) $n-count 4 / ;", "detents: four edges each")
+        c.add(": $n-pressed? ( -- flag )", "the push switch, low while pressed")
+        c.add("  $n-sw-port \$10 + @ 1 $n-sw-pin lshift and 0= ;")
+        c.add(": $n-zero ( -- ) 0 $t \$24 + ! ;", "count from here")
+        c.gap()
+        c.add(": $n-init ( -- )")
+        gpioClocks(c, chip, p.pins)
+        timerClock(c, f.timer)
+        for (r in 0..1) {
+            val base = "$n-${p.type.roles[r]}"
+            mode(c, base, "10", "alternate function", pushPull = false)
+            altFunction(c, base, bit(chip, p.pins[r]), p.pins[r].function)
+        }
+        mode(c, "$n-sw", "00", "input")
+        c.add("  %11 $n-sw-pin 2* lshift $n-sw-port \$0C + bic!", "PUPDR: clear the two bits")
+        c.add("  %01 $n-sw-pin 2* lshift $n-sw-port \$0C + bis!", "PUPDR: 01 = pull-up; the module has none for SW")
+        c.add("  0 $t !", "CR1: stopped while setting it up")
+        c.add("  3 $t 8 + !", "SMCR: encoder mode 3, both inputs' edges: 4 a detent")
+        c.add("  \$0101 $t \$18 + !", "CCMR1: CC1S and CC2S = 01, CH1 and CH2 inputs from their pins")
+        c.add("  0 $t \$20 + !", "CCER: neither input inverted")
+        c.add("  ${if (wide) "-1" else "\$FFFF"} $t \$2C + !", "ARR: count over the whole range, then wrap")
+        c.add("  0 $t \$24 + !", "CNT: 0")
+        c.add("  1 $t ! ;", "CR1: CEN, on")
+        c.gap()
+        c.add("\\ Each detent as it is turned, and the push, until a key is pressed")
+        c.add(": $n-demo ( -- )")
+        c.add("  $n-init 0")
+        c.add("  begin")
+        c.add("    $n-steps 2dup <> if dup . then nip")
+        c.add("    $n-pressed? if .\" push \" begin 20 ms $n-pressed? 0= until then")
+        c.add("    20 ms key?")
+        c.add("  until drop ;")
+        tryIt(c, "$n-init $n-steps .   or   $n-demo (turn it; Enter stops it)")
     }
 
     private val SCALE = "523 494 440 392 349 330 294 262"

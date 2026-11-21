@@ -20,6 +20,7 @@ static const char *names[] = {
     "UsageFault", "HardFault escalation", "BusFault and BFAR", "process stack",
     "unprivileged mode", "stack alignment", "SysTick", "exclusive monitor",
     "bit-band", "execute-never MemManage", "SVC escalation",
+    "lazy FP stacking", "FP regs untouched", "FP regs stacked at once", "basic frame without FP",
 };
 
 int main(int argc, char **argv)

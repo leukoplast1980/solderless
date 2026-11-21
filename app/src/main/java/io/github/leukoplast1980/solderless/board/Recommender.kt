@@ -67,6 +67,7 @@ class Recommender(private val chip: ChipPins, hseFitted: Boolean = false, lseFit
         val adcCh = HashSet<String>()
         val dac = HashSet<Int>()
         val extiLines = HashMap<Int, Part>()
+        val i2cPins = HashMap<String, Function>()       // pin -> the bus signal on it (I2C, SPI), shareable
         init {
             for (p in board) for ((r, u) in p.pins.withIndex()) {
                 pins[u.pin] = p to r
@@ -74,6 +75,8 @@ class Recommender(private val chip: ChipPins, hseFitted: Boolean = false, lseFit
                     is Function.Timer -> { timerCh["${f.timer}/${f.channel}"] = p.id; timerOwner.putIfAbsent(f.timer, p) }
                     is Function.Adc -> adcCh += "${f.adc}/${f.channel}"
                     is Function.Dac -> dac += f.channel
+                    is Function.I2c -> i2cPins[u.pin] = f
+                    is Function.Spi -> i2cPins[u.pin] = f
                     else -> {}
                 }
                 if (p.type == PartType.BUTTON && p.interrupt) extiLines[bitOf(u.pin)] = p
@@ -82,6 +85,12 @@ class Recommender(private val chip: ChipPins, hseFitted: Boolean = false, lseFit
     }
 
     private fun isTone(p: Part) = p.type == PartType.PIEZO || p.type == PartType.SPEAKER
+
+    /** Parts that need a timer to themselves: a tone sets its frequency, an encoder clocks its counter */
+    private fun ownsTimer(p: Part) = isTone(p) || p.type == PartType.ENCODER
+
+    /** Timers with an encoder interface on CH1 and CH2 */
+    private val ENCODER_TIMERS = setOf("TIM1", "TIM2", "TIM3", "TIM4", "TIM8")
 
     private fun timerChannels(t: String) = when (t) { "TIM15" -> 2; "TIM16", "TIM17" -> 1; else -> 4 }
 
@@ -95,7 +104,7 @@ class Recommender(private val chip: ChipPins, hseFitted: Boolean = false, lseFit
             if (groupTimer != null && tc.timer != groupTimer) return false
             val owner = use.timerOwner[tc.timer] ?: return true
             if (owner.id == part.id) return true
-            return !isTone(part) && !isTone(owner)          // a tone needs its timer's frequency to itself
+            return !ownsTimer(part) && !ownsTimer(owner)    // a tone or an encoder needs its timer to itself
         }
         when (need) {
             Need.OUTPUT -> {
@@ -109,8 +118,21 @@ class Recommender(private val chip: ChipPins, hseFitted: Boolean = false, lseFit
                 if ((other == null || other.id == part.id) && !(pin.name == "PB8" && part.toVcc)) out += Function.Gpio
             }
             Need.PWM -> pin.timerChannels.filter(::timerOk).forEach { out += Function.Timer(it.timer, it.channel, it.af) }
+            Need.ENC_A, Need.ENC_B -> pin.timerChannels
+                .filter { it.timer in ENCODER_TIMERS && it.channel == (if (need == Need.ENC_A) 1 else 2) && timerOk(it) }
+                .forEach { out += Function.Timer(it.timer, it.channel, it.af) }
             Need.ADC -> pin.adcChannels.filter { "${it.first}/${it.second}" !in use.adcCh }
                 .forEach { out += Function.Adc(it.first, it.second) }
+            Need.I2C_SCL, Need.I2C_SDA -> {
+                val sig = if (need == Need.I2C_SCL) "SCL" else "SDA"
+                pin.i2c(sig).filter { groupTimer == null || it.periph == groupTimer }.forEach { out += Function.I2c(it.periph, sig, it.af) }
+            }
+            Need.SPI_SCK, Need.SPI_MOSI, Need.SPI_MISO -> {
+                val sig = when (need) { Need.SPI_SCK -> "SCK"; Need.SPI_MOSI -> "MOSI"; else -> "MISO" }
+                pin.spi(sig).filter { groupTimer == null || it.periph == groupTimer }.forEach { out += Function.Spi(it.periph, sig, it.af) }
+            }
+            // A chip select idles high, and modules often pull it up: on PB8 that would start the bootloader
+            Need.CS -> if (pin.name !in setOf("PB8", "PC13", "PC14", "PC15")) out += Function.Gpio
             Need.DAC_OR_PWM -> {
                 if (pin.dacChannel != 0 && pin.dacChannel !in use.dac) out += Function.Dac(pin.dacChannel)
                 pin.timerChannels.filter(::timerOk).forEach { out += Function.Timer(it.timer, it.channel, it.af) }
@@ -123,7 +145,7 @@ class Recommender(private val chip: ChipPins, hseFitted: Boolean = false, lseFit
         var c = cost(pin, f)
         if (f is Function.Timer) {
             if (f.timer in setOf("TIM1", "TIM8", "TIM15", "TIM16", "TIM17") && timerChannels(f.timer) > 1) c += 1.0   // needs MOE
-            if (isTone(part)) c += (timerChannels(f.timer) - 1) * 0.5    // a tone takes a whole timer
+            if (ownsTimer(part)) c += (timerChannels(f.timer) - 1) * 0.5    // a tone or encoder takes a whole timer
         }
         if (part.type == PartType.SPEAKER && f is Function.Timer && part.dacDrive) c += 5.0
         return c
@@ -138,8 +160,15 @@ class Recommender(private val chip: ChipPins, hseFitted: Boolean = false, lseFit
     private fun place(part: Part, board: List<Part>, fixed: Map<Int, String> = emptyMap()): Placed? {
         val use = Usage(board.filter { it.id != part.id })
         val roles = part.type.roles.indices
-        val timers: List<String?> = if (part.type == PartType.RGB_LED)
-            chip.gpios.flatMap { p -> p.timerChannels.map { it.timer } }.distinct().sorted() else listOf(null)
+        val busPart = part.needs().any { it == Need.I2C_SCL || it == Need.I2C_SDA }
+        val spiPart = part.needs().any { it == Need.SPI_SCK }
+        val timers: List<String?> = when {
+            part.type == PartType.RGB_LED -> chip.gpios.flatMap { p -> p.timerChannels.map { it.timer } }.distinct().sorted()
+            part.type == PartType.ENCODER -> ENCODER_TIMERS.sorted()
+            busPart -> chip.gpios.flatMap { p -> p.af.filter { it.periph.startsWith("I2C") }.map { it.periph } }.distinct().sorted()
+            spiPart -> chip.gpios.flatMap { p -> p.af.filter { it.periph.startsWith("SPI") }.map { it.periph } }.distinct().sorted()
+            else -> listOf(null)
+        }
         var best: Placed? = null
         for (t in timers) {
             val taken = HashSet<String>()
@@ -149,8 +178,11 @@ class Recommender(private val chip: ChipPins, hseFitted: Boolean = false, lseFit
             var ok = true
             for (r in roles) {
                 val cands = chip.gpios.asSequence()
-                    .filter { (fixed[r] == null || it.name == fixed[r]) && it.name !in use.pins && it.name !in taken }
+                    .filter { (fixed[r] == null || it.name == fixed[r]) && it.name !in taken }
                     .flatMap { p -> functionsFor(part, r, p, use, t).map { f -> Triple(p, f, fnCost(part, p, f)) } }
+                    // a pin in use only as the same bus signal: the part joins the bus there, for free
+                    .filter { (p, f, _) -> p.name !in use.pins || ((f is Function.I2c || f is Function.Spi) && use.i2cPins[p.name] == f) }
+                    .map { (p, f, c) -> if (p.name in use.pins) Triple(p, f, 0.0) else Triple(p, f, c) }
                     .filter { (_, f, _) -> f !is Function.Timer || "${f.timer}/${f.channel}" !in takenCh }
                     .sortedWith(compareBy({ it.third }, { it.first.port }, { it.first.bit }))
                     .firstOrNull()
@@ -169,9 +201,20 @@ class Recommender(private val chip: ChipPins, hseFitted: Boolean = false, lseFit
                 val byCh = chosen.sortedBy { (it.function as Function.Timer).channel }
                 if (fixed.isEmpty()) { chosen.clear(); chosen += byCh }
             }
-            if (best == null || total < best.cost) best = Placed(part.copy(pins = chosen.toList()), total)
+            var placed = part.copy(pins = chosen.toList())
+            if (busPart) placed = placed.copy(i2cAddr = freeAddress(placed, board.filter { it.id != part.id }))
+            if (best == null || total < best.cost) best = Placed(placed, total)
         }
         return best
+    }
+
+    /** An address no other part on the same bus has: the OLED's SA0 strap gives 0x3C or 0x3D */
+    /** An address of the part's own that no other part on the same bus has */
+    private fun freeAddress(p: Part, others: List<Part>): Int {
+        val onBus = others.filter { it.pins == p.pins }.map { it.i2cAddr }.toSet()
+        val own = p.type.addresses
+        val first = if (p.i2cAddr in own) listOf(p.i2cAddr) else emptyList()
+        return (first + own).firstOrNull { it !in onBus } ?: own.firstOrNull() ?: p.i2cAddr
     }
 
     fun propose(board: List<Part>, newPart: Part): Proposal? {
@@ -247,12 +290,24 @@ class Recommender(private val chip: ChipPins, hseFitted: Boolean = false, lseFit
         val pin = chip.gpio(u.pin)!!
         val lost = cost(pin, u.function)
         when (val f = u.function) {
-            is Function.Gpio -> if (lost == 0.0) "Any ${if (p.needs()[r] == Need.OUTPUT) "output" else "input"} pin works. " +
+            is Function.Gpio -> if (p.needs()[r] == Need.CS && p.type == PartType.TFT && r == 4) "${u.pin} drives RES: low resets " +
+                "the display. Not PB8: a pull-up on RES would hold BOOT0 high at reset."
+                else if (p.needs()[r] == Need.CS) "${u.pin} is the chip select: any output pin works, the " +
+                "code drives it low around each command. Not PB8: a pull-up on CS would hold BOOT0 high at reset."
+                else if (p.type == PartType.TFT) "${u.pin} drives DC: low while a command byte goes out, high for its " +
+                "parameters and the pixels."
+                else if (lost == 0.0) "Any ${if (p.needs()[r] == Need.OUTPUT) "output" else "input"} pin works. " +
                 "${u.pin} has no ADC input, DAC output or timer channel that a later part might need."
                 else "${u.pin}: the free pin that gives up the least: only ${scarcityNote(pin)}, which a later part might want."
-            is Function.Timer -> "${u.pin} carries $f (AF${f.af}), so the timer drives it as PWM."
+            is Function.Timer -> if (p.type == PartType.ENCODER) "${u.pin} is $f (AF${f.af}): in encoder mode ${f.timer} " +
+                "counts the steps by itself, up one way and down the other, and has to be the encoder's alone."
+                else "${u.pin} carries $f (AF${f.af}), so the timer drives it as PWM."
             is Function.Adc -> "${u.pin} is ${f.adc} input ${f.channel}."
             is Function.Dac -> "${u.pin} is DAC1 output ${f.channel}; the DAC can play samples."
+            is Function.I2c -> "${u.pin} is ${f.periph} ${f.signal} (AF${f.af}). I2C lines are open-drain; the module's " +
+                "pull-ups hold them high." + if (r == 0) " Address 0x%02X.".format(java.util.Locale.ROOT, p.i2cAddr) else ""
+            is Function.Spi -> "${u.pin} is ${f.periph} ${f.signal} (AF${f.af})." +
+                if (f.signal == "SCK") " Other SPI parts can share SCK, MOSI and MISO, each with its own chip select." else ""
         }
     }
 

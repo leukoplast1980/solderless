@@ -29,7 +29,8 @@ $48000400 constant led-port  \ GPIOB
   1 1 lshift $4002104C bis!                      \ RCC AHB2ENR: clock for GPIOB
   led-off                                        \ dark from the start
   %11 led-pin 2* lshift led-port bic!            \ MODER: clear the two bits
-  %01 led-pin 2* lshift led-port bis! ;          \ MODER: 01 = output
+  %01 led-pin 2* lshift led-port bis!            \ MODER: 01 = output
+  1 led-pin lshift led-port 4 + bic! ;           \ OTYPER: push-pull
 
 \ Blink twice a second until a key is pressed
 : led-blink ( -- )
@@ -61,7 +62,8 @@ $48000400 constant led2-port  \ GPIOB
   1 1 lshift $4002104C bis!                       \ RCC AHB2ENR: clock for GPIOB
   led2-off                                        \ dark from the start
   %11 led2-pin 2* lshift led2-port bic!           \ MODER: clear the two bits
-  %01 led2-pin 2* lshift led2-port bis! ;         \ MODER: 01 = output
+  %01 led2-pin 2* lshift led2-port bis!           \ MODER: 01 = output
+  1 led2-pin lshift led2-port 4 + bic! ;          \ OTYPER: push-pull
 
 \ Blink twice a second until a key is pressed
 : led2-blink ( -- )
@@ -90,6 +92,7 @@ $40000400 constant led3-timer  \ TIM3
   1 2 lshift $4002104C bis!                       \ RCC AHB2ENR: clock for GPIOC
   %11 led3-pin 2* lshift led3-port bic!           \ MODER: clear the two bits
   %10 led3-pin 2* lshift led3-port bis!           \ MODER: 10 = alternate function
+  1 led3-pin lshift led3-port 4 + bic!            \ OTYPER: push-pull
   $F led3-pin 4 * lshift led3-port $20 + bic!     \ AFRL: clear the four bits
   led3-af led3-pin 4 * lshift led3-port $20 + bis! \ AFRL: AF2 = TIM3 CH1
   1 1 lshift $40021058 bis!                       \ RCC APB1ENR1: clock for TIM3
@@ -138,6 +141,7 @@ $40012C00 constant led4-timer  \ TIM1
   1 0 lshift $4002104C bis!                       \ RCC AHB2ENR: clock for GPIOA
   %11 led4-pin 2* lshift led4-port bic!           \ MODER: clear the two bits
   %10 led4-pin 2* lshift led4-port bis!           \ MODER: 10 = alternate function
+  1 led4-pin lshift led4-port 4 + bic!            \ OTYPER: push-pull
   $F led4-pin 8 - 4 * lshift led4-port $24 + bic! \ AFRH: clear the four bits
   led4-af led4-pin 8 - 4 * lshift led4-port $24 + bis! \ AFRH: AF6 = TIM1 CH1
   1 11 lshift $40021060 bis!                      \ RCC APB2ENR: clock for TIM1

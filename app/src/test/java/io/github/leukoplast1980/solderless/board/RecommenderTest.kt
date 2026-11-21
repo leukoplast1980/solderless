@@ -142,10 +142,77 @@ class RecommenderTest {
     @Test fun attachmentsForTheEmulator() {
         val b = place(Board(), new(PartType.BUTTON, 1) { it.copy(externalPull = true) })
         val a = b.attachments(chip)
-        assertEquals(16, a.size)                       // switch and the pull resistor
+        val n = Board.ATT_INTS
+        assertEquals(2 * n, a.size)                    // switch and the pull resistor
         assertEquals(Board.ATT_SWITCH, a[3])
-        assertEquals(Board.ATT_PULL, a[8 + 3])
-        assertEquals(1, a[8 + 4])                      // pull-up to 3V3
+        assertEquals(Board.ATT_PULL, a[n + 3])
+        assertEquals(1, a[n + 4])                      // pull-up to 3V3
+    }
+
+    @Test fun oledsShareAnI2cBusWithTheirOwnAddresses() {
+        var b = place(Board(), new(PartType.OLED, 1))
+        val first = b.parts[0]
+        assertTrue("on an I2C peripheral: ${first.pins}", first.pins.all { it.function is Function.I2c })
+        assertEquals((first.pins[0].function as Function.I2c).periph, (first.pins[1].function as Function.I2c).periph)
+        assertEquals(listOf("SCL", "SDA"), first.pins.map { (it.function as Function.I2c).signal })
+        assertEquals(0x3C, first.i2cAddr)
+        b = place(b, new(PartType.OLED, 2))
+        val second = b.parts.first { it.id == 2 }
+        assertEquals("joins the same bus", first.pins, second.pins)
+        assertEquals(0x3D, second.i2cAddr)
+        val a = b.attachments(chip)
+        assertEquals(4 * Board.ATT_INTS, a.size)
+        assertEquals(Board.ATT_DEVICE, a[3]); assertEquals(Board.DEV_SSD1306, a[8]); assertEquals(0x3C, a[9])
+        assertEquals(0x3D, a[3 * Board.ATT_INTS + 9])
+        assertEquals("the board survives a save", b, Board.fromJson(b.toJson()))
+    }
+
+    @Test fun flashesShareAnSpiBusEachWithItsOwnChipSelect() {
+        var b = place(Board(), new(PartType.FLASH, 1))
+        val first = b.parts[0]
+        assertTrue("CS on a GPIO: ${first.pins}", first.pins[0].function is Function.Gpio)
+        val bus = first.pins.drop(1).map { it.function as Function.Spi }
+        assertEquals(listOf("SCK", "MOSI", "MISO"), bus.map { it.signal })
+        assertEquals(1, bus.map { it.periph }.distinct().size)
+        b = place(b, new(PartType.FLASH, 2))
+        val second = b.parts.first { it.id == 2 }
+        assertEquals("joins the same bus", first.pins.drop(1), second.pins.drop(1))
+        assertTrue("its own chip select", second.pins[0].pin != first.pins[0].pin)
+        for (p in b.parts) assertTrue("never PB8 (BOOT0) for CS", p.pins[0].pin != "PB8")
+        val a = b.attachments(chip)
+        assertEquals(8 * Board.ATT_INTS, a.size)
+        assertEquals(Board.DEV_W25Q, a[8]); assertEquals(0x17, a[9]); assertEquals(5, a[1])   // role SL_SIG_CS
+        assertEquals("the board survives a save", b, Board.fromJson(b.toJson()))
+    }
+
+    @Test fun sensorsJoinTheI2cBusAtTheirOwnAddresses() {
+        var b = place(Board(), new(PartType.OLED, 1))
+        b = place(b, new(PartType.BARO, 2))
+        b = place(b, new(PartType.BARO, 3))
+        b = place(b, new(PartType.CO2, 4))
+        val oled = b.parts.first { it.id == 1 }
+        for (id in 2..4) assertEquals("part $id shares the OLED's bus", oled.pins, b.parts.first { it.id == id }.pins)
+        assertEquals(listOf(0x3C, 0x76, 0x77, 0x62), b.parts.sortedBy { it.id }.map { it.i2cAddr })
+        val a = b.attachments(chip)
+        assertEquals(Board.DEV_BMP280, a[2 * Board.ATT_INTS + 8]); assertEquals(0x76, a[2 * Board.ATT_INTS + 9])
+        assertEquals(Board.DEV_SCD41, a[6 * Board.ATT_INTS + 8]); assertEquals(0x62, a[6 * Board.ATT_INTS + 9])
+        val moved = b.with(b.parts.first { it.id == 2 }.copy(pressureHpa = 950.5, followBarometer = true))
+        assertEquals("the board survives a save", moved, Board.fromJson(moved.toJson()))
+    }
+
+    @Test fun anEncoderTakesCh1AndCh2OfATimerOfItsOwn() {
+        var b = place(Board(), new(PartType.ENCODER, 1))
+        val e = b.parts[0]
+        val a = e.pins[0].function as Function.Timer
+        val c = e.pins[1].function as Function.Timer
+        assertEquals(1, a.channel); assertEquals(2, c.channel); assertEquals(a.timer, c.timer)
+        assertTrue(a.timer in setOf("TIM1", "TIM2", "TIM3", "TIM4", "TIM8"))
+        assertTrue("SW on a plain input", e.pins[2].function is Function.Gpio)
+        b = place(b, new(PartType.LED, 2))
+        val led = b.parts.first { it.id == 2 }
+        assertTrue("no PWM on the encoder's timer: ${led.pins}", (led.pins[0].function as? Function.Timer)?.timer != a.timer)
+        val att = b.attachments(chip)
+        assertTrue("contacts with module pull-ups", (0 until att.size / Board.ATT_INTS).count { att[it * Board.ATT_INTS + 1] == Board.ROLE_ENC_A } == 2)
     }
 
     @Test fun headersInBothOrders() {

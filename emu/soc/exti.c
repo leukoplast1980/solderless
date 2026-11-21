@@ -43,10 +43,10 @@ static int line_port(struct sl_soc *s, int line)
 
 void exti_gpio(struct sl_soc *s, int port, int pin, int level)
 {
-    if (line_port(s, pin) != port) return;
     uint32_t *r = regs(s), bit = 1u << pin;
     uint32_t trig = level ? r[RTSR1 / 4] : r[FTSR1 / 4];
-    if (!(trig & bit)) return;
+    if (!(trig & bit)) return;                      /* first: the cheap test, and the usual answer */
+    if (line_port(s, pin) != port) return;
     if (r[IMR1 / 4] & bit) {
         r[PR1 / 4] |= bit;
         update_irqs(s);

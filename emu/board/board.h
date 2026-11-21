@@ -16,6 +16,7 @@
 
 #include <stdint.h>
 #include "../include/sl/solderless.h"
+#include "../parts/parts.h"
 
 struct sl_soc;
 
@@ -54,9 +55,34 @@ struct sl_pin_state {
     uint64_t trace_t;
 };
 
+/* A bus part: its signals' pins and its controller's state */
+#define SL_MAX_DEV 8
+struct sl_dev {
+    int part, kind, addr;
+    int pin[SL_SIG_COUNT];      /* pin slot per signal, -1 if not wired */
+    int selected;               /* addressed in the I2C transfer going on */
+    int sda_low;                /* holds SDA low (bit-banged bus: acknowledge, or a 0 it sends) */
+    /* Pin-level I2C decoder, for bit-banged drivers */
+    int dec_phase, dec_bits, dec_read, dec_ack, dec_scl, dec_sda;
+    uint8_t dec_byte;
+    /* SPI */
+    int cs_low;                 /* chip select as the part sees it */
+    int spi_bits, spi_started, out_pos, out_drive, have_next, next_drive;
+    uint8_t spi_in, spi_out, next_out;
+    int miso_level;             /* what DO shows while driven */
+    int dec_sck;                /* pin-level decoder: SCK as last seen */
+    uint64_t dec_t0, spi_t0;    /* when the byte being decoded began, for the scope */
+    union { struct ssd1306 oled; struct w25q flash; struct max7219 matrix; struct st7789 tft; struct bmp280 baro; struct scd41 co2; } m;
+};
+
 #define SL_TRACE_RING 65536
 
 #define SL_AUDIO_RING 8192
+
+/* A rotary encoder's contacts to come: one change at a time */
+#define SL_ENC_QUEUE 64
+#define SL_BUS_RING 65536
+struct sl_enc_step { uint64_t at; int part, contact, closed; };
 
 struct sl_board {
     struct sl_att_state att[SL_MAX_ATTACH];
@@ -67,9 +93,20 @@ struct sl_board {
     uint32_t audio_head, audio_tail;
     sl_audio_event trace[SL_TRACE_RING];
     uint32_t trace_head, trace_tail;
+    struct sl_dev dev[SL_MAX_DEV];
+    int ndev;
+    struct sl_enc_step enc[SL_ENC_QUEUE];
+    int enc_n;
+    sl_bus_event bus[SL_BUS_RING];
+    uint32_t bus_head, bus_tail;
+    sl_bus_event bus_lost;              /* bytes the reader was too slow for: one SL_BUS_LOST covering them */
+    uint32_t i2c_hz[SL_PIN_SLOTS];      /* by SCL pin: the clock of the on-chip I2C on it */
 };
 
 void board_trace_pins(struct sl_soc *s, const int *slots, int n);
+int board_pin_traced(struct sl_soc *s, int slot);
+void board_bus_log(struct sl_soc *s, const sl_bus_event *e);
+size_t board_bus_read(struct sl_soc *s, sl_bus_event *out, size_t max);
 size_t board_trace_read(struct sl_soc *s, sl_audio_event *out, size_t max);
 
 size_t board_audio_read(struct sl_soc *s, sl_audio_event *out, size_t max);
@@ -78,6 +115,7 @@ void board_init(struct sl_soc *s);
 void board_reset(struct sl_soc *s);              /* chip reset: pins re-resolve, parts keep their state */
 void board_set(struct sl_soc *s, const sl_attach *a, int n);
 void board_input(struct sl_soc *s, int part, int value);
+void board_turn(struct sl_soc *s, int part, int steps);
 void board_event(struct sl_soc *s);              /* EV_BOARD: bounce transitions */
 void board_read(struct sl_soc *s, sl_board_state *out);
 
@@ -90,5 +128,29 @@ int board_pin_level(struct sl_soc *s, int port, int pin);
 int board_pin_mv(struct sl_soc *s, int port, int pin);
 /* Called when the firmware reads IDR: checks floating inputs it relies on. */
 void board_idr_read(struct sl_soc *s, int port);
+
+/* Bus parts (bus.c). The on-chip I2C peripherals call these with the pins
+ * their SCL and SDA are on; addr is 7-bit; scl_hz the clock they run. */
+int bus_i2c_start(struct sl_soc *s, int scl, int sda, int addr, int read, uint32_t scl_hz, const char *who);
+int bus_i2c_write(struct sl_soc *s, int scl, int sda, uint8_t b);
+uint8_t bus_i2c_read(struct sl_soc *s, int scl, int sda, int ack);
+void bus_i2c_stop(struct sl_soc *s, int scl, int sda, int on_wire);   /* on_wire 0: a repeated START, or the peripheral turned off */
+/* SPI: one frame from an on-chip SPI, delivered to the selected parts on
+ * these pins. mode is CPOL << 1 | CPHA; returns what came back on MISO. */
+uint32_t bus_spi_frame(struct sl_soc *s, int sck, int mosi, int miso, uint32_t v, int bits, int mode, int lsb,
+                       uint32_t hz, const char *who);
+/* Is something on the board on this pin pulled up, as an idle I2C line needs? */
+int bus_pin_pulled_up(struct sl_soc *s, int slot);
+/* Board side */
+void bus_set(struct sl_soc *s);                       /* rebuild the parts from the attachments */
+void bus_pin_changed(struct sl_soc *s, int slot);     /* a pin's level changed: the bit-bang decoders, chip selects */
+void bus_free(struct sl_soc *s);
+void bus_power_cycle(struct sl_soc *s);                /* the supply off and on: parts back to power-on */
+uint32_t bus_device_gen(struct sl_soc *s, int part);  /* changes whenever a memory part's contents do */
+void bus_device_input(struct sl_soc *s, int part, const char *what, double v);
+int bus_pin_is_miso(struct sl_soc *s, int slot);
+int bus_pin_drive(struct sl_soc *s, int slot, int *level);  /* a part drives this line (I2C: low only) */
+size_t bus_device_mem(struct sl_soc *s, int part, uint32_t addr, uint8_t *buf, size_t len, int write);
+size_t bus_device_read(struct sl_soc *s, int part, uint8_t *px, size_t len, char *text, size_t tlen);
 
 #endif
