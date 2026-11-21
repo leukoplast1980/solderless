@@ -29,6 +29,22 @@ import java.io.FileOutputStream
 @RunWith(AndroidJUnit4::class)
 class BoardProbeTest {
 
+    private var open: ActivityScenario<MainActivity>? = null
+
+    private fun launch(): ActivityScenario<MainActivity> = ActivityScenario.launch(MainActivity::class.java).also { open = it }
+
+    /** A test that failed half-way leaves no activity or board behind for the next */
+    @org.junit.After
+    fun closeUp() {
+        val s = open ?: return
+        open = null
+        val vm = VmHost.get(InstrumentationRegistry.getInstrumentation().targetContext)
+        if (s.state != androidx.lifecycle.Lifecycle.State.DESTROYED) {
+            runCatching { s.onActivity { vm.setBoard(Board()) } }
+            s.close()
+        }
+    }
+
     private fun screenshot(name: String) {
         val bmp = InstrumentationRegistry.getInstrumentation().uiAutomation.takeScreenshot()
         val dir = InstrumentationRegistry.getInstrumentation().targetContext.getExternalFilesDir(null)!!
@@ -48,7 +64,7 @@ class BoardProbeTest {
     @Test
     fun oled() {
         val ctx = InstrumentationRegistry.getInstrumentation().targetContext
-        val scenario = ActivityScenario.launch(MainActivity::class.java)
+        val scenario = launch()
         Thread.sleep(2500)
         val vm = VmHost.get(ctx)
         val rec = vm.recommender()
@@ -106,7 +122,7 @@ class BoardProbeTest {
     @Test
     fun encoder() {
         val ctx = InstrumentationRegistry.getInstrumentation().targetContext
-        val scenario = ActivityScenario.launch(MainActivity::class.java)
+        val scenario = launch()
         Thread.sleep(2500)
         val vm = VmHost.get(ctx)
         val rec = vm.recommender()
@@ -137,12 +153,18 @@ class BoardProbeTest {
         val d = ctx.resources.displayMetrics.density
         val kx = loc[0] + at!!.centerX().toInt()
         val ky = loc[1] + at!!.centerY().toInt()
+        Log.i(TAG, "knob at $at, view at ${loc.toList()}, swipe from $kx,$ky")
         ui().swipe(kx.toInt(), ky, (kx + 80 * d).toInt(), ky, 30)
         Thread.sleep(1500)
-        val steps = runCatching { vm.peekWords(intArrayOf(io.github.leukoplast1980.solderless.board.ChipPins.BASE[(enc.pins[0].function as io.github.leukoplast1980.solderless.board.Function.Timer).timer]!!.toInt() + 0x24))[0] }.getOrDefault(0)
+        val counter = io.github.leukoplast1980.solderless.board.ChipPins.BASE[(enc.pins[0].function as io.github.leukoplast1980.solderless.board.Function.Timer).timer]!!.toInt() + 0x24
+        val steps = runCatching { vm.peekWords(intArrayOf(counter))[0] }.getOrDefault(0)
         Log.i(TAG, "encoder counted $steps")
-        assertTrue("a swipe right turned it clockwise: $steps", steps in 8..40)
         screenshot("encoder-board.png")
+        vm.boardTurn(enc.id, 2)                     // straight to the emulator: two detents more
+        Thread.sleep(800)
+        val more = runCatching { vm.peekWords(intArrayOf(counter))[0] }.getOrDefault(0)
+        Log.i(TAG, "encoder counted $more after two more")
+        assertTrue("a swipe right turned it clockwise: $steps (then $more)", steps in 8..40)
         scenario.onActivity { vm.setBoard(Board()) }
         scenario.close()
     }
@@ -151,7 +173,7 @@ class BoardProbeTest {
     @Test
     fun sensors() {
         val ctx = InstrumentationRegistry.getInstrumentation().targetContext
-        val scenario = ActivityScenario.launch(MainActivity::class.java)
+        val scenario = launch()
         Thread.sleep(2500)
         val vm = VmHost.get(ctx)
         val rec = vm.recommender()
@@ -212,7 +234,7 @@ class BoardProbeTest {
     @Test
     fun displays() {
         val ctx = InstrumentationRegistry.getInstrumentation().targetContext
-        val scenario = ActivityScenario.launch(MainActivity::class.java)
+        val scenario = launch()
         Thread.sleep(2500)
         val vm = VmHost.get(ctx)
         val rec = vm.recommender()
@@ -270,7 +292,7 @@ class BoardProbeTest {
     @Test
     fun scopeBuses() {
         val ctx = InstrumentationRegistry.getInstrumentation().targetContext
-        val scenario = ActivityScenario.launch(MainActivity::class.java)
+        val scenario = launch()
         Thread.sleep(2500)
         val vm = VmHost.get(ctx)
         val rec = vm.recommender()
@@ -296,7 +318,8 @@ class BoardProbeTest {
             listOf(matrix.pins[0].pin, "↓", 180_000L, "scope-spi.png"))) {
             scenario.onActivity { a -> a.findViewById<View>(R.id.scopeTrigger).performClick() }
             Thread.sleep(800)
-            val item = ui().findObject(androidx.test.uiautomator.By.textStartsWith("$pin $edge"))
+            val item = ui().wait(androidx.test.uiautomator.Until.findObject(androidx.test.uiautomator.By.textStartsWith("$pin $edge")), 5000)
+            if (item == null) screenshot("scope-trigger-list.png")
             assertTrue("trigger on $pin $edge offered", item != null)
             item.click()
             Thread.sleep(500)
@@ -320,7 +343,7 @@ class BoardProbeTest {
     @Test
     fun flash() {
         val ctx = InstrumentationRegistry.getInstrumentation().targetContext
-        val scenario = ActivityScenario.launch(MainActivity::class.java)
+        val scenario = launch()
         Thread.sleep(2500)
         val vm = VmHost.get(ctx)
         val rec = vm.recommender()
@@ -377,7 +400,7 @@ class BoardProbeTest {
     @Test
     fun floatingControls() {
         val ctx = InstrumentationRegistry.getInstrumentation().targetContext
-        val scenario = ActivityScenario.launch(MainActivity::class.java)
+        val scenario = launch()
         Thread.sleep(2500)
         val vm = VmHost.get(ctx)
         val rec = vm.recommender()
@@ -433,7 +456,7 @@ class BoardProbeTest {
     @Test
     fun boardTab() {
         val ctx = InstrumentationRegistry.getInstrumentation().targetContext
-        val scenario = ActivityScenario.launch(MainActivity::class.java)
+        val scenario = launch()
         Thread.sleep(2500)
         val vm = VmHost.get(ctx)
         val rec = vm.recommender()

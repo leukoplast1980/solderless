@@ -251,8 +251,8 @@ class ScopeController(private val activity: AppCompatActivity, private val vm: V
         const val KEEP_NS = 6_000_000_000L
         /** Per pin: enough for 5 s of a pin toggling every 25 us */
         const val MAX_EVENTS = 200_000
-        /** Per bus: a few seconds of a busy one */
-        const val MAX_BUS_EVENTS = 400_000
+        /** Per bus: seconds of most, the last tens of ms of a display being filled */
+        const val MAX_BUS_EVENTS = 100_000
 
         private fun prefs(c: Context) = c.getSharedPreferences("scope", Context.MODE_PRIVATE)
 

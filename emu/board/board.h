@@ -81,7 +81,7 @@ struct sl_dev {
 
 /* A rotary encoder's contacts to come: one change at a time */
 #define SL_ENC_QUEUE 64
-#define SL_BUS_RING 16384
+#define SL_BUS_RING 65536
 struct sl_enc_step { uint64_t at; int part, contact, closed; };
 
 struct sl_board {

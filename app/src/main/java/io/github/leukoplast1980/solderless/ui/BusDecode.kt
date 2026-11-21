@@ -135,7 +135,7 @@ object BusDecode {
         val e = tx.events
         if (e.size == 1 && e[0].kind == BusEv.LOST) {
             val n = e[0].miso.toLong() shl 16 or e[0].value.toLong()
-            return "$n bytes too fast to decode: the scope keeps up with about a million a second"
+            return "$n bytes not decoded: they came faster than the scope reads them"
         }
         return if (e.any { it.i2c }) i2c(e, parts) else spi(e, parts)
     }
@@ -264,7 +264,7 @@ object BusDecode {
 
     private val SCD41_CMDS = mapOf(0x21B1 to "start periodic measurement", 0xEC05 to "read measurement", 0x3F86 to "stop periodic measurement",
         0x3682 to "get serial number", 0xE4B8 to "get data ready status", 0x219D to "measure once", 0x2196 to "measure humidity and temperature once",
-        0x36F6 to "reinit", 0x3639 to "self test", 0x241D to "set temperature offset", 0x2318 to "get temperature offset",
+        0x3646 to "reinit", 0x3639 to "self test", 0x241D to "set temperature offset", 0x2318 to "get temperature offset",
         0x2427 to "set altitude", 0x2322 to "get altitude", 0xE000 to "set ambient pressure", 0x362F to "forced recalibration",
         0x2416 to "set automatic self calibration", 0x2313 to "get automatic self calibration", 0x21AC to "start low power periodic measurement",
         0x3615 to "persist settings", 0x3632 to "factory reset", 0x36E0 to "power down", 0x36F6 to "wake up")

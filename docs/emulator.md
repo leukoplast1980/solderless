@@ -75,8 +75,11 @@ its writable bits, taken from ST's SVD. Behaviour so far:
   capture of pin edges, interrupts (TIM1 and TIM8 on their four lines,
   shared with TIM15-17). TIM2 is 32 bits wide. The counter is worked out
   from the time when read, so a running timer costs nothing between
-  accesses. Not yet: slave modes and triggers, encoder mode (milestone 3),
-  dead time, break inputs, DMA.
+  accesses. Encoder modes 1-3 (SMS in SMCR): the counter steps on the
+  edges of TI1, TI2 or both, up or down by the other input's level as the
+  reference manual's table says, sets DIR, and wraps at ARR with an
+  update event. Not yet: other slave modes and triggers, dead time, break
+  inputs, DMA.
 - **ADC1, ADC2**: deep power-down, the voltage regulator and its 20 us
   start-up, calibration, enable and ADRDY, the clock source (ADC12_CCR
   CKMODE or RCC_CCIPR, which selects no clock after reset), regular
@@ -179,6 +182,36 @@ external pull resistor, the DAC. The net settles at their weighted mean.
   reset), MADCTL, the address window, memory write. Commands sent before
   the datasheet's wait after a reset or Sleep Out are ignored. Not yet:
   reads, partial mode, scrolling.
+- **BMP280 pressure sensor** (I2C at 0x76 or 0x77 by its SDO): chip ID 58,
+  soft reset, the calibration bytes (the datasheet's example values), sleep,
+  forced and normal mode with the standby time, oversampling with its
+  resolution and the typical measurement times, the IIR filter, the status
+  bits. The raw readings are what a real chip with that calibration gives
+  for the pressure and temperature set on its sheet, or the phone's own
+  barometer, so the datasheet's compensation formulas turn them back into
+  those values. Not yet: SPI.
+- **SCD41 CO2 sensor** (I2C at 0x62): the datasheet's command set with a
+  CRC-8 on every word, the execution times during which it does not
+  answer, periodic measurement every 5 s (low-power every 30 s), single
+  shots, data ready, read_measurement that empties the buffer, the
+  temperature offset (4 °C by default), altitude and ambient pressure,
+  automatic self-calibration, serial number, self test, persist, factory
+  reset, power down and wake up. It acknowledges only the commands the
+  datasheet allows in its current mode. CO2, temperature and humidity come
+  from its sheet; a breath raises them and fades over about 15 s.
+- **Rotary encoder** (KY-040): CLK and DT are two contacts to ground with
+  the module's 10 kohm pull-ups, closing in quadrature, four edges a
+  detent, so a timer in encoder mode counts 4 a detent; SW is a button.
+  Turning it queues the edges 2.5 ms apart.
+- **What went over a bus**, for the Scope: on the pins it watches, the
+  emulator logs START, the address and its acknowledge, each byte with its
+  acknowledge and STOP, from the on-chip I2C and from the decoders on
+  bit-banged lines; SPI frames with what came back on MISO, the parts' chip
+  selects, and the display's DC with each byte. The on-chip peripherals
+  send whole bytes, so their pins' traced levels only show where the lines
+  rest; the Scope draws their bits from this log. When the app falls
+  behind (a display filled at full speed), one entry says how many bytes
+  went undecoded.
 
 ## Time
 
@@ -223,6 +256,11 @@ The console shows these in amber, at most three times each per run:
   erased; the matrix's 5 V logic and a CS that rises after an odd number of
   bytes; a display command too soon after a reset, pixels written while it
   sleeps or is off, in 18-bit colour, or into rows the panel does not show
+- the sensors: BMP280 data read before any measurement ran, or turned
+  into units without reading the calibration; SCD41 commands it does not
+  take in its current mode, a read with no new measurement, a transfer
+  while a command still runs, a wrong CRC, an unknown command
+- a timer in encoder mode whose CH1 and CH2 are not both inputs
 - I2C: no pull-ups on SCL or SDA, pins that are push-pull or not in the
   I2C alternate function, SCL faster than the part allows (it does not
   answer), two parts at one address, an address that was not shifted into

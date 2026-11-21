@@ -266,6 +266,16 @@ class ScopeView @JvmOverloads constructor(context: Context, attrs: AttributeSet?
         val ev = ch.bus
         val start = endNs - windowNs
         var prev: BusEv? = null
+        var bx0 = -1f; var bx1 = -1f                         // bytes too fine to draw, run together into a band
+        var lastHigh: Boolean? = null; var lastEnd = Long.MIN_VALUE   // where the drawn line was left
+        fun band() {
+            if (bx0 < 0) return
+            fill.color = bg; c.drawRect(bx0, top, bx1, top + h, fill)
+            fill.color = cBus and 0x47FFFFFF; c.drawRect(bx0, hi, bx1, lo, fill)
+            line.color = cBus; line.strokeWidth = dp(1.2f)
+            c.drawLine(bx0, hi, bx1, hi, line); c.drawLine(bx0, lo, bx1, lo, line)
+            bx0 = -1f
+        }
         for (k in firstVisible(ev, start) until ev.size) {
             val e = ev[k]
             if (e.t > endNs) break
@@ -276,25 +286,31 @@ class ScopeView @JvmOverloads constructor(context: Context, attrs: AttributeSet?
             val p = prev
             if (e.i2c && p != null && p.i2c && p.kind != BusEv.STOP && e.t > p.end && e.kind != BusEv.START) {
                 val g0 = max(p.end, start); val g1 = min(e.t, endNs)
-                if (g1 > g0) {
+                if (x(g1) - x(g0) >= 1f) {
+                    band()
                     fill.color = bg; c.drawRect(x(g0), top, x(g1), top + h, fill)
                     line.color = if (role == SCL) cLow else cBus; line.strokeWidth = dp(1.8f)
                     val yy = if (role == SCL) lo else hi
+                    if (lastHigh != null && lastHigh != (role != SCL) && lastEnd >= p.end) {
+                        line.color = cBus; line.strokeWidth = dp(1.1f); c.drawLine(x(g0), hi, x(g0), lo, line)
+                        line.strokeWidth = dp(1.8f); line.color = if (role == SCL) cLow else cBus
+                    }
                     c.drawLine(x(g0), yy, x(g1), yy, line)
+                    lastHigh = role != SCL; lastEnd = e.t
                 }
             }
             prev = e
             if (e.end < start) continue
             val x0 = x(max(e.t, start)); val x1 = x(min(e.end, endNs))
-            fill.color = bg; c.drawRect(x0, top, max(x1, x0 + 1f), top + h, fill)
             val bits = when (e.kind) { BusEv.ADDR, BusEv.BYTE -> 9; BusEv.SPI -> e.bits.coerceAtLeast(1); else -> 1 }
             val bitPx = (x(e.end) - x(e.t)) / bits
             if (bitPx < dp(1.5f)) {                          // too fine to draw: a band
-                fill.color = cBus and 0x47FFFFFF; c.drawRect(x0, hi, max(x1, x0 + 1f), lo, fill)
-                line.color = cBus; line.strokeWidth = dp(1.2f)
-                c.drawLine(x0, hi, x1, hi, line); c.drawLine(x0, lo, x1, lo, line)
+                if (bx0 >= 0 && x0 <= bx1 + dp(1f)) bx1 = max(bx1, max(x1, x0 + 1f))
+                else { band(); bx0 = x0; bx1 = max(x1, x0 + 1f) }
                 continue
             }
+            band()
+            fill.color = bg; c.drawRect(x0, top, max(x1, x0 + 1f), top + h, fill)
             val st = steps(e, role)
             for ((i, sp) in st.withIndex()) {
                 val a = max(sp.first, start); val b = min(if (i + 1 < st.size) st[i + 1].first else e.end, endNs)
@@ -302,12 +318,15 @@ class ScopeView @JvmOverloads constructor(context: Context, attrs: AttributeSet?
                 val yy = if (sp.second) hi else lo
                 line.color = if (sp.second) cBus else cLow; line.strokeWidth = dp(1.8f)
                 c.drawLine(x(a), yy, x(b), yy, line)
-                if (i > 0 && st[i - 1].second != sp.second && sp.first >= start) {
+                val was = if (i > 0) st[i - 1].second else if (lastEnd >= e.t - e.dur / 8) lastHigh else null
+                if (was != null && was != sp.second && sp.first >= start) {
                     line.color = cBus; line.strokeWidth = dp(1.1f)
                     c.drawLine(x(sp.first), hi, x(sp.first), lo, line)
                 }
             }
+            lastHigh = st.lastOrNull()?.second; lastEnd = e.end
         }
+        band()
     }
 
     /** The third label line of a bus pin: its clock, or how many bytes went over it in the window */

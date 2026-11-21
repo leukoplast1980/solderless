@@ -307,10 +307,16 @@ Settled with the mock-up (Solderless – Breadboard tab mock-up, 19 November
 - **Scope tab** (added in milestone 2, styled after Mecrisp Pocket's GPIO
   trace): one row per pin with a part, or added from its sheet; logic
   levels, voltages for analog pins, PWM as a square wave or a band, fast
-  toggling as a dense mark; windows of 1 ms to 5 s, pinch and drag, Hold,
-  trigger on a rising or falling edge, cursors A and B. The emulator
-  records each watched pin's changes with their time; the app keeps the
-  last 6 seconds.
+  toggling as a dense mark; windows of 10 µs to 1 s, pinch (2 µs to 6 s)
+  and drag, Hold, trigger on a rising or falling edge, cursors A and B.
+  The emulator records each watched pin's changes with their time; the
+  app keeps the last 6 seconds. From milestone 3 it decodes the buses:
+  the pins of a bus are shown once, labelled by signal and peripheral,
+  with the bits an on-chip I2C or SPI sent drawn on them; a row of boxes
+  follows (S, "3C W ✓", "AF ✓", P; SPI bytes with what came back on MISO)
+  and a line saying what the part made of the transfer at cursor A or the
+  last one shown ("OLED: command AF, display on", "MAX7219: register 0C
+  shutdown ← 01, normal operation").
 - **Settings:** spread the pins when parts need room (the tab grows and
   scrolls), header order.
 - **Displays** (milestone 3) are drawn as their modules with the screen

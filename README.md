@@ -29,7 +29,7 @@ the next milestones (see [docs/design.md](docs/design.md)).
   piezo and the speaker
 - parts can float over the Console and Editor while you type
 - the Scope tab: every part's pin over time, logic levels, voltages and
-  PWM, 1 ms to 5 s, Hold, trigger on an edge, two cursors
+  PWM, Hold, trigger on an edge, two cursors
 
 Milestone 1, the chip and the console:
 
