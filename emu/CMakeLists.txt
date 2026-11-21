@@ -48,9 +48,11 @@ if(NOT ANDROID)
 
   add_library(cmtest SHARED ../tests/cpu/harness.c core/armv7m.c core/fparith.c)
   target_include_directories(cmtest PRIVATE core)
+  target_link_libraries(cmtest PRIVATE m)
 
   add_executable(exc_test ../tests/cpu/exc_test.c core/armv7m.c core/fparith.c)
   target_include_directories(exc_test PRIVATE core)
+  target_link_libraries(exc_test PRIVATE m)
 
   # The exception test firmware needs the ARM cross assembler
   find_program(ARM_AS arm-none-eabi-as)

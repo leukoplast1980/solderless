@@ -1,6 +1,6 @@
 # What the emulator models
 
-Status for milestone 2. "Works like the chip" means: same registers, reset
+Status for milestone 3. "Works like the chip" means: same registers, reset
 values and documented behaviour as in RM0440 (the G4 reference manual) and
 the ARMv7-M Architecture Reference Manual. Timing follows the datasheets,
 not the clock cycle.
@@ -157,6 +157,11 @@ external pull resistor, the DAC. The net settles at their weighted mean.
   high and a bit as SDA when SCL rises, and the part answers by holding
   SDA low on the net, so the firmware reads its acknowledge and its data
   through IDR.
+- A power cycle (not a reset of the chip alone) powers the parts down and
+  up too: displays go dark with noise in their memory, registers return
+  to their power-on values. What a part keeps without power stays: the
+  flash's contents and its protection bits, the SCD41's persisted
+  settings, and what the sensors were set to sense.
 - **SSD1306 OLED** (128x64, I2C at 0x3C or 0x3D): the command set with
   its arguments, also when a driver sends a command and its arguments in
   separate transfers; the control byte (Co, D/C); horizontal, vertical
@@ -194,7 +199,8 @@ external pull resistor, the DAC. The net settles at their weighted mean.
   software reset, sleep, display on and off, inversion (these IPS panels
   show true colours with it on), 12-, 16- and 18-bit pixels (18 after
   reset), MADCTL, the address window, memory write. Commands sent before
-  the datasheet's wait after a reset or Sleep Out are ignored. Not yet:
+  the datasheet's wait after a reset or Sleep Out are ignored (after RES,
+  5 ms if it came while asleep, 120 ms if awake). Not yet:
   reads, partial mode, scrolling.
 - **BMP280 pressure sensor** (I2C at 0x76 or 0x77 by its SDO): chip ID 58,
   soft reset, the calibration bytes (the datasheet's example values), sleep,

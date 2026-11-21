@@ -14,6 +14,7 @@
 #include "../soc/soc.h"
 
 #include <stdio.h>
+#include <stdlib.h>
 #include <string.h>
 
 #define B (&s->board)
@@ -75,9 +76,10 @@ void bus_set(struct sl_soc *s)
 {
     /* Parts that stay keep their state: a display keeps its picture, a
      * flash its contents, when another part is added */
-    static struct sl_dev old[SL_MAX_DEV];
+    struct sl_dev *old = malloc(sizeof B->dev);
+    if (!old) return;
     int nold = B->ndev;
-    memcpy(old, B->dev, sizeof old);
+    memcpy(old, B->dev, sizeof B->dev);
     int kept[SL_MAX_DEV] = { 0 };
     B->ndev = 0;
     for (int i = 0; i < B->natt; i++) {
@@ -102,6 +104,7 @@ void bus_set(struct sl_soc *s)
         if (a->role >= 0 && a->role < SL_SIG_COUNT) d->pin[a->role] = a->pin;
     }
     for (int k = 0; k < nold; k++) if (!kept[k]) dev_free(&old[k]);
+    free(old);
     /* Chip selects as they are now; a part without one is always selected */
     for (int i = 0; i < B->ndev; i++) {
         struct sl_dev *d = &B->dev[i];
@@ -110,6 +113,43 @@ void bus_set(struct sl_soc *s)
         d->dec_sck = d->pin[SL_SIG_SCK] >= 0 && line(s, d->pin[SL_SIG_SCK]);
         d->spi_bits = 0; d->out_drive = 0; d->have_next = 0; d->spi_started = 0;
     }
+}
+
+/* The board's supply went off and on: every part starts again from its
+ * power-on state. What a part keeps without power stays: the flash's
+ * contents and status bits, the SCD41's persisted settings, and what the
+ * user set the sensors to sense. */
+void bus_power_cycle(struct sl_soc *s)
+{
+    for (int i = 0; i < B->ndev; i++) {
+        struct sl_dev *d = &B->dev[i];
+        B->rng = B->rng * 6364136223846793005ull + 1442695040888963407ull;
+        uint32_t seed = (uint32_t)(B->rng >> 32);
+        switch (d->kind) {
+        case SL_DEV_SSD1306: ssd1306_power_on(&d->m.oled, seed); break;
+        case SL_DEV_W25Q: w25q_power_cycle(&d->m.flash); break;
+        case SL_DEV_MAX7219: max7219_power_on(&d->m.matrix, d->m.matrix.n, seed); break;
+        case SL_DEV_ST7789: st7789_power_cycle(&d->m.tft, seed); break;
+        case SL_DEV_BMP280: {
+            double p = d->m.baro.pressure_pa, t = d->m.baro.temp_c;
+            bmp280_power_on(&d->m.baro);
+            d->m.baro.pressure_pa = p; d->m.baro.temp_c = t;
+            break;
+        }
+        case SL_DEV_SCD41: scd41_power_cycle(&d->m.co2); break;
+        default: break;
+        }
+        d->selected = 0; d->sda_low = 0; d->dec_phase = 0; d->dec_ack = 0;
+        d->spi_bits = 0; d->spi_started = 0; d->out_drive = 0; d->have_next = 0;
+    }
+}
+
+/* A memory part's contents changed since the count was this: they need saving */
+uint32_t bus_device_gen(struct sl_soc *s, int part)
+{
+    for (int i = 0; i < B->ndev; i++)
+        if (B->dev[i].part == part && B->dev[i].kind == SL_DEV_W25Q) return B->dev[i].m.flash.gen;
+    return 0;
 }
 
 void bus_free(struct sl_soc *s)
@@ -658,7 +698,7 @@ size_t bus_device_read(struct sl_soc *s, int part, uint8_t *px, size_t len, char
         struct sl_dev *d = &B->dev[i];
         if (d->part != part) continue;
         if (d->kind == SL_DEV_SSD1306) {
-            static uint8_t frame[128 * 64];
+            uint8_t frame[128 * 64];
             ssd1306_pixels(&d->m.oled, frame);
             size_t n = len < sizeof frame ? len : sizeof frame;
             if (px) memcpy(px, frame, n);
@@ -692,10 +732,13 @@ size_t bus_device_read(struct sl_soc *s, int part, uint8_t *px, size_t len, char
     for (int i = 0; i < B->ndev; i++) {
         struct sl_dev *d = &B->dev[i];
         if (d->part != part || d->kind != SL_DEV_ST7789) continue;
-        static uint16_t frame[ST7789_W * ST7789_H];
-        st7789_pixels(&d->m.tft, frame);
         size_t nb = (size_t)(ST7789_W * d->m.tft.panel_h) * 2, k0 = len < nb ? len : nb;
-        if (px) for (size_t k = 0; k < k0; k++) px[k] = (uint8_t)(frame[k / 2] >> (8 * (k & 1)));
+        uint16_t *frame = px ? malloc(sizeof(uint16_t) * ST7789_W * ST7789_H) : 0;
+        if (frame) {
+            st7789_pixels(&d->m.tft, frame);
+            for (size_t k = 0; k < k0; k++) px[k] = (uint8_t)(frame[k / 2] >> (8 * (k & 1)));
+            free(frame);
+        } else k0 = 0;
         if (text && tlen) {
             char p[5][6] = { "", "", "", "", "" };
             static const int sig[5] = { SL_SIG_CS, SL_SIG_SCK, SL_SIG_MOSI, SL_SIG_DC, SL_SIG_RES };
@@ -708,7 +751,7 @@ size_t bus_device_read(struct sl_soc *s, int part, uint8_t *px, size_t len, char
     for (int i = 0; i < B->ndev; i++) {
         struct sl_dev *d = &B->dev[i];
         if (d->part != part || d->kind != SL_DEV_MAX7219) continue;
-        static uint8_t frame[8 * MAX7219_CHAIN * 8];
+        uint8_t frame[8 * MAX7219_CHAIN * 8];
         max7219_pixels(&d->m.matrix, frame);
         size_t np = (size_t)(64 * d->m.matrix.n), k0 = len < np ? len : np;
         if (px) memcpy(px, frame, k0);

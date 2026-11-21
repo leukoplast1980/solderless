@@ -359,9 +359,15 @@ object BusDecode {
         // the first pair shifted ends up in the chip farthest along the chain
         val n = pairs.size
         val regs = pairs.map { it.first }.distinct()
-        if (regs.size == 1 && regs[0] in 1..8)
-            return "digit ${regs[0] - 1} ← " + pairs.joinToString(" ") { BusEv.hex(it.second) } + " (chips ${n - 1}…0)"
-        if (regs.size == 1) return "all $n: register ${BusEv.hex(regs[0])} " + max7219Reg(regs[0], pairs[0].second)
+        val values = pairs.map { it.second }.distinct()
+        if (regs.size == 1 && values.size == 1)
+            return "all $n: register ${BusEv.hex(regs[0])} " + max7219Reg(regs[0], values[0])
+        if (regs.size == 1) {
+            val r = regs[0]
+            val name = if (r in 1..8) "digit ${r - 1}" else max7219Reg(r, 0).substringBefore(" ←")
+            return "${if (r in 1..8) "" else "register ${BusEv.hex(r)} "}$name ← " +
+                pairs.joinToString(" ") { BusEv.hex(it.second) } + " (chips ${n - 1}…0)"
+        }
         return pairs.withIndex().joinToString(" · ") { (k, pr) -> "chip ${n - 1 - k} " + max7219Reg(pr.first, pr.second) }
     }
 

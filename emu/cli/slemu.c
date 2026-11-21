@@ -96,6 +96,12 @@ static int directive(const char *line)
     int n = sscanf(line + 2, "%15s %15s %15s %15s", cmd, a1, a2, a3);
     if (n < 1) return 1;
     if (!strcmp(cmd, "clear")) { nboard = 0; sl_board_set(vm, board, 0); return 0; }
+    if (!strcmp(cmd, "powercycle")) {           /* the supply off and on: chip and parts */
+        sl_power_cycle(vm);
+        sl_sync(vm);                            /* else the prompt from before could pass for the new one */
+        sl_wait_idle(vm, 5000);
+        return 0;
+    }
     if (!strcmp(cmd, "pins")) { print_pins(); return 0; }
     if (!strcmp(cmd, "trace")) {
         int slots[16], k = 0;

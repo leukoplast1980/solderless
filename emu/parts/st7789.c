@@ -6,7 +6,8 @@
  *
  * Modelled: the 240 x 320 frame memory, of which a 240-row panel shows
  * rows 0-239 (so a rotation that mirrors rows needs an 80-row offset, as on
- * the real module); hardware reset (RES low), software reset, sleep in and
+ * the real module); hardware reset (RES low: 5 ms before the next command
+ * if it came while asleep, 120 ms if awake), software reset, sleep in and
  * out with the 5 ms wait the datasheet asks for before the next command
  * (commands sent earlier are ignored here), display on and off, inversion
  * (these IPS panels show true colours with inversion on), COLMOD with
@@ -33,15 +34,30 @@ static void reset_regs(struct st7789 *t)
     t->cmd = 0; t->nargs = 0;
 }
 
+static void noise(struct st7789 *t, uint32_t seed)
+{
+    for (int i = 0; i < ST7789_W * ST7789_H; i++) { seed = seed * 1103515245u + 12345u; t->ram[i] = (uint16_t)(seed >> 12); }
+}
+
 int st7789_init(struct st7789 *t, int rows, uint32_t seed)
 {
     memset(t, 0, sizeof *t);
     t->panel_h = rows == 320 ? 320 : 240;
     t->ram = malloc(ST7789_W * ST7789_H * sizeof *t->ram);
     if (!t->ram) return -1;
-    for (int i = 0; i < ST7789_W * ST7789_H; i++) { seed = seed * 1103515245u + 12345u; t->ram[i] = (uint16_t)(seed >> 12); }
+    noise(t, seed);
     reset_regs(t);
     return 0;
+}
+
+void st7789_power_cycle(struct st7789 *t, uint32_t seed)
+{
+    uint16_t *ram = t->ram;
+    int h = t->panel_h;
+    memset(t, 0, sizeof *t);
+    t->ram = ram; t->panel_h = h;
+    if (ram) noise(t, seed);
+    reset_regs(t);
 }
 
 void st7789_free(struct st7789 *t) { free(t->ram); t->ram = 0; }
@@ -54,10 +70,12 @@ void st7789_reset_pin(struct st7789 *t, int low, uint64_t now)
     if (low) { t->in_reset = 1; return; }
     if (!t->in_reset) return;
     t->in_reset = 0;
+    /* tRT: 5 ms when the reset came in Sleep In mode, 120 ms in Sleep Out */
+    int ms = t->sleeping ? 5 : 120;
     reset_regs(t);
-    t->ready_at = now + 120 * PS_PER_MS;
+    t->ready_at = now + (uint64_t)ms * PS_PER_MS;
     t->wait_why = "a hardware reset (RES)";
-    t->wait_ms = 120;
+    t->wait_ms = ms;
 }
 
 /* A pixel at the logical position, through MADCTL into the frame memory */

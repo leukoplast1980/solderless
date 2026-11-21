@@ -71,7 +71,7 @@ Last write	42 pixels from (0, 0) · 0 ms ago
 : hwreset ( -- ) 2 16 lshift GPIOB $18 + !  1 ms  2 GPIOB $18 + ! ;  ok.
 hwreset $11 cmd  ok.
 
-[chip] ST7789: command 11 ignored, sent 0.4 ms after a hardware reset (RES); the datasheet asks for 120 ms before the next command
+[chip] ST7789: command 11 ignored, sent 0.4 ms after a hardware reset (RES); the datasheet asks for 5 ms before the next command
 #!tft 1
 ..............................
 ..............................

@@ -548,6 +548,7 @@ void soc_reset(struct sl_soc *s, int power_on)
     s->t_rem = 0;
     s->hclk = 16000000u;
     rcc_update_clocks(s);
+    if (power_on) bus_power_cycle(s);
     board_reset(s);
     cm_reset(&s->cpu);
     if (s->cpu.lockup)

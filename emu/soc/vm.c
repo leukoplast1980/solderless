@@ -409,6 +409,12 @@ void sl_step(sl_vm *vm)
 void sl_reset(sl_vm *vm) { atomic_store(&vm->reset_req, 1); wake_vm(vm); }
 void sl_power_cycle(sl_vm *vm) { atomic_store(&vm->reset_req, 2); wake_vm(vm); }
 
+static void apply_requests(sl_vm *vm);
+static void sync_fn(sl_vm *vm, void *arg) { (void)arg; apply_requests(vm); }
+
+/* A reset or power cycle asked for is done when this returns */
+void sl_sync(sl_vm *vm) { run_on_vm(vm, sync_fn, NULL); }
+
 /* ---------------------------------------------------------------------- */
 /* Terminal                                                               */
 /* ---------------------------------------------------------------------- */
@@ -758,6 +764,20 @@ size_t sl_device_mem(sl_vm *vm, int part, uint32_t addr, uint8_t *buf, size_t le
     struct dmem_io io = { part, addr, buf, len, write, 0 };
     run_on_vm(vm, dmem_fn, &io);
     return io.n;
+}
+
+struct dgen_io { int part; uint32_t gen; };
+static void dgen_fn(sl_vm *vm, void *arg)
+{
+    struct dgen_io *io = arg;
+    io->gen = bus_device_gen(vm->soc, io->part);
+}
+
+uint32_t sl_device_gen(sl_vm *vm, int part)
+{
+    struct dgen_io io = { part, 0 };
+    run_on_vm(vm, dgen_fn, &io);
+    return io.gen;
 }
 
 struct din_io { int part; const char *what; double v; };

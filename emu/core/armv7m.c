@@ -2026,7 +2026,7 @@ static void multiply_dsp(struct cm_cpu *c, uint32_t hw1, uint32_t hw2)
     case 3: {                                      /* SMLAW<y>, SMULW<y> */
         if (op2 & 2u) { undefined(c); return; }
         int32_t y = (op2 & 1u) ? hi16(m) : lo16(m);
-        r = ((int64_t)(int32_t)n * y + ((int64_t)(int32_t)acc << 16)) >> 16;
+        r = ((int64_t)(int32_t)n * y + (int64_t)(int32_t)acc * 65536) >> 16;
         if (r != (int32_t)r) q = 1;
         break;
     }
@@ -2054,7 +2054,7 @@ static void multiply_dsp(struct cm_cpu *c, uint32_t hw1, uint32_t hw2)
         return;
     }
     W(c, rd, (uint32_t)r);
-    if (q && ra != 15u) c->q = 1;
+    if (q) c->q = 1;                               /* SMUAD too: 0x8000 * 0x8000 twice is 2^31 */
 }
 
 static void dp_register(struct cm_cpu *c, uint32_t hw1, uint32_t hw2)

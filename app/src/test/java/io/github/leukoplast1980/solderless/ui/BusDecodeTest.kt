@@ -67,6 +67,10 @@ class BusDecodeTest {
         assertEquals("MAX7219: register 0C shutdown ← 01, normal operation", say(ev))
         val four = listOf(cs(6, true)) + (0 until 4).flatMap { listOf(spi(0x01, part = 6), spi(0x10 * it, part = 6)) } + cs(6, false)
         assertEquals("MAX7219: digit 0 ← 00 10 20 30 (chips 3…0)", say(four))
+        val alike = listOf(cs(6, true)) + (0 until 4).flatMap { listOf(spi(0x0C, part = 6), spi(0x01, part = 6)) } + cs(6, false)
+        assertEquals("MAX7219: all 4: register 0C shutdown ← 01, normal operation", say(alike))
+        val bright = listOf(cs(6, true)) + (0 until 4).flatMap { listOf(spi(0x0A, part = 6), spi(it, part = 6)) } + cs(6, false)
+        assertEquals("MAX7219: register 0A intensity ← 00 01 02 03 (chips 3…0)", say(bright))
     }
 
     @Test fun flashId() {

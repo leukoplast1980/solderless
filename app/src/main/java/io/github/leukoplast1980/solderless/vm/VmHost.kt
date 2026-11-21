@@ -49,8 +49,8 @@ class VmHost private constructor(context: Context) {
     val stellaris: Stellaris
     val handle: Long
 
-    /** Checksums of the memory parts' contents as last saved (declared before init, which loads the board) */
-    private val memorySums = HashMap<Int, Long>()
+    /** The memory parts' content counts (NativeVm.deviceGen) as last saved (declared before init, which loads the board) */
+    private val memorySums = HashMap<Int, Int>()
 
     @Volatile var project: Projects.Project
         private set
@@ -321,22 +321,15 @@ class VmHost private constructor(context: Context) {
                     if (at in 0 until memorySize(p)) writeMemory(p.id, at, sector)
                 }
             }
-            memorySums[p.id] = memorySum(p)
+            memorySums[p.id] = NativeVm.deviceGen(handle, p.id)
         }.onFailure { Log.w(TAG, "cannot read ${f.name}", it) }
     }
 
-    private fun memorySum(p: io.github.leukoplast1980.solderless.board.Part): Long {
-        val crc = java.util.zip.CRC32()
-        val chunk = 1 shl 16
-        var a = 0
-        while (a < memorySize(p)) { crc.update(readMemory(p.id, a, chunk)); a += chunk }
-        return crc.value
-    }
-
+    /** Every few seconds: only the memory parts whose contents changed (a counter, not a scan of megabytes) */
     private fun saveDeviceMemories() {
         for (p in board.parts) {
             if (p.type != PartType.FLASH) continue
-            val sum = memorySum(p)
+            val sum = NativeVm.deviceGen(handle, p.id)
             if (memorySums[p.id] == sum) continue
             val f = memoryFile(p.id)
             runCatching {

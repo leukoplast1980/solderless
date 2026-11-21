@@ -37,7 +37,7 @@ one() {
         [ $v = v13 ] && echo "#!oled 1"
     } > "$out/$b.in"
     timeout 60 "$slemu" -d -k -t 20000 -s "$out/$b.in" "$fw" > "$out/$b.txt" 2>&1
-    bad=$(grep -E "not found|^line [0-9]+:|Stack|\[chip\]|timeout|locked" "$out/$b.txt" | grep -v "MAX7219: the module runs from 5 V" | head -3)
+    bad=$(grep -E "not found|^line [0-9]+:|Stack|\[chip\]|timeout|locked|runtime error|Sanitizer" "$out/$b.txt" | grep -v "MAX7219: the module runs from 5 V" | head -3)
     [ -n "$bad" ] && echo "PROBLEM $b: $bad"
     res=$(grep -F "$try" "$out/$b.txt" | tail -1 | sed 's/.* \([-0-9]*\)  ok\.$/\1/; s/.*  ok\.$//')
     st=$(awk '/^#!pins/{n++} n==2' "$out/$b.txt" | grep -E "^P[A-G][0-9]" |

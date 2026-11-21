@@ -31,7 +31,8 @@ CONDS = ["eq", "ne", "cs", "cc", "mi", "pl", "vs", "vc", "hi", "ls", "ge", "lt",
 SHIFTS = ["lsl", "lsr", "asr", "ror"]
 
 SPECIAL = [0, 1, 2, 0x7FFFFFFF, 0x80000000, 0xFFFFFFFF, 0xFFFFFFFE, 0x80000001,
-           0x0000FFFF, 0xFFFF0000, 0x12345678, 0x00008000, 31, 32, 33, 0xFF, 0x100]
+           0x0000FFFF, 0xFFFF0000, 0x12345678, 0x00008000, 31, 32, 33, 0xFF, 0x100,
+           0x80008000, 0x7FFF7FFF, 0x80807F7F]          # packed extremes for the DSP lanes
 
 
 def rval(rng):
@@ -292,6 +293,11 @@ def t_dsp(rng):
     k = rng.randrange(9)
     if k == 0:
         return [f"{rng.choice(PAR)} {d}, {n}, {m}"], []
+    if k == 1 and rng.random() < 0.2:
+        # packed extremes: 0x8000 * 0x8000 twice overflows SMUAD (Q). Not SMLAD: Unicorn's older QEMU
+        # also sets Q when only the sum of the products overflows, which the ARM ARM (and QEMU since
+        # 2021) does not
+        return [f"movw {n}, #0x8000", f"movt {n}, #0x8000", f"{rng.choice(['smuad', 'smuadx'])} {d}, {n}, {n}"], []
     if k == 1:
         return [f"{rng.choice(['qadd', 'qdadd', 'qsub', 'qdsub'])} {d}, {m}, {n}", f"{rng.choice(PAR)} {a}, {n}, {m}", f"sel {d}, {a}, {n}"], []
     if k == 2:
@@ -453,6 +459,10 @@ def make_case(rng):
         fp = fp or fn in FP_TEMPLATES
     if fp:                      # the first FP instruction starts a new FP context: set FPSCR after it
         lines = ["vmsr fpscr, r12"] + lines
+    # VCVT from fixed point rounds to nearest (FixedToFP with round_nearest in the ARM ARM);
+    # Unicorn's older QEMU uses the FPSCR's rounding mode, so such a case sets no other FPSCR
+    if any(l.startswith("vcvt.f32.") and "#" in l for l in lines) and sum(l.startswith("vmsr fpscr") for l in lines) > 1:
+        return make_case(rng)
     return lines, bases
 
 
@@ -565,8 +575,7 @@ def main():
         regs.append(xpsr)
         if lines and lines[0] == "vmsr fpscr, r12":
             regs[12] = fpscr_val(rng)
-            # VCVT from fixed point rounds to nearest (FixedToFP with round_nearest in the ARM ARM);
-            # Unicorn's older QEMU uses the FPSCR's rounding mode, so give it no other choice
+            # (see make_case) VCVT from fixed point: rounding to nearest whatever FPSCR says
             if any(l.startswith("vcvt.f32.") and "#" in l for l in lines):
                 regs[12] &= ~(3 << 22)
         fp = [fval(rng) for _ in range(32)]

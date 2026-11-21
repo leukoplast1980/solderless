@@ -48,9 +48,20 @@ void scd41_power_on(struct scd41 *c, uint32_t seed)
 {
     memset(c, 0, sizeof *c);
     c->co2 = 820; c->temp_c = 22.0; c->rh = 45;
-    c->offset_raw = SCD41_OFFSET_4C;   /* the factory default */
-    c->asc = 1;
+    c->offset_raw = c->p_offset = SCD41_OFFSET_4C;   /* the factory default */
+    c->asc = c->p_asc = 1;
     for (int i = 0; i < 3; i++) { seed = seed * 1103515245u + 12345u; c->serial[i] = (uint16_t)(seed >> 8); }
+}
+
+void scd41_power_cycle(struct scd41 *c)
+{
+    struct scd41 keep = *c;
+    memset(c, 0, sizeof *c);
+    c->co2 = keep.co2; c->temp_c = keep.temp_c; c->rh = keep.rh; c->breath_at = keep.breath_at;
+    memcpy(c->serial, keep.serial, sizeof c->serial);
+    c->p_offset = c->offset_raw = keep.p_offset;
+    c->p_altitude = c->altitude = keep.p_altitude;
+    c->p_asc = c->asc = keep.p_asc;
 }
 
 static double co2_now(const struct scd41 *c, uint64_t now)
@@ -193,10 +204,13 @@ void scd41_stop(struct scd41 *c, uint64_t now)
     case 0x2416: if (nw) { c->asc = arg != 0; c->changed = 1; } break;
     case 0x2313: put_word(c, (uint16_t)c->asc); break;
     case 0x362F: exec = 400; put_word(c, nw ? (uint16_t)(arg - (uint16_t)(co2_now(c, now) + 0.5) + 0x8000) : 0xFFFF); break;
-    case 0x3615: c->changed = 0; exec = 800; break;
+    case 0x3615: c->changed = 0; c->p_offset = c->offset_raw; c->p_altitude = c->altitude; c->p_asc = c->asc; exec = 800; break;
     case 0x3682: for (int i = 0; i < 3; i++) put_word(c, c->serial[i]); break;
     case 0x3639: exec = 10000; put_word(c, 0); break;
-    case 0x3632: exec = 1200; c->offset_raw = SCD41_OFFSET_4C; c->altitude = 0; c->asc = 1; c->changed = 0; break;
+    case 0x3632:
+        exec = 1200; c->offset_raw = c->p_offset = SCD41_OFFSET_4C; c->altitude = c->p_altitude = 0; c->asc = c->p_asc = 1;
+        c->changed = 0;
+        break;
     case 0x3646: exec = 30; break;
     case 0x219D: c->mode = SCD41_SINGLE; c->single_rht = 0; c->next_ps = now + 5000 * PS_PER_MS; c->ready = 0; break;
     case 0x2196: c->mode = SCD41_SINGLE; c->single_rht = 1; c->next_ps = now + 50 * PS_PER_MS; c->ready = 0; break;

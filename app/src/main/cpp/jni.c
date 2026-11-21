@@ -304,6 +304,13 @@ JNIEXPORT jint JNICALL FN(deviceMem)(JNIEnv *env, jclass cls, jlong h, jint part
     return (jint)n;
 }
 
+/* A count that changes whenever a memory part's contents do */
+JNIEXPORT jint JNICALL FN(deviceGen)(JNIEnv *env, jclass cls, jlong h, jint part)
+{
+    (void)env; (void)cls;
+    return (jint)sl_device_gen(VM(h), part);
+}
+
 JNIEXPORT void JNICALL FN(boardInput)(JNIEnv *env, jclass cls, jlong h, jint part, jint value)
 {
     (void)env; (void)cls;

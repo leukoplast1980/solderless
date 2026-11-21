@@ -145,6 +145,8 @@ int bus_pin_pulled_up(struct sl_soc *s, int slot);
 void bus_set(struct sl_soc *s);                       /* rebuild the parts from the attachments */
 void bus_pin_changed(struct sl_soc *s, int slot);     /* a pin's level changed: the bit-bang decoders, chip selects */
 void bus_free(struct sl_soc *s);
+void bus_power_cycle(struct sl_soc *s);                /* the supply off and on: parts back to power-on */
+uint32_t bus_device_gen(struct sl_soc *s, int part);  /* changes whenever a memory part's contents do */
 void bus_device_input(struct sl_soc *s, int part, const char *what, double v);
 int bus_pin_is_miso(struct sl_soc *s, int slot);
 int bus_pin_drive(struct sl_soc *s, int slot, int *level);  /* a part drives this line (I2C: low only) */

@@ -48,6 +48,8 @@ void sl_pause(sl_vm *vm, int paused);
 void sl_step(sl_vm *vm);                      /* one instruction while paused */
 void sl_reset(sl_vm *vm);                     /* the reset button (NRST) */
 void sl_power_cycle(sl_vm *vm);               /* power-on reset: RAM cleared */
+/* Waits until a reset or power cycle asked for has happened (they are applied on the emulator's thread) */
+void sl_sync(sl_vm *vm);
 
 /* Serial terminal on PA2 (chip TX) and PA3 (chip RX). Bytes cross the
  * wire at the terminal's baud rate. */
@@ -191,6 +193,8 @@ size_t sl_device_read(sl_vm *vm, int part, uint8_t *pixels, size_t len, char *te
  * directly, as an external programmer would: a write sets bytes as given,
  * 1s included. Returns the bytes moved; 0 if the part has no memory. */
 size_t sl_device_mem(sl_vm *vm, int part, uint32_t addr, uint8_t *buf, size_t len, int write);
+/* A count that changes whenever a memory part's contents do (0 for other parts) */
+uint32_t sl_device_gen(sl_vm *vm, int part);
 
 /* What a sensor senses, as the user sets it: BMP280 "pressure_pa", "temp_c";
  * SCD41 "co2_ppm", "temp_c", "rh", and "breath" (any value: a breath on it now). */

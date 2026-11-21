@@ -55,6 +55,17 @@ void w25q_free(struct w25q *w)
     w->mem = 0; w->used = 0;
 }
 
+void w25q_power_cycle(struct w25q *w)
+{
+    w->sr1 &= (uint8_t)~(SR1_WEL | SR1_BUSY);       /* the protection bits are non-volatile */
+    w->sr2 &= 0x7Fu;                                /* SUS */
+    w->volatile_sr = 0; w->powered_down = 0; w->reset_enabled = 0;
+    w->busy_until = 0; w->busy_what = 0;
+    w->cmd = 0; w->n = 0; w->skip = 0; w->page_n = 0;
+    memset(w->page_seen, 0, sizeof w->page_seen);
+    w->msg = 0;
+}
+
 static int busy(const struct w25q *w, uint64_t now) { return now < w->busy_until; }
 
 static uint8_t sr1(const struct w25q *w, uint64_t now)
@@ -317,7 +328,7 @@ int w25q_message(struct w25q *w, char *out, size_t len)
 
 size_t w25q_mem(struct w25q *w, uint32_t addr, uint8_t *buf, size_t len, int write)
 {
-    if (!w->mem || addr >= w->size) return 0;
+    if (!w->mem || addr >= w->size || len == 0) return 0;
     if (len > w->size - addr) len = w->size - addr;
     if (write) {
         memcpy(w->mem + addr, buf, len);

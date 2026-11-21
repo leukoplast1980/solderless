@@ -73,26 +73,33 @@ class HexView(
         return if (i < page.size) page[i].toInt() and 0xFF else 0xFF
     }
 
-    /** Rows of 8 bytes that hold something other than FF, with a marker between runs */
-    private fun writtenRows(): List<Int> {
-        val out = ArrayList<Int>()
-        var last = -16
+    /** The chip's rows that hold something other than FF, scanned once (megabytes) until edits are applied */
+    private var scanned: java.util.TreeSet<Int>? = null
+
+    private fun nonEmptyRows(): java.util.TreeSet<Int> = scanned ?: java.util.TreeSet<Int>().also { set ->
         val chunk = 1 shl 16
         var a = 0
         while (a < size) {
             val b = read(a, chunk)
             var r = 0
             while (r < b.size) {
-                var any = false
-                for (k in 0 until 8) if (r + k < b.size && b[r + k] != 0xFF.toByte()) { any = true; break }
-                val addr = a + r
-                if (any || edits.subMap(addr, addr + 8).isNotEmpty()) {
-                    if (out.isNotEmpty() && addr != last + 8) out += -1
-                    out += addr; last = addr
-                }
+                for (k in 0 until 8) if (r + k < b.size && b[r + k] != 0xFF.toByte()) { set += a + r; break }
                 r += 8
             }
             a += chunk
+        }
+        scanned = set
+    }
+
+    /** Rows of 8 bytes that hold something other than FF, or edits, with a marker between runs */
+    private fun writtenRows(): List<Int> {
+        val out = ArrayList<Int>()
+        var last = -16
+        val with = java.util.TreeSet(nonEmptyRows())
+        for (a in edits.keys) with += a and 7.inv()
+        for (addr in with) {
+            if (out.isNotEmpty() && addr != last + 8) out += -1
+            out += addr; last = addr
         }
         // the selected byte's row, so there is always somewhere to type
         val sr = sel and 7.inv()
@@ -286,7 +293,9 @@ class HexView(
             .setView(LinearLayout(activity).apply { setPadding(dp(20f), dp(8f), dp(20f), 0); addView(input, LinearLayout.LayoutParams(-1, -2)) })
             .setPositiveButton(android.R.string.ok) { _, _ ->
                 val bytes = input.text.toString().toByteArray(Charsets.UTF_8)
-                for (b in bytes) { if (sel >= size) break; edits[sel] = b; if (sel + 1 < size) sel++ }
+                var at = sel
+                for (b in bytes) { if (at >= size) break; edits[at] = b; at++ }   // up to the chip's end
+                sel = minOf(at, size - 1)
                 half = -1
                 if (!all) rebuild()
                 scrollTo(sel); refresh()
@@ -306,7 +315,7 @@ class HexView(
         }
         flush()
         val n = edits.size
-        edits.clear(); pages.clear(); half = -1
+        edits.clear(); pages.clear(); scanned = null; half = -1
         rebuild(); refresh()
         android.widget.Toast.makeText(activity, activity.getString(R.string.hex_applied, n), android.widget.Toast.LENGTH_SHORT).show()
     }

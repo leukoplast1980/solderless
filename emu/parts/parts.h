@@ -79,6 +79,7 @@ struct w25q {
 
 int w25q_init(struct w25q *w, int cap, uint32_t seed);
 void w25q_free(struct w25q *w);
+void w25q_power_cycle(struct w25q *w);           /* the array and the status bits stay, the rest resets */
 void w25q_select(struct w25q *w, uint64_t now_ps);
 /* A byte from the master; returns the byte to shift out next and whether DO drives it */
 uint8_t w25q_byte(struct w25q *w, uint8_t b, uint64_t now_ps, int *drive);
@@ -136,6 +137,7 @@ struct st7789 {
 
 int st7789_init(struct st7789 *t, int rows, uint32_t seed);
 void st7789_free(struct st7789 *t);
+void st7789_power_cycle(struct st7789 *t, uint32_t seed);   /* the frame memory is lost too */
 void st7789_reset_pin(struct st7789 *t, int low, uint64_t now_ps);
 /* A byte from the master, with the DC line as it was at its last bit (0 command, 1 data) */
 void st7789_byte(struct st7789 *t, uint8_t b, int dc, uint64_t now_ps);
@@ -177,6 +179,8 @@ struct scd41 {
     int mode, single_rht, ready, asc, changed, writing;
     uint64_t next_ps, busy_until, cmd_at, last_meas;
     uint16_t out_co2, out_t, out_rh, offset_raw, altitude, pressure_hpa, serial[3];
+    uint16_t p_offset, p_altitude;  /* the settings in its EEPROM (persist_settings) */
+    int p_asc;
     uint8_t in[8], resp[9];
     int nin, nresp, rpos;
     uint16_t cmd, ignored;
@@ -186,6 +190,7 @@ struct scd41 {
 };
 
 void scd41_power_on(struct scd41 *c, uint32_t seed);
+void scd41_power_cycle(struct scd41 *c);        /* back to the persisted settings; serial and readings stay */
 int scd41_start(struct scd41 *c, int read, uint64_t now_ps);     /* acknowledged? */
 int scd41_byte(struct scd41 *c, uint8_t b, uint64_t now_ps);     /* acknowledged? */
 uint8_t scd41_read(struct scd41 *c);
