@@ -63,13 +63,10 @@ static void add(struct drivers *d, double g_us, int mv)
     }
 }
 
-static const struct sl_af_info *af_entry(int port, int bit, int af)
+static const struct sl_af_info *af_entry(struct sl_soc *s, int port, int bit, int af)
 {
-    for (int i = 0; i < sl_g431_naf; i++) {
-        const struct sl_af_info *e = &sl_g431_af[i];
-        if (e->port == port && e->pin == bit && e->af == af) return e;
-    }
-    return 0;
+    int i = s->af_index[port][bit][af & 15];
+    return i >= 0 ? &sl_g431_af[i] : 0;
 }
 
 /* What the chip's output stage puts on the pin. Fills PWM fields. */
@@ -88,7 +85,7 @@ static void chip_driver(struct sl_soc *s, int slot, struct drivers *d, struct sl
         if (!od || !odr) { add(d, G_CHIP, odr ? SL_VDD_MV : 0); p->chip_drives = 1; }
     } else if (mode == 2) {
         int af = gpio_pin_af(s, port, bit);
-        const struct sl_af_info *e = af >= 0 ? af_entry(port, bit, af) : 0;
+        const struct sl_af_info *e = af >= 0 ? af_entry(s, port, bit, af) : 0;
         if (!e || e->periph < 0 || !s->clk_on[e->periph]) return;
         const char *kind = sl_g431_periph[e->periph].kind;
         if (!strcmp(kind, "timer") && e->signal[0] == 'C' && e->signal[1] == 'H') {
@@ -308,7 +305,7 @@ static void resolve(struct sl_soc *s, int slot, int edges)
         bus_pin_changed(s, slot);
         /* Input capture: a pin in alternate-function mode routed to a timer channel */
         int af = gpio_pin_af(s, port, bit);
-        const struct sl_af_info *e = af >= 0 ? af_entry(port, bit, af) : 0;
+        const struct sl_af_info *e = af >= 0 ? af_entry(s, port, bit, af) : 0;
         if (e && e->periph >= 0 && !strcmp(sl_g431_periph[e->periph].kind, "timer")
             && e->signal[0] == 'C' && e->signal[1] == 'H' && e->signal[3] != 'N')
             tim_input_edge(s, e->periph, e->signal[2] - '0', p->level);
@@ -317,8 +314,8 @@ static void resolve(struct sl_soc *s, int slot, int edges)
 
 void board_port_changed(struct sl_soc *s, int port, uint32_t pins)
 {
-    for (int b = 0; b < 16; b++)
-        if ((pins >> b) & 1u) resolve(s, port * 16 + b, 1);
+    for (pins &= 0xFFFFu; pins; pins &= pins - 1)
+        resolve(s, port * 16 + __builtin_ctz(pins), 1);
 }
 
 void board_af_outputs_changed(struct sl_soc *s)
@@ -345,7 +342,7 @@ int board_pin_level(struct sl_soc *s, int port, int pin)
         (void)sl;
         /* Instantaneous level of a PWM pin: ask the timer. */
         int af = gpio_pin_af(s, port, pin);
-        const struct sl_af_info *e = af >= 0 ? af_entry(port, pin, af) : 0;
+        const struct sl_af_info *e = af >= 0 ? af_entry(s, port, pin, af) : 0;
         if (e) {
             struct sl_tim_out o;
             if (tim_output(s, e->periph, e->signal[2] - '0', e->signal[3] == 'N', &o)) return o.level;

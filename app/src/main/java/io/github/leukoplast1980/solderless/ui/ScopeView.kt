@@ -40,8 +40,14 @@ class ScopeView @JvmOverloads constructor(context: Context, attrs: AttributeSet?
     /** The bytes on a bus, and what the transfer at a time (back to a time) did */
     class Decode(val events: List<BusEv>, val describe: (from: Long, at: Long) -> String) : Row()
 
+    /** Set on every poll; a layout pass only when the rows' heights change */
     var channels: List<Row> = emptyList()
-        set(v) { field = v; requestLayout(); invalidate() }
+        set(v) {
+            val relayout = v.size != field.size || v.indices.any { rowH(v[it]) != rowH(field[it]) }
+            field = v
+            if (relayout) requestLayout()
+            invalidate()
+        }
     /** Shown span and its end, in emulated ns */
     var windowNs = 1_000_000_000L
     var endNs = 0L

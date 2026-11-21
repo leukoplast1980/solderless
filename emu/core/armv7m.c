@@ -74,10 +74,20 @@ static inline uint32_t sext(uint32_t v, unsigned bits)
 static inline int32_t lo16(uint32_t v) { return (int16_t)(v & 0xFFFFu); }
 static inline int32_t hi16(uint32_t v) { return (int16_t)(v >> 16); }
 
+#define likely(x)   __builtin_expect(!!(x), 1)
+#define unlikely(x) __builtin_expect(!!(x), 0)
+
 static inline int popcount16(uint32_t v)
 {
-    return __builtin_popcount(v & 0xFFFFu);
+    /* A table: __builtin_popcount is a library call where the host has no
+     * popcount instruction enabled (x86-64 baseline, 32-bit ARM) */
+    static const uint8_t nib[16] = { 0, 1, 1, 2, 1, 2, 2, 3, 1, 2, 2, 3, 2, 3, 3, 4 };
+    return nib[v & 15u] + nib[(v >> 4) & 15u] + nib[(v >> 8) & 15u] + nib[(v >> 12) & 15u];
 }
+
+/* Register lists: for (l = list; l; l &= l - 1) visits the set bits in
+ * ascending order; this is the register of the lowest. */
+static inline uint32_t low_reg(uint32_t l) { return (uint32_t)__builtin_ctz(l); }
 
 /* ====================================================================== */
 /* State helpers                                                          */
@@ -1210,7 +1220,35 @@ static inline void set_nz(struct cm_cpu *c, uint32_t r)
  * the fault and return 0. "strict" accesses must be naturally aligned
  * (LDM, STM, LDRD, STRD, exclusives); others fault only when unaligned
  * accesses trap (CCR.UNALIGN_TRP). */
-static int ld(struct cm_cpu *c, uint32_t a, int n, uint32_t *v, int strict, int unpriv)
+static int ld_slow(struct cm_cpu *c, uint32_t a, int n, uint32_t *v, int strict, int unpriv);
+static int st_slow(struct cm_cpu *c, uint32_t a, int n, uint32_t v, int strict, int unpriv);
+
+/* The common case inline: aligned, in RAM or flash. Everything else (and
+ * every check) is in ld_slow and st_slow. */
+static inline int ld(struct cm_cpu *c, uint32_t a, int n, uint32_t *v, int strict, int unpriv)
+{
+    if (likely(!(a & (uint32_t)(n - 1)))) {
+        struct cm_region *r = region_for(c->bus, a, (uint32_t)n);
+        if (likely(r != NULL)) { *v = get_le(r->mem + (a - r->base), n); return 1; }
+    }
+    return ld_slow(c, a, n, v, strict, unpriv);
+}
+
+static inline int st(struct cm_cpu *c, uint32_t a, int n, uint32_t v, int strict, int unpriv)
+{
+    if (likely(!(a & (uint32_t)(n - 1)))) {
+        struct cm_region *r = region_for(c->bus, a, (uint32_t)n);
+        if (likely(r != NULL && r->writable)) {
+            uint8_t *p = r->mem + (a - r->base);
+            if (get_le(p, n) != (n == 4 ? v : v & ((1u << (8 * n)) - 1u))) c->mem_changes++;
+            put_le(p, n, v);
+            return 1;
+        }
+    }
+    return st_slow(c, a, n, v, strict, unpriv);
+}
+
+static __attribute__((noinline)) int ld_slow(struct cm_cpu *c, uint32_t a, int n, uint32_t *v, int strict, int unpriv)
 {
     if ((a & (uint32_t)(n - 1)) && (strict || (c->ccr & CCR_UNALIGN_TRP))) {
         usage_fault(c, CM_UFSR_UNALIGNED);
@@ -1220,7 +1258,7 @@ static int ld(struct cm_cpu *c, uint32_t a, int n, uint32_t *v, int strict, int 
     return 1;
 }
 
-static int st(struct cm_cpu *c, uint32_t a, int n, uint32_t v, int strict, int unpriv)
+static __attribute__((noinline)) int st_slow(struct cm_cpu *c, uint32_t a, int n, uint32_t v, int strict, int unpriv)
 {
     if ((a & (uint32_t)(n - 1)) && (strict || (c->ccr & CCR_UNALIGN_TRP))) {
         usage_fault(c, CM_UFSR_UNALIGNED);
@@ -1495,9 +1533,8 @@ static void exec16(struct cm_cpu *c, uint32_t hw)
             uint32_t list = (hw & 0xFFu) | ((hw & 0x100u) << 6);
             uint32_t addr = c->r[13] - 4u * (uint32_t)popcount16(list);
             uint32_t a = addr;
-            for (uint32_t i = 0; i < 15; i++) {
-                if (!((list >> i) & 1u)) continue;
-                if (!st(c, a, 4, c->r[i], 1, 0)) return;
+            for (uint32_t l = list; l; l &= l - 1) {
+                if (!st(c, a, 4, c->r[low_reg(l)], 1, 0)) return;
                 a += 4;
             }
             W(c, 13, addr);
@@ -1526,13 +1563,11 @@ static void exec16(struct cm_cpu *c, uint32_t hw)
         case 0xC: case 0xD: {                      /* POP */
             uint32_t list = (hw & 0xFFu) | ((hw & 0x100u) << 7);
             uint32_t a = c->r[13], vals[16];
-            for (uint32_t i = 0; i < 16; i++) {
-                if (!((list >> i) & 1u)) continue;
-                if (!ld(c, a, 4, &vals[i], 1, 0)) return;
+            for (uint32_t l = list; l; l &= l - 1) {
+                if (!ld(c, a, 4, &vals[low_reg(l)], 1, 0)) return;
                 a += 4;
             }
-            for (uint32_t i = 0; i < 8; i++)
-                if ((list >> i) & 1u) c->r[i] = vals[i];
+            for (uint32_t l = list & 0xFFu; l; l &= l - 1) c->r[low_reg(l)] = vals[low_reg(l)];
             W(c, 13, a);
             if (list & 0x8000u) bx_write_pc(c, vals[15]);
             return;
@@ -1560,18 +1595,15 @@ static void exec16(struct cm_cpu *c, uint32_t hw)
         if (!list) { undefined(c); return; }
         if (hw & 0x800u) {
             uint32_t vals[8];
-            for (uint32_t i = 0; i < 8; i++) {
-                if (!((list >> i) & 1u)) continue;
-                if (!ld(c, a, 4, &vals[i], 1, 0)) return;
+            for (uint32_t l = list; l; l &= l - 1) {
+                if (!ld(c, a, 4, &vals[low_reg(l)], 1, 0)) return;
                 a += 4;
             }
-            for (uint32_t i = 0; i < 8; i++)
-                if ((list >> i) & 1u) c->r[i] = vals[i];
+            for (uint32_t l = list; l; l &= l - 1) c->r[low_reg(l)] = vals[low_reg(l)];
             if (!((list >> rn) & 1u)) c->r[rn] = a;
         } else {
-            for (uint32_t i = 0; i < 8; i++) {
-                if (!((list >> i) & 1u)) continue;
-                if (!st(c, a, 4, c->r[i], 1, 0)) return;
+            for (uint32_t l = list; l; l &= l - 1) {
+                if (!st(c, a, 4, c->r[low_reg(l)], 1, 0)) return;
                 a += 4;
             }
             c->r[rn] = a;
@@ -1615,19 +1647,16 @@ static void ldst_multiple(struct cm_cpu *c, uint32_t hw1, uint32_t hw2)
 
     if (load) {
         uint32_t vals[16];
-        for (uint32_t i = 0; i < 16; i++) {
-            if (!((list >> i) & 1u)) continue;
-            if (!ld(c, a, 4, &vals[i], 1, 0)) return;
+        for (uint32_t l = list; l; l &= l - 1) {
+            if (!ld(c, a, 4, &vals[low_reg(l)], 1, 0)) return;
             a += 4;
         }
-        for (uint32_t i = 0; i < 15; i++)
-            if ((list >> i) & 1u) W(c, i, vals[i]);
+        for (uint32_t l = list & 0x7FFFu; l; l &= l - 1) W(c, low_reg(l), vals[low_reg(l)]);
         if (wback && !((list >> rn) & 1u)) W(c, rn, end);
         if (list & 0x8000u) bx_write_pc(c, vals[15]);
     } else {
-        for (uint32_t i = 0; i < 15; i++) {
-            if (!((list >> i) & 1u)) continue;
-            if (!st(c, a, 4, c->r[i], 1, 0)) return;
+        for (uint32_t l = list & 0x7FFFu; l; l &= l - 1) {
+            if (!st(c, a, 4, c->r[low_reg(l)], 1, 0)) return;
             a += 4;
         }
         if (wback) W(c, rn, end);
@@ -2469,9 +2498,6 @@ static void exec32(struct cm_cpu *c, uint32_t hw1, uint32_t hw2)
 /* Run loop                                                               */
 /* ====================================================================== */
 
-#define likely(x)   __builtin_expect(!!(x), 1)
-#define unlikely(x) __builtin_expect(!!(x), 0)
-
 uint32_t cm_run(struct cm_cpu *c, uint32_t max)
 {
     uint64_t start = c->cycles, end = c->cycles + max;
@@ -2481,33 +2507,41 @@ uint32_t cm_run(struct cm_cpu *c, uint32_t max)
     uint32_t cbase = 0, csize = 0;
 
     while (c->cycles < end) {
-        if (unlikely(c->check_irq)) {
-            c->check_irq = 0;
-            if (try_take_pending(c)) { c->cycles++; continue; }
+        if (unlikely(c->attn_pre)) {
+            if (c->check_irq) {
+                c->check_irq = 0;
+                if (try_take_pending(c)) { c->cycles++; continue; }
+            }
+            if (c->lockup | c->sleeping | c->stop_batch) break;
         }
-        if (unlikely(c->lockup | c->sleeping | c->stop_batch)) break;
 
         uint32_t pc = c->r[15], hw1, hw2 = 0;
         uint32_t off = pc - cbase;
         if (likely(off + 4u <= csize && c->tbit)) {
-            hw1 = (uint32_t)cmem[off] | ((uint32_t)cmem[off + 1] << 8);
-            if ((hw1 >> 11) >= 0x1Du) {
-                hw2 = (uint32_t)cmem[off + 2] | ((uint32_t)cmem[off + 3] << 8);
+            uint32_t w;                            /* both halfwords; the host is little-endian */
+            memcpy(&w, cmem + off, 4);
+            hw1 = w & 0xFFFFu;
+            if (hw1 >= 0xE800u) {                  /* 32-bit: hw1[15:11] is 0b11101 or more */
+                hw2 = w >> 16;
                 c->next_pc = pc + 4u;
             } else {
                 c->next_pc = pc + 2u;
             }
         } else {
-            /* Slow path: new region, region end, T bit clear or a fault */
+            /* Slow path: new region, region end, T bit clear or a fault.
+             * (Separate locals: taking hw1's address would keep it in memory
+             * on the fast path too.) */
             struct cm_region *r = region_for(c->bus, pc, 2);
             if (r && r->exec && c->tbit) { cmem = r->mem; cbase = r->base; csize = r->size; }
+            uint32_t h1 = 0, h2 = 0;
             if (!c->tbit) {
                 usage_fault(c, CM_UFSR_INVSTATE);
-            } else if (fetch16(c, pc, &hw1)) {
-                int wide = (hw1 >> 11) >= 0x1Du;
-                if (!wide || fetch16(c, pc + 2u, &hw2))
+            } else if (fetch16(c, pc, &h1)) {
+                int wide = h1 >= 0xE800u;
+                if (!wide || fetch16(c, pc + 2u, &h2))
                     c->next_pc = pc + (wide ? 4u : 2u);
             }
+            hw1 = h1; hw2 = h2;
             if (c->sync_exc) {
                 c->cycles++;
                 take_sync(c);
@@ -2515,26 +2549,30 @@ uint32_t cm_run(struct cm_cpu *c, uint32_t max)
             }
         }
 
-        if (unlikely(c->it & 0xFu) && !cond_pass(c, c->it >> 4)) {
+        if (unlikely(c->it & 0xFu) && !cond_pass(c, (uint32_t)c->it >> 4)) {
             /* condition failed: no effect */
-        } else if ((hw1 >> 11) >= 0x1Du) {
+        } else if (hw1 >= 0xE800u) {
             exec32(c, hw1, hw2);
         } else {
             exec16(c, hw1);
         }
         c->cycles++;
 
-        if (unlikely(c->sync_exc)) {
+        if (likely(!c->attn_post)) {               /* no fault, IT block or exception return */
+            c->r[15] = c->next_pc;
+            continue;
+        }
+        if (c->sync_exc) {
             if (c->sync_exc == CM_EXC_SVCALL && in_it(c)) it_advance(c);
             take_sync(c);
             continue;
         }
-        if (unlikely(c->it)) {
+        if (c->it) {
             if (c->it_set) c->it_set = 0;
             else it_advance(c);
         }
         c->r[15] = c->next_pc;
-        if (unlikely(c->exc_ret_pending)) {
+        if (c->exc_ret_pending) {
             c->exc_ret_pending = 0;
             exception_return(c, c->exc_ret_value);
         }

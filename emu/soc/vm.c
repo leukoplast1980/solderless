@@ -16,7 +16,10 @@
 #include <string.h>
 #include <time.h>
 
-#define BATCH        200000u
+/* Instructions per batch. The host's requests (reading the board, a display,
+ * the scope) wait for the running batch to end, so it stays short: about
+ * 0.1 ms at full speed. */
+#define BATCH        20000u
 #define RING_SIZE    65536u          /* power of two */
 #define TAIL_SIZE    512u            /* power of two */
 #define LOG_SIZE     16384u

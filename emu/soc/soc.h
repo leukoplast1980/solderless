@@ -143,6 +143,10 @@ struct sl_soc {
     int np;
     int pi_rcc, pi_pwr, pi_flash, pi_syscfg, pi_dbgmcu, pi_gpio[SL_NUM_PORTS];
     int pi_exti, pi_dac1, pi_adc_common;
+    int8_t port_of[96];         /* GPIO port of a peripheral index, or -1 */
+    int last_pi;                /* the peripheral the last MMIO access went to */
+    /* The alternate-function table (sl_g431_af) by port, pin and AF number; -1 for none */
+    int16_t af_index[SL_NUM_PORTS][16][16];
 
     /* Interrupt lines with several sources (TIM1_UP and TIM16, ...): one bit per source */
     uint64_t irq_src[SL_NUM_IRQ];

@@ -206,6 +206,9 @@ static void periph_regs_reset(struct sl_soc *s, int pi)
 
 static int find_periph(const struct sl_soc *s, uint32_t a)
 {
+    /* Programs tend to stay on one peripheral for a while */
+    const struct sl_periph_info *last = &sl_g431_periph[s->last_pi];
+    if (a - last->base < last->size) return s->last_pi;
     int lo = 0, hi = s->np - 1;
     while (lo <= hi) {
         int mid = (lo + hi) / 2;
@@ -217,12 +220,7 @@ static int find_periph(const struct sl_soc *s, uint32_t a)
     return -1;
 }
 
-static int gpio_port_of(const struct sl_soc *s, int pi)
-{
-    for (int i = 0; i < SL_NUM_PORTS; i++)
-        if (s->pi_gpio[i] == pi) return i;
-    return -1;
-}
+static int gpio_port_of(const struct sl_soc *s, int pi) { return s->port_of[pi]; }
 
 /* Recomputes which peripherals have their bus clock enabled. */
 static void update_clock_gates(struct sl_soc *s)
@@ -373,6 +371,7 @@ static int mmio_read(void *ctx, uint32_t a, int n, uint32_t *v)
 {
     struct sl_soc *s = ctx;
     int pi = find_periph(s, a);
+    if (pi >= 0) s->last_pi = pi;
     if (pi < 0) {
         soc_log(s, LOG_BUS_ERROR, "Bus error: read of 0x%08X, where there is no memory or peripheral (PC 0x%08X)",
                 a, s->cpu.r[15]);
@@ -400,6 +399,7 @@ static int mmio_write(void *ctx, uint32_t a, int n, uint32_t v)
     struct sl_soc *s = ctx;
     idle_break(s);
     int pi = find_periph(s, a);
+    if (pi >= 0) s->last_pi = pi;
     if (pi < 0) {
         soc_log(s, LOG_BUS_ERROR, "Bus error: write to 0x%08X, where there is no memory or peripheral (PC 0x%08X)",
                 a, s->cpu.r[15]);
@@ -477,6 +477,16 @@ void soc_init(struct sl_soc *s)
     s->pi_adc_common = periph_index("ADC12_COMMON");
     static const char *ports[SL_NUM_PORTS] = { "GPIOA", "GPIOB", "GPIOC", "GPIOD", "GPIOE", "GPIOF", "GPIOG" };
     for (int i = 0; i < SL_NUM_PORTS; i++) s->pi_gpio[i] = periph_index(ports[i]);
+    memset(s->port_of, -1, sizeof s->port_of);
+    for (int i = 0; i < SL_NUM_PORTS; i++) if (s->pi_gpio[i] >= 0) s->port_of[s->pi_gpio[i]] = (int8_t)i;
+    s->last_pi = 0;
+    memset(s->af_index, -1, sizeof s->af_index);
+    for (int i = 0; i < sl_g431_naf; i++) {
+        const struct sl_af_info *e = &sl_g431_af[i];
+        if (e->port < SL_NUM_PORTS && e->pin < 16 && e->af < 16
+            && s->af_index[e->port][e->pin][e->af] < 0)
+            s->af_index[e->port][e->pin][e->af] = (int16_t)i;
+    }
 
     memset(s->flash, 0xFF, sizeof s->flash);
     memset(s->sysmem, 0xFF, sizeof s->sysmem);

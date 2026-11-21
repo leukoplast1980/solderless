@@ -70,6 +70,12 @@ does single-step, snapshots and virtual time, it is easy to hook for the
 access log, and it has no outside dependency. Speed is enough: a good
 interpreter on a current phone lands near the real chip's 170 MHz.
 
+The run loop keeps its common case short: the rare conditions (a pending
+interrupt, a fault, an IT block, an exception return, sleep) are one test
+before and one after each instruction, and loads and stores that hit RAM or
+flash are handled inline. The emulator is built optimised in debug APKs
+too, which would otherwise run it about three times slower.
+
 ### 3.2 Memory
 
 - 128 KB flash at `0x0800_0000`, also visible at `0x0000_0000` when booting from
@@ -116,6 +122,9 @@ nothing, reads return 0) and the Log says why.
   delay takes a second: LEDs blink at the right rate, sounds have the right
   pitch, the CO2 sensor delivers a value every 5 s. If the phone cannot keep
   up, emulated time runs slower and a speed indicator shows the ratio.
+- **Batches.** The CPU runs at most 20,000 instructions at a time (about
+  0.1 ms at full speed). The app's reads of the board, the displays and the
+  scope wait for the running batch to end, so they stay short.
 - **Deterministic mode** for tests: no pacing, no wall clock, same result on
   every run.
 - **Idle detection.** Stellaris waits for a key by polling USART2's status

@@ -50,6 +50,10 @@ import io.github.leukoplast1980.solderless.vm.BoardState
 import io.github.leukoplast1980.solderless.vm.VmHost
 import java.io.File
 
+/** In the parts' state text (read every refresh) */
+private val BUSY = Regex("Status\tBUSY 1")
+private val CONTRAST = Regex("Contrast\t0x([0-9A-F]{2})")
+
 class BoardController(
     private val activity: AppCompatActivity,
     private val vm: VmHost,
@@ -150,7 +154,7 @@ class BoardController(
         if (view.board !== vm.board) { view.board = vm.board; rebuildPinned() }
         if (!boardVisible && pinned.visibility != View.VISIBLE) return
         vm.readBoard(state)
-        readDevices()
+        readDevices(boardVisible)
         if (boardVisible) {
             view.state = state
             view.invalidate()
@@ -160,16 +164,18 @@ class BoardController(
         } else updatePinned()
     }
 
-    /** Pixels and state of the displays on the board, for the board, the card and the close-up */
-    private fun readDevices() {
-        for (p in vm.board.parts.filter { it.type == PartType.FLASH }) {
+    /** Pixels and state of the displays on the board, for the board, the card and the close-up.
+     * With the board hidden, only the parts pinned over the other tabs. */
+    private fun readDevices(boardVisible: Boolean) {
+        val parts = if (boardVisible) vm.board.parts else vm.board.parts.filter { it.pinnedOverTabs }
+        for (p in parts.filter { it.type == PartType.FLASH }) {
             val text = vm.readDevice(p.id, oledBuf) ?: continue
             deviceText[p.id] = text
-            if (Regex("Status\tBUSY 1").containsMatchIn(text)) view.deviceBusy += p.id else view.deviceBusy -= p.id
+            if (BUSY.containsMatchIn(text)) view.deviceBusy += p.id else view.deviceBusy -= p.id
             flashSheet?.let { (id, update) -> if (id == p.id) update(text) }
         }
         // what each encoder's timer counts, when it is in encoder mode
-        val encs = vm.board.parts.filter { it.type == PartType.ENCODER && it.pins.firstOrNull()?.function is PinFunction.Timer }
+        val encs = parts.filter { it.type == PartType.ENCODER && it.pins.firstOrNull()?.function is PinFunction.Timer }
         if (encs.isNotEmpty()) {
             val addr = encs.flatMap { p ->
                 val base = ChipPins.BASE[(p.pins[0].function as PinFunction.Timer).timer]!!.toInt()
@@ -184,7 +190,7 @@ class BoardController(
                 if (on) view.encoderCounts[p.id] = cnt else view.encoderCounts.remove(p.id)
             }
         }
-        for (p in vm.board.parts.filter { it.type == PartType.BARO || it.type == PartType.CO2 }) {
+        for (p in parts.filter { it.type == PartType.BARO || it.type == PartType.CO2 }) {
             val text = vm.readDevice(p.id, oledBuf) ?: continue
             deviceText[p.id] = text
             text.lines().firstOrNull { it.startsWith("Reading\t") }?.let { r ->
@@ -193,19 +199,21 @@ class BoardController(
             }
             sensorSheet?.let { (id, update) -> if (id == p.id) update(text) }
         }
-        for (p in vm.board.parts.filter { it.type == PartType.MATRIX || it.type == PartType.TFT }) {
+        for (p in parts.filter { it.type == PartType.MATRIX || it.type == PartType.TFT }) {
             val text = vm.readDevice(p.id, panelBuf) ?: continue
             val n = if (p.type == PartType.MATRIX) 64 * p.matrixChips else 240 * p.tftRows * 2
-            val px = panelBuf.copyOf(n)
-            view.devicePixels[p.id] = px
+            // the part's own array, refilled: a new one every refresh was up to 150 KB of garbage 20 times a second
+            val px = view.devicePixels[p.id]?.takeIf { it.size == n } ?: ByteArray(n).also { view.devicePixels[p.id] = it }
+            System.arraycopy(panelBuf, 0, px, 0, n)
             deviceText[p.id] = text
             when (val v = pinnedViews[p.id]) { is MatrixView -> v.show(px); is TftView -> v.show(px) }
             panelCloseUp?.let { (id, update) -> if (id == p.id) update(px, text) }
         }
-        for (p in vm.board.parts.filter { it.type == PartType.OLED }) {
+        for (p in parts.filter { it.type == PartType.OLED }) {
             val text = vm.readDevice(p.id, oledBuf) ?: continue
-            val contrast = Regex("Contrast\t0x([0-9A-F]{2})").find(text)?.groupValues?.get(1)?.toInt(16) ?: 0x7F
-            view.devicePixels[p.id] = oledBuf.copyOf()
+            val contrast = CONTRAST.find(text)?.groupValues?.get(1)?.toInt(16) ?: 0x7F
+            val px = view.devicePixels[p.id]?.takeIf { it.size == oledBuf.size } ?: ByteArray(oledBuf.size).also { view.devicePixels[p.id] = it }
+            System.arraycopy(oledBuf, 0, px, 0, oledBuf.size)
             view.deviceContrast[p.id] = contrast
             deviceText[p.id] = text
             (pinnedViews[p.id] as? OledView)?.show(oledBuf, contrast)
