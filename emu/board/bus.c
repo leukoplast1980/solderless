@@ -129,6 +129,48 @@ static int on_bus(const struct sl_dev *d, int scl, int sda)
 
 static void part_messages(struct sl_soc *s, struct sl_dev *d);
 
+/* ---- the scope's decoder: what went over the bus ---- */
+
+static void log_event(struct sl_soc *s, int kind, int flags, int value, int miso, int part,
+                      uint64_t t0_ps, uint64_t t1_ps, int p0, int p1, int p2, int cs, int bits)
+{
+    if (!board_pin_traced(s, p0) && !board_pin_traced(s, p1) && !board_pin_traced(s, p2) && !board_pin_traced(s, cs)) return;
+    sl_bus_event e;
+    memset(&e, 0, sizeof e);
+    e.t0_ns = t0_ps / 1000u; e.t1_ns = t1_ps / 1000u;
+    e.kind = (uint8_t)kind; e.flags = (uint8_t)flags; e.bits = (uint8_t)bits;
+    e.part = (int8_t)part; e.value = (uint16_t)value; e.miso = (uint16_t)miso;
+    e.pin[0] = (int8_t)p0; e.pin[1] = (int8_t)p1; e.pin2 = (int8_t)p2; e.cs = (int8_t)cs;
+    board_bus_log(s, &e);
+}
+
+/* The on-chip I2C on these pins: one bit's time */
+static uint64_t i2c_bit_ps(struct sl_soc *s, int scl)
+{
+    uint32_t hz = scl >= 0 && scl < SL_PIN_SLOTS ? B->i2c_hz[scl] : 0;
+    return hz ? SL_PS_PER_S / hz : 2500000u;
+}
+
+/* The decoders of every part on a bus see the same bits: only the last one logs them */
+static int last_on_bus(struct sl_soc *s, const struct sl_dev *d)
+{
+    for (const struct sl_dev *e = d + 1; e < B->dev + B->ndev; e++)
+        if (!is_spi(e->kind) && e->pin[SL_SIG_SCL] == d->pin[SL_SIG_SCL] && e->pin[SL_SIG_SDA] == d->pin[SL_SIG_SDA]) return 0;
+    return 1;
+}
+
+static int any_holds_sda(struct sl_soc *s, int scl, int sda)
+{
+    for (int i = 0; i < B->ndev; i++) if (on_bus(&B->dev[i], scl, sda) && B->dev[i].sda_low) return 1;
+    return 0;
+}
+
+static int selected_part(struct sl_soc *s, int scl, int sda)
+{
+    for (int i = 0; i < B->ndev; i++) if (B->dev[i].selected && on_bus(&B->dev[i], scl, sda)) return B->dev[i].part;
+    return -1;
+}
+
 /* Address phase for one part: does it answer? */
 static int dev_start(struct sl_soc *s, struct sl_dev *d, int addr, int read)
 {
@@ -209,30 +251,41 @@ int bus_i2c_start(struct sl_soc *s, int scl, int sda, int addr, int read, uint32
     }
     if (n > 1) soc_log(s, LOG_I2C_CLASH, "Two parts on the bus have address 0x%02X: both answer and their replies collide", addr);
     if (n == 0) no_answer(s, scl, sda, addr, who);
+    if (scl >= 0 && scl < SL_PIN_SLOTS) B->i2c_hz[scl] = scl_hz;
+    uint64_t now = soc_now_ps(s), bit = i2c_bit_ps(s, scl);
+    log_event(s, SL_BUS_I2C_START, SL_BUS_HW, 0, 0, -1, now - bit * 19 / 2, now - bit * 9, scl, sda, -1, -1, 0);
+    log_event(s, SL_BUS_I2C_ADDR, SL_BUS_HW | (read ? SL_BUS_READ : 0), addr << 1 | (read ? 1 : 0), acked,
+              selected_part(s, scl, sda), now - bit * 9, now, scl, sda, -1, -1, 8);
     return acked;
 }
 
 int bus_i2c_write(struct sl_soc *s, int scl, int sda, uint8_t b)
 {
-    int ack = 0;
+    int ack = 0, part = selected_part(s, scl, sda);
     for (int i = 0; i < B->ndev; i++)
         if (B->dev[i].selected && on_bus(&B->dev[i], scl, sda)) ack |= dev_write(s, &B->dev[i], b);
+    uint64_t now = soc_now_ps(s), bit = i2c_bit_ps(s, scl);
+    log_event(s, SL_BUS_I2C_BYTE, SL_BUS_HW, b, ack, part, now - bit * 9, now, scl, sda, -1, -1, 8);
     return ack;
 }
 
 uint8_t bus_i2c_read(struct sl_soc *s, int scl, int sda, int ack)
 {
     uint8_t v = 0xFF;                       /* nobody drives SDA: the pull-up reads as 1s */
+    int part = selected_part(s, scl, sda);
     for (int i = 0; i < B->ndev; i++)
         if (B->dev[i].selected && on_bus(&B->dev[i], scl, sda)) v &= dev_read(s, &B->dev[i]);
-    (void)ack;
+    uint64_t now = soc_now_ps(s), bit = i2c_bit_ps(s, scl);
+    log_event(s, SL_BUS_I2C_BYTE, SL_BUS_HW | SL_BUS_READ, v, ack, part, now - bit * 9, now, scl, sda, -1, -1, 8);
     return v;
 }
 
-void bus_i2c_stop(struct sl_soc *s, int scl, int sda)
+void bus_i2c_stop(struct sl_soc *s, int scl, int sda, int on_wire)
 {
     for (int i = 0; i < B->ndev; i++)
         if (on_bus(&B->dev[i], scl, sda)) dev_stop(s, &B->dev[i]);
+    uint64_t now = soc_now_ps(s), bit = i2c_bit_ps(s, scl);
+    if (on_wire) log_event(s, SL_BUS_I2C_STOP, SL_BUS_HW, 0, 0, -1, now - bit / 2, now, scl, sda, -1, -1, 0);
 }
 
 int bus_pin_pulled_up(struct sl_soc *s, int slot)
@@ -277,11 +330,19 @@ static void part_messages(struct sl_soc *s, struct sl_dev *d)
     }
 }
 
+/* The display's DC with a byte: data, not a command */
+static int spi_dc_flag(struct sl_soc *s, const struct sl_dev *d)
+{
+    return d->kind == SL_DEV_ST7789 && (d->pin[SL_SIG_DC] < 0 || line(s, d->pin[SL_SIG_DC])) ? SL_BUS_READ : 0;
+}
+
 static void spi_select(struct sl_soc *s, struct sl_dev *d, int low)
 {
     if (d->cs_low == low) return;
     d->cs_low = low;
     uint64_t now = soc_now_ps(s);
+    log_event(s, SL_BUS_SPI_CS, 0, low, 0, d->part, now, now, d->pin[SL_SIG_SCK], d->pin[SL_SIG_MOSI], d->pin[SL_SIG_MISO],
+              d->pin[SL_SIG_CS], 0);
     d->spi_bits = 0; d->spi_started = 0; d->have_next = 0; d->out_pos = 0;
     d->spi_out = 0xFF;
     int was_driving = d->out_drive;
@@ -317,9 +378,13 @@ static uint8_t spi_model_byte(struct sl_soc *s, struct sl_dev *d, uint8_t b, int
 static void spi_rise(struct sl_soc *s, struct sl_dev *d, int mosi)
 {
     d->spi_started = 1;
+    if (d->spi_bits == 0) d->spi_t0 = soc_now_ps(s);
     d->spi_in = (uint8_t)(d->spi_in << 1 | (mosi & 1));
     if (++d->spi_bits < 8) return;
     d->spi_bits = 0;
+    if (!s->spi_hw_frame)                   /* bit-banged: the scope sees this byte from here */
+        log_event(s, SL_BUS_SPI_BYTE, (d->out_drive ? SL_BUS_DRIVEN : 0) | spi_dc_flag(s, d), d->spi_in, d->out_drive ? d->spi_out : 0xFF, d->part, d->spi_t0, soc_now_ps(s),
+                  d->pin[SL_SIG_SCK], d->pin[SL_SIG_MOSI], d->pin[SL_SIG_MISO], d->pin[SL_SIG_CS], 8);
     d->next_out = spi_model_byte(s, d, d->spi_in, &d->next_drive);
     d->have_next = 1;
 }
@@ -361,10 +426,11 @@ uint32_t bus_spi_frame(struct sl_soc *s, int sck, int mosi, int miso, uint32_t v
     }
     int miso_was[SL_MAX_DEV];
     for (int k = 0; k < nsel; k++) miso_was[k] = sel[k]->out_drive;
+    s->spi_hw_frame = 1;
 
     int skew = mode == 1 || mode == 2;
     uint32_t rx = 0;
-    int clash = 0;
+    int clash = 0, driven = 0;
     for (int b = 0; b < bits; b++) {
         int pos = lsb ? b : bits - 1 - b;
         int bit = (int)((v >> pos) & 1u);
@@ -388,11 +454,20 @@ uint32_t bus_spi_frame(struct sl_soc *s, int sck, int mosi, int miso, uint32_t v
         if (skew)
             for (int k = 0; k < nsel; k++) if (sel[k]->out_drive) { in &= sel[k]->miso_level; drivers++; lv[sel[k]->miso_level] = 1; }
         if (drivers > 1 && lv[0] && lv[1]) clash = 1;
+        if (drivers) driven = 1;
         int r = drivers ? in : miso >= 0 ? board_pin_level(s, miso >> 4, miso & 15) : 0;   /* floating: at random */
         rx |= (uint32_t)r << pos;
     }
     if (clash)
         soc_log(s, LOG_SPI_MISO, "%s: two parts drive MISO at once with different bits: their chip selects are both low", who);
+    s->spi_hw_frame = 0;
+    {
+        uint64_t now = soc_now_ps(s), bit = SL_PS_PER_S / (hz ? hz : 1);
+        log_event(s, SL_BUS_SPI_BYTE, SL_BUS_HW | (mode & 3) | (lsb ? SL_BUS_LSB : 0) | (driven ? SL_BUS_DRIVEN : 0) |
+                  (nsel ? spi_dc_flag(s, sel[0]) : 0),
+                  (int)v, (int)rx, nsel ? sel[0]->part : -1,
+                  now - bit * (uint64_t)bits - bit / 2, now - bit / 2, sck, mosi, miso, nsel ? sel[0]->pin[SL_SIG_CS] : -1, bits);
+    }
     for (int k = 0; k < nsel; k++)
         if (sel[k]->out_drive != miso_was[k] && miso >= 0) board_port_changed(s, miso >> 4, 1u << (miso & 15));
     return rx;
@@ -444,19 +519,26 @@ static void decode(struct sl_soc *s, struct sl_dev *d)
     int pscl = d->dec_scl, psda = d->dec_sda;
     d->dec_scl = scl; d->dec_sda = sda;
     if (scl && pscl && sda != psda) {
+        int scl_pin = d->pin[SL_SIG_SCL], sda_pin = d->pin[SL_SIG_SDA];
+        uint64_t now = soc_now_ps(s);
         if (!sda) {                         /* START, or a repeated START */
             if (d->selected) dev_stop(s, d);
             hold_sda(s, d, 0);
             d->dec_phase = DEC_IN; d->dec_bits = 0; d->dec_byte = 0; d->dec_ack = -1;   /* -1: address next */
+            if (last_on_bus(s, d)) log_event(s, SL_BUS_I2C_START, 0, 0, 0, -1, now, now, scl_pin, sda_pin, -1, -1, 0);
         } else {                            /* STOP */
             dev_stop(s, d);
             hold_sda(s, d, 0);
             d->dec_phase = DEC_IDLE;
+            if (last_on_bus(s, d)) log_event(s, SL_BUS_I2C_STOP, 0, 0, 0, -1, now, now, scl_pin, sda_pin, -1, -1, 0);
         }
         return;
     }
     if (scl && !pscl) {                     /* SCL rises: the bit is valid */
-        if (d->dec_phase == DEC_IN && d->dec_bits < 8) { d->dec_byte = (uint8_t)(d->dec_byte << 1 | sda); d->dec_bits++; }
+        if (d->dec_phase == DEC_IN && d->dec_bits < 8) {
+            if (d->dec_bits == 0) d->dec_t0 = soc_now_ps(s);
+            d->dec_byte = (uint8_t)(d->dec_byte << 1 | sda); d->dec_bits++;
+        }
         else if (d->dec_phase == DEC_MACK) d->dec_ack = !sda;
         return;
     }
@@ -466,6 +548,11 @@ static void decode(struct sl_soc *s, struct sl_dev *d)
             if (d->dec_bits < 8) break;
             if (d->dec_ack == -1) {         /* the address byte */
                 int ack = dev_start(s, d, d->dec_byte >> 1, d->dec_byte & 1);
+                if (last_on_bus(s, d))
+                    log_event(s, SL_BUS_I2C_ADDR, (d->dec_byte & 1) ? SL_BUS_READ : 0, d->dec_byte,
+                              ack || any_holds_sda(s, d->pin[SL_SIG_SCL], d->pin[SL_SIG_SDA]),
+                              ack ? d->part : selected_part(s, d->pin[SL_SIG_SCL], d->pin[SL_SIG_SDA]),
+                              d->dec_t0, soc_now_ps(s), d->pin[SL_SIG_SCL], d->pin[SL_SIG_SDA], -1, -1, 8);
                 if (!ack) {
                     /* the 7-bit address sent as the byte, without the R/W bit below it */
                     if ((d->dec_byte & 0x7F) == d->addr && d->dec_byte >> 1 != d->addr)
@@ -474,7 +561,13 @@ static void decode(struct sl_soc *s, struct sl_dev *d)
                                 d->dec_byte, dev_name(d->kind), d->addr, d->addr << 1, d->addr << 1 | 1);
                     d->dec_phase = DEC_SKIP; break;
                 }
-            } else if (!dev_write(s, d, d->dec_byte)) { d->dec_phase = DEC_SKIP; break; }   /* not acknowledged */
+            } else {
+                int ack = dev_write(s, d, d->dec_byte);
+                if (d->selected)            /* the part being written to logs what it took */
+                    log_event(s, SL_BUS_I2C_BYTE, 0, d->dec_byte, ack, d->part, d->dec_t0, soc_now_ps(s),
+                              d->pin[SL_SIG_SCL], d->pin[SL_SIG_SDA], -1, -1, 8);
+                if (!ack) { d->dec_phase = DEC_SKIP; break; }   /* not acknowledged */
+            }
             hold_sda(s, d, 1);              /* acknowledge */
             d->dec_ack = 0;
             d->dec_phase = DEC_ACK;
@@ -483,6 +576,7 @@ static void decode(struct sl_soc *s, struct sl_dev *d)
             hold_sda(s, d, 0);
             d->dec_bits = 0; d->dec_byte = 0;
             if (d->dec_read) {
+                d->dec_t0 = soc_now_ps(s);
                 d->dec_byte = dev_read(s, d);
                 hold_sda(s, d, !((d->dec_byte >> 7) & 1));
                 d->dec_phase = DEC_OUT;
@@ -493,7 +587,10 @@ static void decode(struct sl_soc *s, struct sl_dev *d)
             else { hold_sda(s, d, 0); d->dec_phase = DEC_MACK; }
             break;
         case DEC_MACK:
+            log_event(s, SL_BUS_I2C_BYTE, SL_BUS_READ, d->dec_byte, d->dec_ack == 1, d->part, d->dec_t0, soc_now_ps(s),
+                      d->pin[SL_SIG_SCL], d->pin[SL_SIG_SDA], -1, -1, 8);
             if (d->dec_ack == 1) {
+                d->dec_t0 = soc_now_ps(s);
                 d->dec_byte = dev_read(s, d);
                 d->dec_bits = 0;
                 hold_sda(s, d, !((d->dec_byte >> 7) & 1));

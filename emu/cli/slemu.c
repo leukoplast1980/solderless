@@ -119,6 +119,31 @@ static int directive(const char *line)
         fflush(stdout);
         return 0;
     }
+    if (!strcmp(cmd, "bus")) {
+        /* #!bus: what the scope's decoder saw on the traced pins since the last time */
+        static sl_bus_event ev[512];
+        size_t m = sl_bus_read(vm, ev, 512);
+        uint64_t t0 = m ? ev[0].t0_ns : 0;
+        for (size_t i = 0; i < m; i++) {
+            const sl_bus_event *e = &ev[i];
+            printf("+%llu.%01llu us %s ", (unsigned long long)((e->t0_ns - t0) / 1000), (unsigned long long)((e->t0_ns - t0) % 1000 / 100),
+                   (e->flags & SL_BUS_HW) ? "hw" : "bb");
+            switch (e->kind) {
+            case SL_BUS_I2C_START: printf("S\n"); break;
+            case SL_BUS_I2C_STOP: printf("P\n"); break;
+            case SL_BUS_I2C_ADDR: printf("addr %02X %c %s part %d\n", e->value >> 1, (e->value & 1) ? 'R' : 'W', e->miso ? "ack" : "nack", e->part); break;
+            case SL_BUS_I2C_BYTE: printf("%s %02X %s\n", (e->flags & SL_BUS_READ) ? "read" : "byte", e->value, e->miso ? "ack" : "nack"); break;
+            case SL_BUS_SPI_BYTE: printf("spi %02X/%02X%s mode %d part %d len %llu ns\n", e->value, e->miso,
+                                         (e->flags & SL_BUS_DRIVEN) ? "" : " (MISO not driven)", e->flags & 3, e->part,
+                                         (unsigned long long)(e->t1_ns - e->t0_ns)); break;
+            case SL_BUS_SPI_CS: printf("cs part %d %s\n", e->part, e->value ? "selected" : "released"); break;
+            case SL_BUS_LOST: printf("lost %u\n", (unsigned)e->miso << 16 | e->value); break;
+            default: printf("?\n"); break;
+            }
+        }
+        fflush(stdout);
+        return 0;
+    }
     if (!strcmp(cmd, "audio")) {
         sl_audio_event ev[64];
         uint64_t now;

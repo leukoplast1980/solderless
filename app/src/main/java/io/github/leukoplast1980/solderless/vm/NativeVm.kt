@@ -67,4 +67,6 @@ object NativeVm {
     @JvmStatic external fun tracePins(handle: Long, slots: IntArray)
     /** The scope's events; same layout as [audioRead]. Called from the UI thread only. */
     @JvmStatic external fun traceRead(handle: Long, out: IntArray): Int
+    /** What the decoder saw on the traced pins' buses since the last call: 6 ints per event (see jni.c) */
+    @JvmStatic external fun busRead(handle: Long, out: IntArray): Int
 }

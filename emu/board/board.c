@@ -169,6 +169,50 @@ void board_trace_pins(struct sl_soc *s, const int *slots, int n)
         }
 }
 
+int board_pin_traced(struct sl_soc *s, int slot)
+{
+    return slot >= 0 && slot < SL_PIN_SLOTS && B->pin[slot].traced;
+}
+
+static int bus_free_slots(struct sl_soc *s)
+{
+    return (int)((B->bus_tail + SL_BUS_RING - B->bus_head - 1) % SL_BUS_RING);
+}
+
+void board_bus_log(struct sl_soc *s, const sl_bus_event *e)
+{
+    sl_bus_event *l = &B->bus_lost;
+    if (l->kind && bus_free_slots(s) >= 2) {            /* room again: say what was lost first */
+        B->bus[B->bus_head] = *l;
+        B->bus_head = (B->bus_head + 1) % SL_BUS_RING;
+        l->kind = 0;
+    }
+    if (l->kind || bus_free_slots(s) < 2) {             /* full: the reader is behind */
+        if (!l->kind) { *l = *e; l->bits = l->kind; l->kind = SL_BUS_LOST; l->flags = 0; l->value = 0; l->miso = 0; }
+        uint32_t n = ((uint32_t)l->miso << 16 | l->value) + 1;
+        l->value = (uint16_t)n; l->miso = (uint16_t)(n >> 16);
+        l->t1_ns = e->t1_ns;
+        return;
+    }
+    B->bus[B->bus_head] = *e;
+    B->bus_head = (B->bus_head + 1) % SL_BUS_RING;
+}
+
+size_t board_bus_read(struct sl_soc *s, sl_bus_event *out, size_t max)
+{
+    size_t n = 0;
+    if (B->bus_lost.kind && bus_free_slots(s) >= 1) {
+        B->bus[B->bus_head] = B->bus_lost;
+        B->bus_head = (B->bus_head + 1) % SL_BUS_RING;
+        B->bus_lost.kind = 0;
+    }
+    while (n < max && B->bus_tail != B->bus_head) {
+        out[n++] = B->bus[B->bus_tail];
+        B->bus_tail = (B->bus_tail + 1) % SL_BUS_RING;
+    }
+    return n;
+}
+
 size_t board_trace_read(struct sl_soc *s, sl_audio_event *out, size_t max)
 {
     /* A burst that ended: record where the pin settled */

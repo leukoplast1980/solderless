@@ -218,6 +218,35 @@ size_t sl_audio_read(sl_vm *vm, sl_audio_event *out, size_t max, uint64_t *now_n
 void sl_trace_pins(sl_vm *vm, const int *slots, int n);
 size_t sl_trace_read(sl_vm *vm, sl_audio_event *out, size_t max, uint64_t *now_ns);
 
+/* The scope's decoder: what went over a bus whose pins it watches, a byte
+ * at a time, from an on-chip I2C or SPI or from the decoders that read
+ * bit-banged lines. Times in emulated ns. */
+enum {
+    SL_BUS_I2C_START = 1,   /* (repeated) START */
+    SL_BUS_I2C_ADDR,        /* the address byte, R/W in bit 0; miso: acknowledged */
+    SL_BUS_I2C_BYTE,        /* a data byte; miso: acknowledged (by the part writing, by the master reading) */
+    SL_BUS_I2C_STOP,
+    SL_BUS_SPI_BYTE,        /* a frame: value out on MOSI, miso back */
+    SL_BUS_LOST,            /* events the reader was too slow for: miso << 16 | value of them, t0 to t1;
+                               bits: the kind of the first, so I2C or SPI */
+    SL_BUS_SPI_CS,          /* a part's chip select: value 1 selected, 0 released */
+};
+#define SL_BUS_HW   0x10    /* flags: from an on-chip peripheral (the pins did not toggle bit by bit) */
+#define SL_BUS_READ 0x20    /* flags: I2C, the master reading; SPI: the display's DC was high (data) */
+#define SL_BUS_LSB  0x40    /* flags: SPI, least significant bit first */
+#define SL_BUS_DRIVEN 0x80  /* flags: SPI, a part drove MISO */
+typedef struct {
+    uint64_t t0_ns, t1_ns;
+    uint8_t kind, flags;    /* flags: SL_BUS_*, SPI: CPOL << 1 | CPHA in bits 0-1 */
+    uint8_t bits;           /* SPI frame size */
+    int8_t part;            /* the part that answered or was selected, -1: none */
+    uint16_t value, miso;
+    int8_t pin[2];          /* I2C: SCL, SDA; SPI: SCK, MOSI (port * 16 + bit) */
+    int8_t pin2;            /* SPI: MISO, or -1 */
+    int8_t cs;              /* SPI: the selected part's chip select, or -1 */
+} sl_bus_event;
+size_t sl_bus_read(sl_vm *vm, sl_bus_event *out, size_t max);
+
 #ifdef __cplusplus
 }
 #endif

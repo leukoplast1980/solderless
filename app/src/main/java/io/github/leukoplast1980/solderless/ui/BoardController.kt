@@ -488,15 +488,18 @@ class BoardController(
         val shown = TextView(activity).apply { text = fmt(value); textSize = 14f; typeface = Typeface.MONOSPACE; setTextColor(0xFF80DEEA.toInt()) }
         head.addView(shown)
         parent.addView(head)
+        // The slider counts whole steps: a value like 987.6 in steps of 0.1 is not exact in a Float,
+        // and the Slider throws when its value is not a multiple of its step
+        val lo = Math.round(from / step); val hi = Math.round(to / step)
         val slider = com.google.android.material.slider.Slider(activity).apply {
-            valueFrom = from; valueTo = to; stepSize = step
-            this.value = ((Math.round(value / step) * step).coerceIn(from, to))
+            valueFrom = lo.toFloat(); valueTo = hi.toFloat(); stepSize = 1f
+            this.value = Math.round(value / step).coerceIn(lo, hi).toFloat()
             labelBehavior = com.google.android.material.slider.LabelFormatter.LABEL_GONE
             contentDescription = label
-            addOnChangeListener { _, v, fromUser -> shown.text = fmt(v); if (fromUser) live(v) }
+            addOnChangeListener { _, v, fromUser -> shown.text = fmt(v * step); if (fromUser) live(v * step) }
             addOnSliderTouchListener(object : com.google.android.material.slider.Slider.OnSliderTouchListener {
                 override fun onStartTrackingTouch(sl: com.google.android.material.slider.Slider) {}
-                override fun onStopTrackingTouch(sl: com.google.android.material.slider.Slider) { done(sl.value) }
+                override fun onStopTrackingTouch(sl: com.google.android.material.slider.Slider) { done(sl.value * step) }
             })
         }
         parent.addView(slider)

@@ -71,6 +71,7 @@ struct sl_dev {
     uint8_t spi_in, spi_out, next_out;
     int miso_level;             /* what DO shows while driven */
     int dec_sck;                /* pin-level decoder: SCK as last seen */
+    uint64_t dec_t0, spi_t0;    /* when the byte being decoded began, for the scope */
     union { struct ssd1306 oled; struct w25q flash; struct max7219 matrix; struct st7789 tft; struct bmp280 baro; struct scd41 co2; } m;
 };
 
@@ -80,6 +81,7 @@ struct sl_dev {
 
 /* A rotary encoder's contacts to come: one change at a time */
 #define SL_ENC_QUEUE 64
+#define SL_BUS_RING 16384
 struct sl_enc_step { uint64_t at; int part, contact, closed; };
 
 struct sl_board {
@@ -95,9 +97,16 @@ struct sl_board {
     int ndev;
     struct sl_enc_step enc[SL_ENC_QUEUE];
     int enc_n;
+    sl_bus_event bus[SL_BUS_RING];
+    uint32_t bus_head, bus_tail;
+    sl_bus_event bus_lost;              /* bytes the reader was too slow for: one SL_BUS_LOST covering them */
+    uint32_t i2c_hz[SL_PIN_SLOTS];      /* by SCL pin: the clock of the on-chip I2C on it */
 };
 
 void board_trace_pins(struct sl_soc *s, const int *slots, int n);
+int board_pin_traced(struct sl_soc *s, int slot);
+void board_bus_log(struct sl_soc *s, const sl_bus_event *e);
+size_t board_bus_read(struct sl_soc *s, sl_bus_event *out, size_t max);
 size_t board_trace_read(struct sl_soc *s, sl_audio_event *out, size_t max);
 
 size_t board_audio_read(struct sl_soc *s, sl_audio_event *out, size_t max);
@@ -125,7 +134,7 @@ void board_idr_read(struct sl_soc *s, int port);
 int bus_i2c_start(struct sl_soc *s, int scl, int sda, int addr, int read, uint32_t scl_hz, const char *who);
 int bus_i2c_write(struct sl_soc *s, int scl, int sda, uint8_t b);
 uint8_t bus_i2c_read(struct sl_soc *s, int scl, int sda, int ack);
-void bus_i2c_stop(struct sl_soc *s, int scl, int sda);
+void bus_i2c_stop(struct sl_soc *s, int scl, int sda, int on_wire);   /* on_wire 0: a repeated START, or the peripheral turned off */
 /* SPI: one frame from an on-chip SPI, delivered to the selected parts on
  * these pins. mode is CPOL << 1 | CPHA; returns what came back on MISO. */
 uint32_t bus_spi_frame(struct sl_soc *s, int sck, int mosi, int miso, uint32_t v, int bits, int mode, int lsb,

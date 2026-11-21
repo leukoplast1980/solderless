@@ -126,7 +126,7 @@ void i2c_reset(struct sl_soc *s, int i)
 static void soft_reset(struct sl_soc *s, int i)
 {
     struct sl_i2c *c = &s->i2c[i];
-    if (c->state != I2C_IDLE && c->scl >= 0) bus_i2c_stop(s, c->scl, c->sda);
+    if (c->state != I2C_IDLE && c->scl >= 0) bus_i2c_stop(s, c->scl, c->sda, 0);
     regs(s, i)[CR2 / 4] &= ~(CR2_START | CR2_STOP);
     i2c_reset(s, i);
 }
@@ -306,7 +306,7 @@ void i2c_event(struct sl_soc *s, int i)
         break;
     }
     case I2C_STOPPING:
-        bus_i2c_stop(s, c->scl, c->sda);
+        bus_i2c_stop(s, c->scl, c->sda, 1);
         c->isr |= ISR_STOPF;
         c->isr &= ~ISR_BUSY;
         regs(s, i)[CR2 / 4] &= ~(CR2_STOP | CR2_START);
@@ -372,7 +372,7 @@ void i2c_write(struct sl_soc *s, int i, uint32_t off, uint32_t v, uint32_t mask)
             else next_tx(s, i);
         }
         if ((w & CR2_START) && !(was & CR2_START) && (c->state == I2C_IDLE || c->state == I2C_HOLD || c->state == I2C_STALLED)) {
-            if (c->state == I2C_HOLD && c->scl >= 0) bus_i2c_stop(s, c->scl, c->sda);  /* repeated START ends the part's run */
+            if (c->state == I2C_HOLD && c->scl >= 0) bus_i2c_stop(s, c->scl, c->sda, 0);  /* repeated START ends the part's run */
             start(s, i);
         } else if ((w & CR2_STOP) && !(was & CR2_STOP)) {
             if (c->state == I2C_HOLD) { c->isr &= ~(ISR_TC | ISR_TCR); stop(s, i); }

@@ -2,7 +2,9 @@
  * Solderless - the Scope tab's drawing: one row per watched pin over a
  * time window. Logic levels, voltages for analog pins, PWM as a square
  * wave (or a band when its periods are too close to draw), fast toggling
- * as a dense mark; trigger line and two cursors.
+ * as a dense mark; trigger line and two cursors. Bus lines get their bits
+ * drawn from what the on-chip I2C or SPI sent, a row of decoded bytes
+ * after them and a line saying what the part made of the transfer.
  * Copyright (C) 2026 The Solderless authors. GPL-3.0-or-later.
  */
 package io.github.leukoplast1980.solderless.ui
@@ -29,9 +31,16 @@ class ScopeView @JvmOverloads constructor(context: Context, attrs: AttributeSet?
     /** One recorded change: time (ns), PWM or level, mV or mHz, duty (0x10000 = 100 %), fast toggling before it */
     class Ev(val t: Long, val pwm: Boolean, val a: Long, val b: Long, val busy: Boolean)
 
-    class Channel(val slot: Int, val pin: String, val label: String, val analog: Boolean, val events: List<Ev>)
+    sealed class Row
 
-    var channels: List<Channel> = emptyList()
+    /** A pin. [group]: rows of one part or bus share a background; [bus]: what went over the bus this pin is on. */
+    class Channel(val slot: Int, val pin: String, val label: String, val analog: Boolean, val events: List<Ev>,
+                  val group: String = "pin:$slot", val bus: List<BusEv> = emptyList()) : Row()
+
+    /** The bytes on a bus, and what the transfer at a time (back to a time) did */
+    class Decode(val events: List<BusEv>, val describe: (from: Long, at: Long) -> String) : Row()
+
+    var channels: List<Row> = emptyList()
         set(v) { field = v; requestLayout(); invalidate() }
     /** Shown span and its end, in emulated ns */
     var windowNs = 1_000_000_000L
@@ -47,11 +56,13 @@ class ScopeView @JvmOverloads constructor(context: Context, attrs: AttributeSet?
     private fun dp(v: Float) = v * d
     private val labelW get() = dp(100f)
     private val right get() = width - dp(8f)
-    private fun rowH(c: Channel) = if (c.analog) dp(92f) else dp(54f)
+    private fun rowH(r: Row) = when (r) { is Channel -> if (r.analog) dp(92f) else dp(54f); is Decode -> dp(58f) }
 
     private val cHigh = 0xFF8FD18F.toInt(); private val cLow = 0xFF5E6A70.toInt(); private val cPwm = 0xFFC49BE0.toInt()
     private val cAnalog = 0xFF80DEEA.toInt(); private val cWarn = 0xFFFFB454.toInt(); private val cLabel = 0xFF8A9690.toInt()
     private val cText = 0xFFE8EEE4.toInt(); private val cGrid = 0xFF2C353C.toInt(); private val cCursor = 0xFF7FB8FF.toInt()
+    private val cBus = 0xFFE6B673.toInt(); private val cNack = 0xFFE57373.toInt()
+    private val cBg = 0xFF101418.toInt(); private val cStripe = 0xFF131A1F.toInt()
 
     private val line = Paint(Paint.ANTI_ALIAS_FLAG).apply { style = Paint.Style.STROKE; strokeWidth = dp(1.8f) }
     private val fill = Paint(Paint.ANTI_ALIAS_FLAG)
@@ -74,10 +85,18 @@ class ScopeView @JvmOverloads constructor(context: Context, attrs: AttributeSet?
             return
         }
         var y = 0f
-        for ((i, ch) in channels.withIndex()) {
-            val h = rowH(ch)
-            if (i % 2 == 1) { fill.color = 0xFF131A1F.toInt(); c.drawRect(0f, y, width.toFloat(), y + h, fill) }
-            drawChannel(c, ch, y, h)
+        var group: String? = null; var stripe = true
+        for (row in channels) {
+            val h = rowH(row)
+            when (row) {
+                is Channel -> {
+                    if (row.group != group) { group = row.group; stripe = !stripe }
+                    val bg = if (stripe) cStripe else cBg
+                    if (stripe) { fill.color = bg; c.drawRect(0f, y, width.toFloat(), y + h, fill) }
+                    drawChannel(c, row, y, h, bg)
+                }
+                is Decode -> drawDecode(c, row, y)
+            }
             y += h + dp(2f)
         }
         // time axis
@@ -115,7 +134,7 @@ class ScopeView @JvmOverloads constructor(context: Context, attrs: AttributeSet?
         text.isFakeBoldText = false
     }
 
-    private fun drawChannel(c: Canvas, ch: Channel, top: Float, h: Float) {
+    private fun drawChannel(c: Canvas, ch: Channel, top: Float, h: Float, bg: Int) {
         val hi = top + dp(8f); val lo = top + h - dp(8f)
         val ev = ch.events
         val start = endNs - windowNs
@@ -186,9 +205,240 @@ class ScopeView @JvmOverloads constructor(context: Context, attrs: AttributeSet?
             i++
         }
         if (!ch.analog && measure.isEmpty()) measure = digitalMeasure(ev, start)
+        if (ch.bus.isNotEmpty()) {
+            drawSynth(c, ch, hi, lo, top, h, bg)
+            busMeasure(ch, start)?.let { measure = it; colour = cBus }
+        }
         label(c, ch.pin, dp(10f), top + dp(18f), 12f, cText, Paint.Align.LEFT, true)
         label(c, fit(ch.label, 10.5f), dp(10f), top + dp(32f), 10.5f, cLabel, Paint.Align.LEFT)
         label(c, fit(measure, 9.5f), dp(10f), top + dp(46f), 9.5f, colour, Paint.Align.LEFT)
+    }
+
+    // ------------------------------------------------------------------
+    // Buses
+
+    /** The first event that may still be on screen: events last at most a few ms */
+    private fun firstVisible(ev: List<BusEv>, start: Long): Int =
+        ev.binarySearchBy(start - 50_000_000L) { it.t }.let { if (it >= 0) it else -it - 1 }
+
+    /** What this pin is on [e]'s bus: SCL, SDA, SCK, MOSI, MISO, CS, or -1 */
+    private fun roleOf(e: BusEv, slot: Int): Int = when {
+        e.i2c && slot == e.p0 -> SCL
+        e.i2c && slot == e.p1 -> SDA
+        !e.i2c && slot == e.p0 -> SCK
+        !e.i2c && slot == e.p1 -> MOSI
+        !e.i2c && slot == e.p2 -> MISO
+        !e.i2c && slot == e.cs -> CSP
+        else -> -1
+    }
+
+    /** Level steps (time, high) of a pin through an event the on-chip peripheral sent */
+    private fun steps(e: BusEv, role: Int): List<Pair<Long, Boolean>> {
+        val out = ArrayList<Pair<Long, Boolean>>()
+        val t = e.t; val d = e.dur
+        when (e.kind) {
+            BusEv.START -> if (role == SCL) out += t to true else { out += t to true; out += t + d / 2 to false }
+            BusEv.STOP -> if (role == SCL) { out += t to false; out += t + d / 3 to true } else { out += t to false; out += t + 2 * d / 3 to true }
+            BusEv.ADDR, BusEv.BYTE -> {
+                val b = d / 9.0
+                for (i in 0 until 9) {
+                    val t0 = t + (i * b).toLong()
+                    if (role == SCL) { out += t0 to false; out += t0 + (b / 2).toLong() to true }
+                    else out += t0 to if (i < 8) (e.value shr (7 - i)) and 1 != 0 else !e.acked
+                }
+            }
+            BusEv.SPI -> {
+                val n = e.bits.coerceAtLeast(1); val b = d / n.toDouble()
+                val first = ((e.mode shr 1) xor (e.mode and 1)) != 0
+                val v = if (role == MISO) e.miso else e.value
+                for (i in 0 until n) {
+                    val t0 = t + (i * b).toLong()
+                    if (role == SCK) { out += t0 to first; out += t0 + (b / 2).toLong() to !first }
+                    else out += t0 to ((v shr (if (e.lsb) i else n - 1 - i)) and 1 != 0)
+                }
+            }
+        }
+        return out
+    }
+
+    /** The bits an on-chip I2C or SPI sent, drawn over the pin's line (which only shows where it rested) */
+    private fun drawSynth(c: Canvas, ch: Channel, hi: Float, lo: Float, top: Float, h: Float, bg: Int) {
+        val ev = ch.bus
+        val start = endNs - windowNs
+        var prev: BusEv? = null
+        for (k in firstVisible(ev, start) until ev.size) {
+            val e = ev[k]
+            if (e.t > endNs) break
+            if (!e.hw || e.kind == BusEv.CS || e.kind == BusEv.LOST) continue
+            val role = roleOf(e, ch.slot)
+            if (role < 0 || role == CSP || role == MISO && !e.driven) { prev = e; continue }
+            // between the bytes of a transfer the on-chip I2C holds SCL low (and lets SDA go)
+            val p = prev
+            if (e.i2c && p != null && p.i2c && p.kind != BusEv.STOP && e.t > p.end && e.kind != BusEv.START) {
+                val g0 = max(p.end, start); val g1 = min(e.t, endNs)
+                if (g1 > g0) {
+                    fill.color = bg; c.drawRect(x(g0), top, x(g1), top + h, fill)
+                    line.color = if (role == SCL) cLow else cBus; line.strokeWidth = dp(1.8f)
+                    val yy = if (role == SCL) lo else hi
+                    c.drawLine(x(g0), yy, x(g1), yy, line)
+                }
+            }
+            prev = e
+            if (e.end < start) continue
+            val x0 = x(max(e.t, start)); val x1 = x(min(e.end, endNs))
+            fill.color = bg; c.drawRect(x0, top, max(x1, x0 + 1f), top + h, fill)
+            val bits = when (e.kind) { BusEv.ADDR, BusEv.BYTE -> 9; BusEv.SPI -> e.bits.coerceAtLeast(1); else -> 1 }
+            val bitPx = (x(e.end) - x(e.t)) / bits
+            if (bitPx < dp(1.5f)) {                          // too fine to draw: a band
+                fill.color = cBus and 0x47FFFFFF; c.drawRect(x0, hi, max(x1, x0 + 1f), lo, fill)
+                line.color = cBus; line.strokeWidth = dp(1.2f)
+                c.drawLine(x0, hi, x1, hi, line); c.drawLine(x0, lo, x1, lo, line)
+                continue
+            }
+            val st = steps(e, role)
+            for ((i, sp) in st.withIndex()) {
+                val a = max(sp.first, start); val b = min(if (i + 1 < st.size) st[i + 1].first else e.end, endNs)
+                if (b <= a) continue
+                val yy = if (sp.second) hi else lo
+                line.color = if (sp.second) cBus else cLow; line.strokeWidth = dp(1.8f)
+                c.drawLine(x(a), yy, x(b), yy, line)
+                if (i > 0 && st[i - 1].second != sp.second && sp.first >= start) {
+                    line.color = cBus; line.strokeWidth = dp(1.1f)
+                    c.drawLine(x(sp.first), hi, x(sp.first), lo, line)
+                }
+            }
+        }
+    }
+
+    /** The third label line of a bus pin: its clock, or how many bytes went over it in the window */
+    private fun busMeasure(ch: Channel, start: Long): String? {
+        val ev = ch.bus
+        var bytes = 0; var driven = 0; var csBits = 0; var role = -1
+        var clock: BusEv? = null
+        for (k in firstVisible(ev, start) until ev.size) {
+            val e = ev[k]
+            if (e.t > endNs) break
+            if (e.end < start || e.kind == BusEv.CS || e.kind == BusEv.LOST) continue
+            val r = roleOf(e, ch.slot)
+            if (r < 0) continue
+            if (r == CSP) { if (e.kind == BusEv.SPI) csBits += e.bits; role = CSP; continue }
+            role = r
+            if (e.kind == BusEv.ADDR || e.kind == BusEv.BYTE || e.kind == BusEv.SPI) {
+                bytes++
+                if (e.driven) driven++
+                if (clock == null && e.hw && e.dur > 0) clock = e
+            }
+        }
+        fun count(n: Int) = if (n == 1) "1 byte" else "$n bytes"
+        return when (role) {
+            -1 -> null
+            CSP -> if (csBits > 0) "low $csBits bits" else null
+            SCL, SCK -> clock?.let { e ->
+                val bits = if (e.i2c) 9 else e.bits.coerceAtLeast(1)
+                hz(bits * 1_000_000_000_000L / e.dur) + if (e.i2c) "" else " · mode ${e.mode}"
+            }
+            MISO -> if (driven > 0) count(driven) else if (bytes > 0) "not driven" else null
+            else -> if (bytes > 0) count(bytes) else null
+        }
+    }
+
+    private fun box(c: Canvas, x0: Float, x1: Float, top: Float, colour: Int) {
+        fill.color = colour and 0x38FFFFFF
+        c.drawRoundRect(x0, top + dp(4f), x1, top + dp(22f), dp(4f), dp(4f), fill)
+        line.color = colour; line.strokeWidth = dp(1f)
+        c.drawRoundRect(x0, top + dp(4f), x1, top + dp(22f), dp(4f), dp(4f), line)
+    }
+
+    /** Text in a box if it fits, the first choice that does */
+    private fun boxText(c: Canvas, x0: Float, x1: Float, top: Float, choices: List<String>, back: String = "") {
+        text.textSize = dp(10f)
+        val room = x1 - x0 - dp(4f)
+        val backW = if (back.isEmpty()) 0f else text.measureText(" $back")
+        for (s in choices) {
+            val w = text.measureText(s)
+            val withBack = back.isNotEmpty() && w + backW <= room
+            if (w > room) continue
+            val tw = w + if (withBack) backW else 0f
+            val left = (x0 + x1) / 2 - tw / 2
+            label(c, s, left, top + dp(17f), 10f, cText, Paint.Align.LEFT)
+            if (withBack) label(c, " $back", left + w, top + dp(17f), 10f, cAnalog, Paint.Align.LEFT)
+            return
+        }
+    }
+
+    private fun drawDecode(c: Canvas, d: Decode, top: Float) {
+        val ev = d.events
+        val start = endNs - windowNs
+        label(c, "decoded", dp(10f), top + dp(17f), 11f, cLabel, Paint.Align.LEFT)
+        c.save()
+        c.clipRect(labelW, top, right, top + dp(26f))
+        var runX0 = -1f; var runX1 = -1f; var runN = 0
+        fun flush() {
+            if (runN == 0) return
+            box(c, runX0, max(runX1, runX0 + dp(2f)), top, cBus)
+            boxText(c, runX0, runX1, top, listOf(if (runN == 1) "1 byte" else "$runN bytes", "$runN"))
+            runN = 0
+        }
+        for (k in firstVisible(ev, start) until ev.size) {
+            val e = ev[k]
+            if (e.t > endNs) break
+            if (e.end < start || e.kind == BusEv.CS) continue
+            var x0 = x(e.t); var x1 = x(e.end)
+            if (e.kind == BusEv.START || e.kind == BusEv.STOP) {
+                // marks only where the bytes next to them are drawn one by one
+                val n = ev.getOrNull(if (e.kind == BusEv.START) k + 1 else k - 1)
+                if (n == null || n.kind != BusEv.ADDR && n.kind != BusEv.BYTE || x(n.end) - x(n.t) < dp(14f)) continue
+                if (x1 - x0 < dp(8f)) { val m = (x0 + x1) / 2; x0 = m - dp(4f); x1 = m + dp(4f) }
+                flush()
+                box(c, x0, x1, top, cHigh)
+                label(c, if (e.kind == BusEv.START) "S" else "P", (x0 + x1) / 2, top + dp(17f), 10f, cText)
+                continue
+            }
+            if (e.kind == BusEv.LOST) {
+                flush()
+                x1 = max(x1, x0 + dp(3f))
+                box(c, x0, x1, top, cWarn)
+                boxText(c, x0, x1, top, listOf("too fast to decode", "too fast", "!"))
+                continue
+            }
+            if (x1 - x0 < dp(3f)) {                          // too narrow: run them together
+                if (runN > 0 && x0 > runX1 + dp(2f)) flush()
+                if (runN == 0) runX0 = x0
+                runX1 = max(x1, runX0 + dp(2f)); runN++
+                continue
+            }
+            flush()
+            x0 += dp(1f); x1 -= dp(1f)
+            val v = BusEv.hex(e.value)
+            when (e.kind) {
+                BusEv.ADDR -> {
+                    box(c, x0, x1, top, if (e.acked) cBus else cNack)
+                    val a = BusEv.hex(e.value shr 1) + if (e.value and 1 != 0) " R" else " W"
+                    boxText(c, x0, x1, top, listOf(a + if (e.acked) " ✓" else " ✗", a, BusEv.hex(e.value shr 1)))
+                }
+                BusEv.BYTE -> if (e.read) {
+                    box(c, x0, x1, top, cAnalog)
+                    boxText(c, x0, x1, top, listOf(v))
+                } else {
+                    box(c, x0, x1, top, if (e.acked) cBus else cNack)
+                    boxText(c, x0, x1, top, listOf(v + if (e.acked) " ✓" else " ✗", v))
+                }
+                BusEv.SPI -> {
+                    box(c, x0, x1, top, cBus)
+                    boxText(c, x0, x1, top, listOf(v), if (e.driven) BusEv.hex(e.miso) else "")
+                }
+            }
+        }
+        flush()
+        c.restore()
+        val focus = if (cursorA in start..endNs) cursorA else endNs
+        val what = d.describe(start, focus)
+        if (what.isNotEmpty()) label(c, fitTo(what, 11.5f, right - dp(10f)), dp(10f), top + dp(46f), 11.5f, cLabel, Paint.Align.LEFT)
+    }
+
+    private fun fitTo(s: String, size: Float, w: Float): String {
+        val tp = android.text.TextPaint(text).apply { textSize = dp(size) }
+        return android.text.TextUtils.ellipsize(s, tp, w, android.text.TextUtils.TruncateAt.END).toString()
     }
 
     /** Text cut with an ellipsis to the label column */
@@ -222,7 +472,7 @@ class ScopeView @JvmOverloads constructor(context: Context, attrs: AttributeSet?
 
     private val scale = ScaleGestureDetector(context, object : ScaleGestureDetector.SimpleOnScaleGestureListener() {
         override fun onScale(det: ScaleGestureDetector): Boolean {
-            val w = (windowNs / det.scaleFactor).toLong().coerceIn(20_000L, 6_000_000_000L)
+            val w = (windowNs / det.scaleFactor).toLong().coerceIn(2_000L, 6_000_000_000L)
             onUserZoom(w)
             return true
         }
@@ -260,9 +510,15 @@ class ScopeView @JvmOverloads constructor(context: Context, attrs: AttributeSet?
     }
 
     companion object {
+        private const val SCL = 0; private const val SDA = 1; private const val SCK = 2
+        private const val MOSI = 3; private const val MISO = 4; private const val CSP = 5
+
+        private fun g3(v: Double) = java.math.BigDecimal(v).round(java.math.MathContext(3)).stripTrailingZeros().toPlainString()
+
         fun hz(mHz: Long): String = when {
-            mHz >= 1_000_000_000 -> "%.3g kHz".format(java.util.Locale.ROOT, mHz / 1e6)
-            mHz >= 10_000 -> "%.4g Hz".format(java.util.Locale.ROOT, mHz / 1e3)
+            mHz >= 1_000_000_000 -> g3(mHz / 1e9) + " MHz"
+            mHz >= 1_000_000 -> g3(mHz / 1e6) + " kHz"
+            mHz >= 10_000 -> g3(mHz / 1e3) + " Hz"
             else -> "%.2f Hz".format(java.util.Locale.ROOT, mHz / 1e3)
         }
 

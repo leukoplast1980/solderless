@@ -388,3 +388,29 @@ JNIEXPORT jint JNICALL FN(traceRead)(JNIEnv *env, jclass cls, jlong h, jintArray
     (*env)->SetIntArrayRegion(env, out, 0, (jsize)(2 + 5 * n), v);
     return (jint)n;
 }
+
+/* The scope's decoder: 6 ints per event — t0 (low, high), length in ns,
+ * kind | flags << 8 | bits << 16 | part << 24, value | miso << 16,
+ * the pins as bytes (SCL/SCK, SDA/MOSI, MISO, CS; 0xFF: none) */
+JNIEXPORT jint JNICALL FN(busRead)(JNIEnv *env, jclass cls, jlong h, jintArray out)
+{
+    (void)cls;
+    jsize len = (*env)->GetArrayLength(env, out);
+    size_t max = (size_t)len / 6;
+    if (max > 2048) max = 2048;
+    static sl_bus_event ev[2048];
+    static jint v[6 * 2048];
+    size_t n = sl_bus_read(VM(h), ev, max);
+    for (size_t i = 0; i < n; i++) {
+        const sl_bus_event *e = &ev[i];
+        jint *x = v + 6 * i;
+        x[0] = (jint)(uint32_t)e->t0_ns; x[1] = (jint)(uint32_t)(e->t0_ns >> 32);
+        uint64_t d = e->t1_ns > e->t0_ns ? e->t1_ns - e->t0_ns : 0;
+        x[2] = (jint)(d > 0x7FFFFFFF ? 0x7FFFFFFF : d);
+        x[3] = (jint)((uint32_t)e->kind | (uint32_t)e->flags << 8 | (uint32_t)e->bits << 16 | (uint32_t)(uint8_t)e->part << 24);
+        x[4] = (jint)((uint32_t)e->value | (uint32_t)e->miso << 16);
+        x[5] = (jint)((uint32_t)(uint8_t)e->pin[0] | (uint32_t)(uint8_t)e->pin[1] << 8 | (uint32_t)(uint8_t)e->pin2 << 16 | (uint32_t)(uint8_t)e->cs << 24);
+    }
+    (*env)->SetIntArrayRegion(env, out, 0, (jsize)(6 * n), v);
+    return (jint)n;
+}

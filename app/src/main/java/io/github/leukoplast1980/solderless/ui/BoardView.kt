@@ -900,6 +900,9 @@ class BoardView @JvmOverloads constructor(context: Context, attrs: AttributeSet?
     /** Where a part is drawn, in view coordinates (for the UI probe) */
     fun partBounds(id: Int): RectF? = hit.lastOrNull { it.second.id == id }?.first?.let { RectF(it) }
 
+    /** Where an encoder's knob takes touches (for the UI probe) */
+    fun knobBounds(id: Int): RectF? = knobs[id]?.let { RectF(it) }
+
     private fun partAt(x: Float, y: Float): Part? = hit.lastOrNull { it.first.contains(x, y) }?.second
 
     @SuppressLint("ClickableViewAccessibility")

@@ -12,6 +12,7 @@ import com.google.android.material.tabs.TabLayout
 import io.github.leukoplast1980.solderless.board.Board
 import io.github.leukoplast1980.solderless.board.Part
 import io.github.leukoplast1980.solderless.board.PartType
+import io.github.leukoplast1980.solderless.ui.ScopeView
 import io.github.leukoplast1980.solderless.vm.BoardState
 import io.github.leukoplast1980.solderless.vm.VmHost
 import org.junit.Assert.assertEquals
@@ -129,14 +130,13 @@ class BoardProbeTest {
         Thread.sleep(500)
         scenario.onActivity { a ->
             val bv = a.findViewById<io.github.leukoplast1980.solderless.ui.BoardView>(R.id.boardView)
-            at = bv.partBounds(enc.id); bv.getLocationOnScreen(loc)
+            at = bv.knobBounds(enc.id); bv.getLocationOnScreen(loc)
         }
         assertTrue("encoder drawn", at != null)
-        // the knob sits 62 dp in from the module's header side; swipe right across it
+        // swipe right across the knob: 80 dp, five detents
         val d = ctx.resources.displayMetrics.density
-        val sideLeft = at!!.left < 0.4f * ctx.resources.displayMetrics.widthPixels
-        val kx = loc[0] + (if (sideLeft) at!!.left + (30 + 62) * d else at!!.right - (30 + 62) * d).toInt()
-        val ky = loc[1] + (at!!.top + 18 * d + 46 * d).toInt()
+        val kx = loc[0] + at!!.centerX().toInt()
+        val ky = loc[1] + at!!.centerY().toInt()
         ui().swipe(kx.toInt(), ky, (kx + 80 * d).toInt(), ky, 30)
         Thread.sleep(1500)
         val steps = runCatching { vm.peekWords(intArrayOf(io.github.leukoplast1980.solderless.board.ChipPins.BASE[(enc.pins[0].function as io.github.leukoplast1980.solderless.board.Function.Timer).timer]!!.toInt() + 0x24))[0] }.getOrDefault(0)
@@ -262,6 +262,56 @@ class BoardProbeTest {
         selectTab(scenario, R.string.tab_repl)
         Thread.sleep(1000)
         screenshot("displays-pinned.png")
+        scenario.onActivity { vm.setBoard(Board()) }
+        scenario.close()
+    }
+
+    /** The scope decodes the buses: an OLED command on I2C, a register in every MAX7219 on SPI */
+    @Test
+    fun scopeBuses() {
+        val ctx = InstrumentationRegistry.getInstrumentation().targetContext
+        val scenario = ActivityScenario.launch(MainActivity::class.java)
+        Thread.sleep(2500)
+        val vm = VmHost.get(ctx)
+        val rec = vm.recommender()
+        var b = Board()
+        for (t in listOf(PartType.OLED, PartType.MATRIX)) b = b.apply(rec.propose(b.parts, Part(b.nextId(), t, emptyList()))!!)
+        val oled = b.parts.first { it.type == PartType.OLED }
+        val matrix = b.parts.first { it.type == PartType.MATRIX }
+        Log.i(TAG, "oled on ${oled.pins}, matrix on ${matrix.pins}")
+        scenario.onActivity { vm.setBoard(b) }
+        selectTab(scenario, R.string.tab_scope)
+        for (p in listOf(oled, matrix)) {
+            val sample = io.github.leukoplast1980.solderless.board.Samples.forPart(b, vm.chip, p)
+            for (line in sample.lines().filter { it.isNotBlank() })
+                assertEquals(line, io.github.leukoplast1980.solderless.forth.LineResult.OK, vm.sendLineChecked(line, 5000))
+        }
+        val o = b.nameOf(oled); val m = b.nameOf(matrix)
+        assertEquals(io.github.leukoplast1980.solderless.forth.LineResult.OK,
+            vm.sendLineChecked("$o-init $m-init 100 ms \$AF $o-cmd 1 ms \$0C 1 $m-all", 15000))
+        Thread.sleep(1500)
+        // Triggered on the edges that start each transfer
+        for ((pin, edge, w, name) in listOf(
+            listOf(oled.pins[1].pin, "↓", 260_000L, "scope-i2c.png"),
+            listOf(matrix.pins[0].pin, "↓", 180_000L, "scope-spi.png"))) {
+            scenario.onActivity { a -> a.findViewById<View>(R.id.scopeTrigger).performClick() }
+            Thread.sleep(800)
+            val item = ui().findObject(androidx.test.uiautomator.By.textStartsWith("$pin $edge"))
+            assertTrue("trigger on $pin $edge offered", item != null)
+            item.click()
+            Thread.sleep(500)
+            scenario.onActivity { a -> a.findViewById<ScopeView>(R.id.scopeView).onUserZoom(w as Long) }
+            Thread.sleep(1200)
+            if (name == "scope-spi.png") scenario.onActivity { a ->
+                val sv = a.findViewById<ScopeView>(R.id.scopeView)
+                (sv.parent as android.widget.ScrollView).smoothScrollTo(0, sv.height)
+            }
+            Thread.sleep(800)
+            screenshot(name as String)
+        }
+        var rows = 0
+        scenario.onActivity { a -> rows = a.findViewById<ScopeView>(R.id.scopeView).channels.count { it is ScopeView.Decode } }
+        assertEquals("a decoded row per bus", 2, rows)
         scenario.onActivity { vm.setBoard(Board()) }
         scenario.close()
     }
@@ -460,7 +510,7 @@ class BoardProbeTest {
         var shown = false
         scenario.onActivity { a -> shown = a.findViewById<View>(R.id.scopePane).visibility == View.VISIBLE }
         assertTrue("Scope pane shows", shown)
-        scenario.onActivity { a -> a.findViewById<View>(R.id.scopeW5s).performClick(); a.findViewById<View>(R.id.scopeHold).performClick() }
+        scenario.onActivity { a -> a.findViewById<ScopeView>(R.id.scopeView).onUserZoom(5_000_000_000L); a.findViewById<View>(R.id.scopeHold).performClick() }
         Thread.sleep(500)
         screenshot("scope.png")
         Thread.sleep(7000)

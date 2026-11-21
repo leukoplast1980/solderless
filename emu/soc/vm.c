@@ -814,6 +814,20 @@ static void trace_fn(sl_vm *vm, void *arg)
     io->now = soc_now_ps(vm->soc) / 1000u;
 }
 
+struct bus_io { sl_bus_event *out; size_t max, n; };
+static void bus_fn(sl_vm *vm, void *arg)
+{
+    struct bus_io *io = arg;
+    io->n = board_bus_read(vm->soc, io->out, io->max);
+}
+
+size_t sl_bus_read(sl_vm *vm, sl_bus_event *out, size_t max)
+{
+    struct bus_io io = { out, max, 0 };
+    run_on_vm(vm, bus_fn, &io);
+    return io.n;
+}
+
 size_t sl_trace_read(sl_vm *vm, sl_audio_event *out, size_t max, uint64_t *now_ns)
 {
     struct audio_io io = { out, max, 0, 0 };

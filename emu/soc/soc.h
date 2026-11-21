@@ -185,6 +185,7 @@ struct sl_soc {
     struct sl_i2c i2c[SL_NUM_I2C];
     struct sl_spi spi[SL_NUM_SPI];
     int rd_width;               /* bytes of the read being made (DR packing) */
+    int spi_hw_frame;           /* an on-chip SPI frame is being delivered bit by bit */
 
     /* The breadboard */
     struct sl_board board;
