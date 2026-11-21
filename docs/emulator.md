@@ -25,8 +25,18 @@ not the clock cycle.
   peripheral addresses, stacking errors.
 - SysTick, the DWT cycle counter, bit-banding of SRAM and peripherals,
   the exclusive monitor, WFI/WFE/SEV.
-- Not yet: the FPU (its instructions raise a UsageFault, as on a core
-  without one), the MPU (its registers exist but nothing is
+- The single-precision FPU (FPv4-SP-D16): S0-S31 (D0-D15), FPSCR with
+  its four rounding modes, flush-to-zero, default NaN, alternative half
+  precision and the cumulative exception flags; arithmetic, fused and
+  chained multiply-accumulate, square root, compares, conversions to and
+  from integers, fixed point and half precision, loads, stores and moves.
+  Results are computed in integers after the ARM ARM's pseudocode, so
+  they are the chip's to the last bit whatever the phone's own FPU does.
+  CPACR gates it (NOCP otherwise); exceptions stack an FP context in the
+  extended frame, lazily by default (FPCCR, FPCAR, CONTROL.FPCA,
+  EXC_RETURN 0xFFFFFFE1/E9/ED). Checked against Unicorn and by
+  `tests/cpu/exc_test.S`.
+- Not yet: the MPU (its registers exist but nothing is
   enforced), debug features.
 
 ## Memory

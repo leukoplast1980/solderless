@@ -9,6 +9,7 @@ endif()
 
 set(SL_SOURCES
   core/armv7m.c
+  core/fparith.c
   soc/soc.c
   soc/rcc.c
   soc/flash.c
@@ -45,10 +46,10 @@ if(NOT ANDROID)
   set_target_properties(slemu-cli PROPERTIES OUTPUT_NAME slemu)
   target_link_libraries(slemu-cli PRIVATE slemu)
 
-  add_library(cmtest SHARED ../tests/cpu/harness.c core/armv7m.c)
+  add_library(cmtest SHARED ../tests/cpu/harness.c core/armv7m.c core/fparith.c)
   target_include_directories(cmtest PRIVATE core)
 
-  add_executable(exc_test ../tests/cpu/exc_test.c core/armv7m.c)
+  add_executable(exc_test ../tests/cpu/exc_test.c core/armv7m.c core/fparith.c)
   target_include_directories(exc_test PRIVATE core)
 
   # The exception test firmware needs the ARM cross assembler

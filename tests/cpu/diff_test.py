@@ -12,6 +12,7 @@ import argparse
 import ctypes
 import os
 import random
+import struct
 import subprocess
 import sys
 import tempfile
@@ -323,23 +324,135 @@ def t_dsp(rng):
     return [f"msr {rng.choice(['APSR_g', 'APSR_nzcvqg'])}, {n}", f"{rng.choice(PAR)} {d}, {n}, {m}"], []
 
 
+# Floating point
+
+FP_SPECIAL = [0x00000000, 0x80000000, 0x7F800000, 0xFF800000, 0x7FC00000, 0xFFC00001, 0x7FA00000, 0x7F800001,
+              0xFF812345, 0x00000001, 0x807FFFFF, 0x00400000, 0x00800000, 0x80800001, 0x7F7FFFFF, 0xFF7FFFFF,
+              0x3F800000, 0xBF800000, 0x3F000000, 0x40000000, 0x4B000000, 0x4B7FFFFF, 0x4F000000, 0xCF000000,
+              0x4F800000, 0x47800000, 0x477FE000, 0x33800000, 0x3FC00000, 0x3F7FFFFF, 0x3F800001, 0x7F000000,
+              0x00FFFFFF, 0x0C000000, 0x38800000, 0x387FC000, 0x33000000]
+
+
+def fval(rng):
+    k = rng.random()
+    if k < 0.3:
+        return rng.choice(FP_SPECIAL)
+    if k < 0.45:                                    # small integers and halves
+        v = rng.randrange(-300, 300) / rng.choice([1, 2, 4, 8, 1024])
+        return struct.unpack("<I", struct.pack("<f", v))[0]
+    if k < 0.6:                                     # near a special: a few ulps away
+        return (rng.choice(FP_SPECIAL) + rng.randrange(-3, 4)) & 0xFFFFFFFF
+    if k < 0.75:                                    # tiny and huge exponents
+        e = rng.choice([rng.randrange(0, 8), rng.randrange(100, 160), rng.randrange(240, 256)])
+        return (rng.getrandbits(1) << 31) | (e << 23) | rng.getrandbits(23)
+    return rng.getrandbits(32)
+
+
+def fpscr_val(rng):
+    v = rng.getrandbits(4) << 28 | rng.getrandbits(5) << 22 | rng.choice([0, 0, rng.getrandbits(8) & 0x9F])
+    return v
+
+
+def sreg(rng):
+    return f"s{rng.randrange(32)}"
+
+
+VMOV_IMM = ["1.0", "0.5", "2.0", "-1.0", "0.125", "31.0", "-0.1875", "1.9375", "16.0", "0.25", "-3.5", "-15.5"]
+
+
+def vmov_scalar(dd, x, rt, to_core):
+    """VMOV.32 Dd[x], Rt and Rt, Dn[x]: in the ARMv7-M FP instructions, but not in GAS for fpv4-sp-d16"""
+    t = 14 if rt == "lr" else int(rt[1:])
+    hw1 = 0xEE00 | (to_core << 4) | (x << 5) | dd
+    hw2 = (t << 12) | 0x0B10
+    return f".inst.w 0x{hw1:04x}{hw2:04x}"
+
+
+def t_fp(rng):
+    d, n, m = sreg(rng), sreg(rng), sreg(rng)
+    k = rng.randrange(12)
+    if k <= 2:
+        return [f"{rng.choice(['vadd', 'vsub', 'vmul', 'vnmul', 'vdiv'])}.f32 {d}, {n}, {m}"], []
+    if k == 3:
+        return [f"{rng.choice(['vmla', 'vmls', 'vnmla', 'vnmls'])}.f32 {d}, {n}, {m}"], []
+    if k == 4:
+        return [f"{rng.choice(['vfma', 'vfms', 'vfnma', 'vfnms'])}.f32 {d}, {n}, {m}"], []
+    if k == 5:
+        return [rng.choice([f"vsqrt.f32 {d}, {m}", f"vabs.f32 {d}, {m}", f"vneg.f32 {d}, {m}", f"vmov.f32 {d}, {m}",
+                            f"vmov.f32 {d}, #{rng.choice(VMOV_IMM)}"])], []
+    if k == 6:
+        return [rng.choice([f"vcmp.f32 {d}, {m}", f"vcmpe.f32 {d}, {m}", f"vcmp.f32 {d}, #0.0", f"vcmpe.f32 {d}, #0.0"]),
+                "vmrs APSR_nzcv, fpscr"], []
+    if k == 7:
+        return [rng.choice([f"vcvt.s32.f32 {d}, {m}", f"vcvt.u32.f32 {d}, {m}", f"vcvtr.s32.f32 {d}, {m}",
+                            f"vcvtr.u32.f32 {d}, {m}", f"vcvt.f32.s32 {d}, {m}", f"vcvt.f32.u32 {d}, {m}"])], []
+    if k == 8:
+        t = rng.choice(["s16", "u16", "s32", "u32"])
+        fb = rng.randrange(1, (16 if t.endswith("16") else 32) + 1)
+        return [rng.choice([f"vcvt.{t}.f32 {d}, {d}, #{fb}", f"vcvt.f32.{t} {d}, {d}, #{fb}"])], []
+    if k == 9:
+        return [f"{rng.choice(['vcvtb', 'vcvtt'])}.{rng.choice(['f32.f16', 'f16.f32'])} {d}, {m}"], []
+    if k == 10:
+        a, b = r(rng), r(rng)
+        b2 = r(rng, avoid=(a,))
+        dd = rng.randrange(16)
+        sm = rng.randrange(31)
+        return [rng.choice([f"vmov {d}, {a}", f"vmov {a}, {n}", f"vmov {a}, {b2}, s{sm}, s{sm + 1}",
+                            f"vmov s{sm}, s{sm + 1}, {a}, {b}", f"vmov {a}, {b2}, d{dd}", f"vmov d{dd}, {a}, {b}",
+                            vmov_scalar(dd, rng.randrange(2), a, 0), vmov_scalar(dd, rng.randrange(2), a, 1),
+                            f"vmrs {a}, fpscr"])], []
+    a = r(rng)
+    return [f"vmsr fpscr, {a}", f"{rng.choice(['vadd', 'vmul', 'vdiv'])}.f32 {d}, {n}, {m}"], []
+
+
+def t_fpmem(rng):
+    base = r(rng, LO)
+    k = rng.randrange(5)
+    d = rng.randrange(16)
+    off = rng.randrange(-32, 33) * 4
+    if k == 0:
+        return [f"{rng.choice(['vldr', 'vstr'])} {sreg(rng)}, [{base}, #{off}]"], [base]
+    if k == 1:
+        return [f"{rng.choice(['vldr', 'vstr'])} d{d}, [{base}, #{off}]"], [base]
+    if k == 2:
+        s0 = rng.randrange(32)
+        cnt = rng.randrange(1, min(8, 32 - s0) + 1)
+        regs = "{" + ", ".join(f"s{s0 + i}" for i in range(cnt)) + "}"
+        return [rng.choice([f"vldmia {base}!, {regs}", f"vstmia {base}!, {regs}", f"vldmia {base}, {regs}",
+                            f"vstmia {base}, {regs}", f"vldmdb {base}!, {regs}", f"vstmdb {base}!, {regs}"])], [base]
+    if k == 3:
+        cnt = rng.randrange(1, min(4, 16 - d) + 1)
+        regs = "{" + ", ".join(f"d{d + i}" for i in range(cnt)) + "}"
+        return [rng.choice([f"vldmia {base}!, {regs}", f"vstmdb {base}!, {regs}", f"vstmia {base}, {regs}"])], [base]
+    s0 = rng.randrange(28)
+    regs = "{" + ", ".join(f"s{s0 + i}" for i in range(rng.randrange(1, 5))) + "}"
+    return [f"vpush {regs}", f"vadd.f32 s{s0}, s{s0}, s{(s0 + 5) % 32}", f"vpop {regs}"], []
+
+
 TEMPLATES = [(t16_alu, 4), (t16_imm, 4), (t16_hi, 1), (t32_dp_shift, 6), (t32_dp_imm, 6),
              (t32_plain, 3), (t32_reg, 3), (t32_mul, 2), (t_mem, 6), (t_it, 2), (t_branch, 2),
-             (t_tb, 1), (t_dsp, 6)]
+             (t_tb, 1), (t_dsp, 6), (t_fp, 14)]
+FP_TEMPLATES = (t_fp, t_fpmem)
 
 
 def make_case(rng):
     """One to three templates. At most one memory template, and it comes
     first, so its base register still points into the data region."""
     lines, bases = [], set()
+    fp = False
     if rng.random() < 0.3:
-        lines, bs = t_mem(rng)
+        mem = t_fpmem if rng.random() < 0.3 else t_mem
+        lines, bs = mem(rng)
         bases = set(bs)
+        fp = mem is t_fpmem
     others = [(t, w) for t, w in TEMPLATES if t is not t_mem]
     for _ in range(rng.randrange(0 if lines else 1, 3)):
         fn = rng.choices([t for t, _ in others], [w for _, w in others])[0]
         ls, _ = fn(rng)
         lines += ls
+        fp = fp or fn in FP_TEMPLATES
+    if fp:                      # the first FP instruction starts a new FP context: set FPSCR after it
+        lines = ["vmsr fpscr, r12"] + lines
     return lines, bases
 
 
@@ -358,7 +471,7 @@ def assemble(cases, workdir):
         f.write("\n".join(src) + "\n")
     obj = os.path.join(workdir, "cases.o")
     binp = os.path.join(workdir, "cases.bin")
-    subprocess.run(["arm-none-eabi-as", "-mcpu=cortex-m4", "-mthumb", "-o", obj, path], check=True)
+    subprocess.run(["arm-none-eabi-as", "-mcpu=cortex-m4", "-mfpu=fpv4-sp-d16", "-mthumb", "-o", obj, path], check=True)
     subprocess.run(["arm-none-eabi-objcopy", "-O", "binary", obj, binp], check=True)
     syms = {}
     out = subprocess.run(["arm-none-eabi-nm", obj], check=True, capture_output=True, text=True).stdout
@@ -374,15 +487,16 @@ class Mine:
     def __init__(self, lib):
         self.lib = lib
         lib.t_new.restype = ctypes.c_void_p
-        for fn in ("t_free", "t_write", "t_read", "t_set_state", "t_get_state", "t_run_until"):
+        for fn in ("t_free", "t_write", "t_read", "t_set_state", "t_get_state", "t_run_until", "t_set_fp", "t_get_fp"):
             getattr(lib, fn).argtypes = None
         self.h = ctypes.c_void_p(lib.t_new())
 
-    def setup(self, code, data, regs):
+    def setup(self, code, data, regs, fp):
         self.lib.t_write(self.h, ctypes.c_uint32(CODE_BASE), code, ctypes.c_uint32(len(code)))
         self.lib.t_write(self.h, ctypes.c_uint32(DATA_BASE), data, ctypes.c_uint32(len(data)))
         arr = (ctypes.c_uint32 * 17)(*regs)
         self.lib.t_set_state(self.h, arr)
+        self.lib.t_set_fp(self.h, (ctypes.c_uint32 * 33)(*fp, 0))
 
     def run(self, end):
         self.lib.t_run_until(self.h, ctypes.c_uint32(end), ctypes.c_uint32(64))
@@ -390,7 +504,9 @@ class Mine:
         self.lib.t_get_state(self.h, out)
         data = ctypes.create_string_buffer(DATA_SIZE)
         self.lib.t_read(self.h, ctypes.c_uint32(DATA_BASE), data, ctypes.c_uint32(DATA_SIZE))
-        return list(out), data.raw
+        fp = (ctypes.c_uint32 * 33)()
+        self.lib.t_get_fp(self.h, fp)
+        return list(out) + list(fp), data.raw
 
 
 REGS = [getattr(A, f"UC_ARM_REG_R{i}") for i in range(13)] + [A.UC_ARM_REG_SP, A.UC_ARM_REG_LR, A.UC_ARM_REG_PC]
@@ -403,7 +519,10 @@ class Ref:
         self.uc.mem_map(CODE_BASE, CODE_SIZE)
         self.uc.mem_map(DATA_BASE, DATA_SIZE)
 
-    def setup(self, code, data, regs):
+    def setup(self, code, data, regs, fp):
+        for i in range(32):
+            self.uc.reg_write(getattr(A, f"UC_ARM_REG_S{i}"), fp[i])
+        self.uc.reg_write(A.UC_ARM_REG_FPSCR, 0)
         self.uc.mem_write(CODE_BASE, code)
         self.uc.mem_write(DATA_BASE, data)
         for i, rr in enumerate(REGS[:15]):
@@ -415,6 +534,9 @@ class Ref:
         self.uc.emu_start(start | 1, end, count=64)
         regs = [self.uc.reg_read(rr) for rr in REGS]
         regs.append(self.uc.reg_read(A.UC_ARM_REG_XPSR))
+        regs += [0, 0]
+        regs += [self.uc.reg_read(getattr(A, f"UC_ARM_REG_S{i}")) for i in range(32)]
+        regs.append(self.uc.reg_read(A.UC_ARM_REG_FPSCR))
         return regs, bytes(self.uc.mem_read(DATA_BASE, DATA_SIZE))
 
 
@@ -441,10 +563,17 @@ def main():
             regs[13 if b == "sp" else (14 if b == "lr" else int(b[1:]))] = DATA_PTR + rng.randrange(-64, 64) * 4
         xpsr = rng.getrandbits(5) << 27 | rng.getrandbits(4) << 16
         regs.append(xpsr)
+        if lines and lines[0] == "vmsr fpscr, r12":
+            regs[12] = fpscr_val(rng)
+            # VCVT from fixed point rounds to nearest (FixedToFP with round_nearest in the ARM ARM);
+            # Unicorn's older QEMU uses the FPSCR's rounding mode, so give it no other choice
+            if any(l.startswith("vcvt.f32.") and "#" in l for l in lines):
+                regs[12] &= ~(3 << 22)
+        fp = [fval(rng) for _ in range(32)]
         data = bytes(rng.getrandbits(8) for _ in range(256)) * (DATA_SIZE // 256)
 
-        mine.setup(code, data, regs)
-        ref.setup(code, data, regs)
+        mine.setup(code, data, regs, fp)
+        ref.setup(code, data, regs, fp)
         try:
             rregs, rdata = ref.run(start, end)
         except UcError as e:
@@ -463,6 +592,11 @@ def main():
             diffs.append(f"NZCVQ GE: mine {mflags >> 27:05b} {(mflags >> 16) & 15:04b} ref {rflags >> 27:05b} {(rflags >> 16) & 15:04b}")
         if mregs[17] or mregs[18]:
             diffs.append(f"fault: cfsr {mregs[17]:08x} lockup {mregs[18]}")
+        for j in range(32):
+            if mregs[19 + j] != rregs[19 + j]:
+                diffs.append(f"s{j}: mine {mregs[19 + j]:08x} ref {rregs[19 + j]:08x} (in {fp[j]:08x})")
+        if mregs[51] != rregs[51]:
+            diffs.append(f"FPSCR: mine {mregs[51]:08x} ref {rregs[51]:08x}")
         if mdata != rdata:
             k = next(j for j in range(DATA_SIZE) if mdata[j] != rdata[j])
             diffs.append(f"memory differs at {DATA_BASE + k:08x}")

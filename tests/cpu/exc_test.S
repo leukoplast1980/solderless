@@ -11,6 +11,7 @@
  */
     .syntax unified
     .cpu cortex-m4
+    .fpu fpv4-sp-d16
     .thumb
 
     .equ RES,       0x20000000
@@ -38,6 +39,11 @@
     .equ LOG_N,     RES + 0x5C
     .equ LOG,       RES + 0x60      /* 16 words */
     .equ EXCL,      RES + 0xA0
+    .equ R_FPCCR,   RES + 0xB0      /* FP context: FPCCR and FPCAR at the handler's start */
+    .equ R_FPCAR,   RES + 0xB4
+    .equ R_FRAME,   RES + 0xB8      /* the handler's frame */
+    .equ R_FPCCR2,  RES + 0xBC      /* FPCCR after the handler's first FP instruction */
+    .equ R_SAVED,   RES + 0xC0      /* what that instruction saved for S0 */
     .equ BBWORD,    RES + 0x100
     .equ BBALIAS,   0x22000000 + 0x100 * 32
 
@@ -54,6 +60,10 @@
     .equ SYST_CSR,  0xE000E010
     .equ SYST_RVR,  0xE000E014
     .equ SYST_CVR,  0xE000E018
+    .equ CPACR,     0xE000ED88
+    .equ FPCCR,     0xE000EF34
+    .equ FPCAR,     0xE000EF38
+    .equ MVFR0,     0xE000EF40
 
 /* r11 = number of the current test */
 .macro TEST n
@@ -327,6 +337,74 @@ _start:
     EXPECT_REG r0, 1
     EXPECT_MEM R_HFSR, (1 << 30)
 
+    /* T17: an FP context stacks lazily: room in an extended frame, saved by
+     * the handler's first FP instruction, restored on the return */
+    TEST 17
+    EXPECT_MEM MVFR0, 0x10110021
+    STORE CPACR, (0xF << 20)
+    dsb
+    isb
+    ldr r0, =0x3F800000
+    vmov s0, r0                 /* the first FP instruction: CONTROL.FPCA */
+    ldr r0, =0x40000000
+    vmov s15, r0
+    mrs r0, control
+    EXPECT_REG r0, 4
+    svc #2
+    vmov r0, s0
+    EXPECT_REG r0, 0x3F800000   /* the handler's 2.0 undone */
+    vmov r0, s15
+    EXPECT_REG r0, 0x40000000
+    EXPECT_MEM R_LR, 0xFFFFFFE9 /* extended frame, Thread mode, MSP */
+    ldr r0, =R_FPCCR
+    ldr r0, [r0]
+    and r0, #9                  /* LSPACT, THREAD */
+    EXPECT_REG r0, 9
+    ldr r0, =R_FPCAR
+    ldr r0, [r0]
+    ldr r1, =R_FRAME
+    ldr r1, [r1]
+    sub r0, r1
+    EXPECT_REG r0, 0x20
+    ldr r0, =R_FPCCR2
+    ldr r0, [r0]
+    and r0, #1
+    EXPECT_REG r0, 0
+    EXPECT_MEM R_SAVED, 0x3F800000
+    EXPECT_MEM FPCCR, 0xC0000018 /* LSPACT clear again; THREAD, HFRDY */
+
+    /* T18: a handler without FP instructions leaves the registers alone,
+     * whatever its frame holds */
+    TEST 18
+    svc #3                      /* writes 0x12345678 where S0 would be saved */
+    vmov r0, s0
+    EXPECT_REG r0, 0x3F800000
+    ldr r0, =FPCCR
+    ldr r0, [r0]
+    and r0, #1
+    EXPECT_REG r0, 0
+
+    /* T19: without lazy stacking S0-S15 are saved at once and restored */
+    TEST 19
+    STORE FPCCR, 0x80000000     /* ASPEN only */
+    vmov s0, r0                 /* r0 = 0 */
+    svc #3
+    vmov r0, s0
+    EXPECT_REG r0, 0x12345678
+    STORE FPCCR, 0xC0000000
+
+    /* T20: no FP context, a basic frame */
+    TEST 20
+    mrs r0, control
+    bic r0, #4
+    msr control, r0
+    isb
+    svc #0
+    EXPECT_MEM R_LR, 0xFFFFFFF9
+    vmov.f32 s1, #1.0           /* a new context: CONTROL.FPCA again */
+    mrs r0, control
+    EXPECT_REG r0, 4
+
     STORE RES, 0xD0D0D0D0
 done:
     b done
@@ -369,7 +447,32 @@ svc:
     ldr r2, [r0, #28]
     ldr r3, =R_XPSR
     str r2, [r3]
-    cmp r1, #1
+    cmp r1, #2
+    bne 2f
+    ldr r1, =FPCCR              /* SVC 2: record the lazy state, then use the FPU */
+    ldr r2, [r1]
+    ldr r3, =R_FPCCR
+    str r2, [r3]
+    ldr r2, =FPCAR
+    ldr r2, [r2]
+    ldr r3, =R_FPCAR
+    str r2, [r3]
+    ldr r3, =R_FRAME
+    str r0, [r3]
+    vmov.f32 s0, #2.0
+    ldr r2, [r1]
+    ldr r3, =R_FPCCR2
+    str r2, [r3]
+    ldr r2, =R_FPCAR
+    ldr r2, [r2]
+    ldr r2, [r2]
+    ldr r3, =R_SAVED
+    str r2, [r3]
+2:  cmp r1, #3
+    bne 3f
+    ldr r2, =0x12345678         /* SVC 3: scribble over S0's place in the frame */
+    str r2, [r0, #0x20]
+3:  cmp r1, #1
     bne 1f
     mrs r1, control             /* SVC 1: back to privileged */
     bic r1, #1

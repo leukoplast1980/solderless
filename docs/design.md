@@ -60,9 +60,9 @@ Minimum Android version: 8.0, as for Mecrisp Pocket. Aim for F-Droid.
   BASEPRI and FAULTMASK.
 - Fault status registers (CFSR, HFSR, MMFAR, BFAR) set as on the real core, so
   the fault explainer (section 8) can decode them.
-- Milestone 3 adds the DSP instructions and the single-precision FPU, including
-  lazy stacking. Without them, C firmware built for hard float gets a
-  UsageFault, as on a core with the FPU switched off.
+- The DSP instructions and the single-precision FPU with lazy stacking
+  (milestone 3), so C firmware built for hard float runs; its arithmetic
+  is done in integers to the ARM ARM's pseudocode, not on the phone's FPU.
 - Milestone 5 adds the MPU.
 
 Why our own interpreter: it fits the way Mecrisp Pocket's `rv32.c` already

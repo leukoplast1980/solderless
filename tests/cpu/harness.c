@@ -68,6 +68,8 @@ void t_set_state(void *p, const uint32_t *regs)
     c->it = 0; c->ipsr = 0; c->control = 0; c->primask = 0;
     c->sleeping = 0; c->lockup = 0;
     c->cfsr = 0; c->hfsr = 0; c->excl_valid = 0;
+    c->cpacr = 0x00F00000u;                        /* the FPU enabled, as a test's startup code would */
+    c->fpccr = 0xC0000000u;
     memset(c->active, 0, sizeof c->active);
     memset(c->pending, 0, sizeof c->pending);
 }
@@ -79,6 +81,21 @@ void t_get_state(void *p, uint32_t *regs)
     regs[16] = cm_xpsr(&t->cpu);
     regs[17] = t->cpu.cfsr;
     regs[18] = t->cpu.lockup;
+}
+
+/* fp: S0..S31, then FPSCR */
+void t_set_fp(void *p, const uint32_t *fp)
+{
+    struct cm_cpu *c = &((struct t_vm *)p)->cpu;
+    for (int i = 0; i < 32; i++) c->s[i] = fp[i];
+    c->fpscr = fp[32];
+}
+
+void t_get_fp(void *p, uint32_t *fp)
+{
+    struct cm_cpu *c = &((struct t_vm *)p)->cpu;
+    for (int i = 0; i < 32; i++) fp[i] = c->s[i];
+    fp[32] = c->fpscr;
 }
 
 uint32_t t_run(void *p, uint32_t n) { return cm_run(&((struct t_vm *)p)->cpu, n); }

@@ -103,7 +103,9 @@ struct cm_cpu {
     /* MPU (registers only for now) */
     uint32_t mpu_ctrl, mpu_rnr, mpu_rbar[8], mpu_rasr[8];
 
-    /* FPU control (registers only for now) */
+    /* FPU (FPv4-SP): S0-S31, FPSCR, and its control registers in the SCB */
+    uint32_t s[32];
+    uint32_t fpscr;
     uint32_t fpccr, fpcar, fpdscr;
 
     /* Exclusive monitor */
