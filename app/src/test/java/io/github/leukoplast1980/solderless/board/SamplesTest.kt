@@ -61,6 +61,8 @@ class SamplesTest {
         Part(24, PartType.BARO, listOf(i2c("PB8", "SCL"), i2c("PB9", "SDA")), i2cAddr = 0x76),
         Part(25, PartType.CO2, listOf(i2c("PB8", "SCL"), i2c("PB9", "SDA")), i2cAddr = 0x62),
         Part(26, PartType.BARO, listOf(i2c("PC8", "SCL"), i2c("PC9", "SDA")), i2cAddr = 0x77),
+        Part(27, PartType.ENCODER, listOf(tim("PA0", "TIM2"), tim("PA1", "TIM2"), gpio("PC3"))),
+        Part(28, PartType.ENCODER, listOf(tim("PB6", "TIM4"), tim("PB7", "TIM4"), gpio("PC2"))),
     ))
 
     @Test fun everySampleIsTestedOnTheEmulator() {
@@ -98,6 +100,7 @@ class SamplesTest {
             Part(1, PartType.TFT, emptyList()),
             Part(1, PartType.BARO, emptyList(), i2cAddr = 0x76),
             Part(1, PartType.CO2, emptyList(), i2cAddr = 0x62),
+            Part(1, PartType.ENCODER, emptyList()),
         )
         var n = 0
         for ((vi, v) in variants.withIndex()) for (o in rec.options(emptyList(), v, 0)) {

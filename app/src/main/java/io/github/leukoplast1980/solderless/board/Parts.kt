@@ -19,6 +19,7 @@ enum class PartType(val prefix: String, val title: String, val roles: List<Strin
     TFT("tft", "Colour display", listOf("cs", "scl", "sda", "dc", "res")),
     BARO("baro", "Pressure sensor", listOf("scl", "sda")),
     CO2("co2", "CO₂ sensor", listOf("scl", "sda")),
+    ENCODER("enc", "Rotary encoder", listOf("clk", "dt", "sw")),
     ;
 
     /** I2C addresses the part can be set to, the default first */
@@ -36,7 +37,7 @@ enum class LedColour(val title: String, val vfMv: Int, val argb: Long) {
 }
 
 /** What a part's pin has to be able to do */
-enum class Need { OUTPUT, INPUT, INPUT_EXTI, PWM, ADC, DAC_OR_PWM, I2C_SCL, I2C_SDA, CS, SPI_SCK, SPI_MOSI, SPI_MISO }
+enum class Need { OUTPUT, INPUT, INPUT_EXTI, PWM, ADC, DAC_OR_PWM, I2C_SCL, I2C_SDA, CS, SPI_SCK, SPI_MOSI, SPI_MISO, ENC_A, ENC_B }
 
 /** A chip pin given to one role of a part, and the function it is used with. */
 data class PinUse(val pin: String, val function: Function)
@@ -88,6 +89,7 @@ data class Part(
         PartType.SPEAKER -> listOf(if (dacDrive) Need.DAC_OR_PWM else Need.PWM)
         PartType.PIEZO -> listOf(Need.PWM)
         PartType.OLED, PartType.BARO, PartType.CO2 -> listOf(Need.I2C_SCL, Need.I2C_SDA)
+        PartType.ENCODER -> listOf(Need.ENC_A, Need.ENC_B, Need.INPUT)
         PartType.FLASH -> listOf(Need.CS, Need.SPI_SCK, Need.SPI_MOSI, Need.SPI_MISO)
         PartType.MATRIX -> listOf(Need.CS, Need.SPI_SCK, Need.SPI_MOSI)
         // RES idles high like a chip select, so it stays off PB8 too
@@ -160,6 +162,8 @@ object Passives {
         )
         PartType.OLED -> listOf(Passive(p.id, 0, "on the module", "4.7 kΩ × 2", 4700,
             "pull-ups on SCL and SDA: I2C lines are open-drain, something has to pull them high"))
+        PartType.ENCODER -> listOf(Passive(p.id, 0, "on the module", "10 kΩ × 2", 10000,
+            "pull-ups on CLK and DT; SW has none fitted: turn on the pin's own pull-up"))
         PartType.BARO -> listOf(Passive(p.id, 0, "on the module", "10 kΩ × 2", 10000,
             "pull-ups on SCL and SDA; CSB is pulled high for I2C, SDO sets the address"))
         PartType.CO2 -> listOf(Passive(p.id, 0, "on the module", "10 kΩ × 2", 10000, "pull-ups on SCL and SDA"))

@@ -78,6 +78,10 @@ struct sl_dev {
 
 #define SL_AUDIO_RING 8192
 
+/* A rotary encoder's contacts to come: one change at a time */
+#define SL_ENC_QUEUE 64
+struct sl_enc_step { uint64_t at; int part, contact, closed; };
+
 struct sl_board {
     struct sl_att_state att[SL_MAX_ATTACH];
     int natt;
@@ -89,6 +93,8 @@ struct sl_board {
     uint32_t trace_head, trace_tail;
     struct sl_dev dev[SL_MAX_DEV];
     int ndev;
+    struct sl_enc_step enc[SL_ENC_QUEUE];
+    int enc_n;
 };
 
 void board_trace_pins(struct sl_soc *s, const int *slots, int n);
@@ -100,6 +106,7 @@ void board_init(struct sl_soc *s);
 void board_reset(struct sl_soc *s);              /* chip reset: pins re-resolve, parts keep their state */
 void board_set(struct sl_soc *s, const sl_attach *a, int n);
 void board_input(struct sl_soc *s, int part, int value);
+void board_turn(struct sl_soc *s, int part, int steps);
 void board_event(struct sl_soc *s);              /* EV_BOARD: bounce transitions */
 void board_read(struct sl_soc *s, sl_board_state *out);
 

@@ -55,6 +55,11 @@ data class Board(val parts: List<Part> = emptyList()) {
             // role 0 SCL, 1 SDA, as SL_SIG_*; 4.7 kohm pull-ups on the module
             PartType.OLED -> att(p.id, r, u.pin, ATT_DEVICE, false, 4700, 0, 0, DEV_SSD1306, p.i2cAddr)
             PartType.BARO -> att(p.id, r, u.pin, ATT_DEVICE, false, 10000, 0, 0, DEV_BMP280, p.i2cAddr)
+            // CLK and DT: contacts to GND with the module's 10 kohm pull-ups; SW: a contact to GND, no pull-up fitted
+            PartType.ENCODER -> if (r < 2) {
+                att(p.id, ROLE_ENC_A + r, u.pin, ATT_SWITCH, false, 0, 0, 300, 0, 0)
+                att(p.id, ROLE_ENC_A + r, u.pin, ATT_PULL, true, 10000, 0, 0, 0, 0)
+            } else att(p.id, 0, u.pin, ATT_SWITCH, false, 0, 0, p.bounceUs, 0, 0)
             PartType.CO2 -> att(p.id, r, u.pin, ATT_DEVICE, false, 10000, 0, 0, DEV_SCD41, p.i2cAddr)
             // roles CS, CLK, DI, DO as SL_SIG_CS, SCK, MOSI, MISO; WP and HOLD tied high
             // CS (and the display's RES) have a 10 kohm pull-up on the module: a part whose
@@ -94,6 +99,8 @@ data class Board(val parts: List<Part> = emptyList()) {
         const val DEV_MAX7219 = 3
         const val DEV_ST7789 = 4
         const val DEV_BMP280 = 5
+        /** sl_attach.role of an encoder's contacts A and B (SL_ROLE_ENC_A, _B) */
+        const val ROLE_ENC_A = 100
         const val DEV_SCD41 = 6
         /** sl_attach.role of a colour display's roles: SL_SIG_CS, SCK, MOSI, DC, RES */
         val TFT_SIG = intArrayOf(5, 2, 3, 6, 7)

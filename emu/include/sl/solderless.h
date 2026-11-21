@@ -108,7 +108,9 @@ size_t sl_log_read(sl_vm *vm, char *buf, size_t len);
 
 enum {
     SL_ATT_LED = 1,     /* r_ohm in series, then an LED (vf_mv) to GND, or from 3V3 if to_vcc */
-    SL_ATT_SWITCH,      /* push button from the pin to GND, or to 3V3 if to_vcc; bounces for bounce_us */
+    SL_ATT_SWITCH,      /* push button from the pin to GND, or to 3V3 if to_vcc; bounces for bounce_us.
+                           A rotary encoder's two contacts are switches too, with role SL_ROLE_ENC_A and _B:
+                           sl_board_turn moves them, sl_board_input does not */
     SL_ATT_PULL,        /* resistor r_ohm to 3V3 (to_vcc) or GND */
     SL_ATT_POT,         /* wiper of a potentiometer of r_ohm between 3V3 and GND */
     SL_ATT_AUDIO,       /* piezo or speaker stage: listens, does not load the pin */
@@ -148,6 +150,13 @@ void sl_board_set(sl_vm *vm, const sl_attach *att, int n);
 /* User input: a switch part's pressed state (0/1), or a pot's wiper
  * position in per mille (0 = at GND, 1000 = at 3V3). */
 void sl_board_input(sl_vm *vm, int part, int value);
+
+/* A rotary encoder (its contacts: switches with these roles) turned by steps
+ * detents, clockwise when positive: each detent is one full quadrature
+ * cycle, A closing first clockwise, B first the other way, a few
+ * milliseconds per change. */
+enum { SL_ROLE_ENC_A = 100, SL_ROLE_ENC_B = 101 };
+void sl_board_turn(sl_vm *vm, int part, int steps);
 
 enum {
     SL_PIN_HIGH = 1, SL_PIN_FLOATING = 2, SL_PIN_SHORT = 4, SL_PIN_PWM = 8,

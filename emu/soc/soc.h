@@ -76,7 +76,8 @@ struct sl_tim {
     const char *name;
     int pi, adv, bits32, apb2, nch;
     int irq_up, irq_cc;
-    int running, polled, moe_warned;
+    int running, polled, moe_warned, enc_warned;
+    int ti[2];                  /* TI1, TI2 as last seen on their pins */
     uint64_t t0, t_seen;        /* counter was at position pos0 at t0; flags known up to t_seen */
     uint64_t pos0, tick;        /* tick: ps per count */
     uint32_t psc, arr, rcr, rep, ccr[4];   /* active (shadow) values */

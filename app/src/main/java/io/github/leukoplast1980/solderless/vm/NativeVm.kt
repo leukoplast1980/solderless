@@ -54,6 +54,7 @@ object NativeVm {
     @JvmStatic external fun boardInput(handle: Long, part: Int, value: Int)
     /** A bus part: its pixels (one byte each) into [pixels]; its controller's state as "name\tvalue" lines, null if absent */
     @JvmStatic external fun deviceRead(handle: Long, part: Int, pixels: ByteArray): String?
+    @JvmStatic external fun boardTurn(handle: Long, part: Int, steps: Int)
     /** What a sensor senses: BMP280 pressure_pa, temp_c; SCD41 co2_ppm, temp_c, rh, breath */
     @JvmStatic external fun deviceInput(handle: Long, part: Int, what: String, value: Double)
     /** A memory part (W25Q): [len] bytes at [addr] read into or written from [buf], as a programmer would. Returns the count. */

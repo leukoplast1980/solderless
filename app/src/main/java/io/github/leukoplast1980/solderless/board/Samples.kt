@@ -96,6 +96,7 @@ object Samples {
             PartType.TFT -> tft(c, n, chip, p)
             PartType.BARO -> baro(c, n, chip, p)
             PartType.CO2 -> co2(c, n, chip, p)
+            PartType.ENCODER -> encoder(c, n, chip, p)
         }
         return c.text()
     }
@@ -120,6 +121,8 @@ object Samples {
         PartType.BARO -> "pressure sensor, BMP280, on ${p.i2c}: SCL ${p.pins[0].pin}, SDA ${p.pins[1].pin}, address " +
             "$%02X".format(java.util.Locale.ROOT, p.i2cAddr)
         PartType.CO2 -> "CO₂ sensor, SCD41, on ${p.i2c}: SCL ${p.pins[0].pin}, SDA ${p.pins[1].pin}, address \$62"
+        PartType.ENCODER -> "rotary encoder, KY-040: CLK ${p.pins[0].pin}, DT ${p.pins[1].pin} on " +
+            "${(p.pins[0].function as? Function.Timer)?.timer} in encoder mode, SW ${p.pins[2].pin}"
     }
 
     // ---- pieces --------------------------------------------------------
@@ -751,6 +754,48 @@ object Samples {
         c.add("\\ The readings as they come, until a key is pressed")
         c.add(": $n-demo ( -- ) $n-init  begin $n-ready? if $n-read drop $n. cr then 200 ms key? until ;")
         tryIt(c, "$n-init 5100 ms $n-read . $n.   or   $n-demo (Enter stops it)")
+    }
+
+    private fun encoder(c: Code, n: String, chip: ChipPins, p: Part) {
+        val f = p.pins[0].function as? Function.Timer ?: return
+        val t = "$n-timer"
+        val wide = f.timer == "TIM2"
+        c.add(": $n-count ( -- n )", "the counter, signed: up one way, down the other")
+        if (wide) c.add("  $t \$24 + @ ;", "TIM2 counts in 32 bits")
+        else c.add("  $t \$24 + @ 16 lshift 16 arshift ;", "16 bits, sign-extended")
+        c.add(": $n-steps ( -- n ) $n-count 4 / ;", "detents: four edges each")
+        c.add(": $n-pressed? ( -- flag )", "the push switch, low while pressed")
+        c.add("  $n-sw-port \$10 + @ 1 $n-sw-pin lshift and 0= ;")
+        c.add(": $n-zero ( -- ) 0 $t \$24 + ! ;", "count from here")
+        c.gap()
+        c.add(": $n-init ( -- )")
+        gpioClocks(c, chip, p.pins)
+        timerClock(c, f.timer)
+        for (r in 0..1) {
+            val base = "$n-${p.type.roles[r]}"
+            mode(c, base, "10", "alternate function", pushPull = false)
+            altFunction(c, base, bit(chip, p.pins[r]), p.pins[r].function)
+        }
+        mode(c, "$n-sw", "00", "input")
+        c.add("  %11 $n-sw-pin 2* lshift $n-sw-port \$0C + bic!", "PUPDR: clear the two bits")
+        c.add("  %01 $n-sw-pin 2* lshift $n-sw-port \$0C + bis!", "PUPDR: 01 = pull-up; the module has none for SW")
+        c.add("  0 $t !", "CR1: stopped while setting it up")
+        c.add("  3 $t 8 + !", "SMCR: encoder mode 3, both inputs' edges: 4 a detent")
+        c.add("  \$0101 $t \$18 + !", "CCMR1: CC1S and CC2S = 01, CH1 and CH2 inputs from their pins")
+        c.add("  0 $t \$20 + !", "CCER: neither input inverted")
+        c.add("  ${if (wide) "-1" else "\$FFFF"} $t \$2C + !", "ARR: count over the whole range, then wrap")
+        c.add("  0 $t \$24 + !", "CNT: 0")
+        c.add("  1 $t ! ;", "CR1: CEN, on")
+        c.gap()
+        c.add("\\ Each detent as it is turned, and the push, until a key is pressed")
+        c.add(": $n-demo ( -- )")
+        c.add("  $n-init 0")
+        c.add("  begin")
+        c.add("    $n-steps 2dup <> if dup . then nip")
+        c.add("    $n-pressed? if .\" push \" begin 20 ms $n-pressed? 0= until then")
+        c.add("    20 ms key?")
+        c.add("  until drop ;")
+        tryIt(c, "$n-init $n-steps .   or   $n-demo (turn it; Enter stops it)")
     }
 
     private val SCALE = "523 494 440 392 349 330 294 262"

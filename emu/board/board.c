@@ -347,12 +347,26 @@ static void schedule_next(struct sl_soc *s)
         struct sl_att_state *a = &B->att[i];
         if (a->bounce_i < a->bounce_n && a->bounce_at[a->bounce_i] < t) t = a->bounce_at[a->bounce_i];
     }
+    if (B->enc_n && B->enc[0].at < t) t = B->enc[0].at;
     soc_sched(s, EV_BOARD, t);
 }
+
+static void switch_change(struct sl_soc *s, struct sl_att_state *a, int pressed);
 
 void board_event(struct sl_soc *s)
 {
     uint64_t now = soc_now_ps(s);
+    /* encoder contacts whose time has come */
+    while (B->enc_n && B->enc[0].at <= now) {
+        struct sl_enc_step st = B->enc[0];
+        memmove(B->enc, B->enc + 1, sizeof B->enc[0] * (size_t)(B->enc_n - 1));
+        B->enc_n--;
+        for (int i = 0; i < B->natt; i++) {
+            struct sl_att_state *a = &B->att[i];
+            if (a->a.part == st.part && a->a.kind == SL_ATT_SWITCH && a->a.role == st.contact && (a->value != 0) != st.closed)
+                switch_change(s, a, st.closed);
+        }
+    }
     for (int i = 0; i < B->natt; i++) {
         struct sl_att_state *a = &B->att[i];
         while (a->bounce_i < a->bounce_n && a->bounce_at[a->bounce_i] <= now) {
@@ -396,6 +410,7 @@ void board_input(struct sl_soc *s, int part, int value)
     for (int i = 0; i < B->natt; i++) {
         struct sl_att_state *a = &B->att[i];
         if (a->a.part != part) continue;
+        if (a->a.kind == SL_ATT_SWITCH && a->a.role >= SL_ROLE_ENC_A) continue;   /* encoder contacts turn */
         if (a->a.kind == SL_ATT_SWITCH) {
             if ((value != 0) != (a->value != 0)) switch_change(s, a, value != 0);
         } else if (a->a.kind == SL_ATT_POT) {
@@ -403,6 +418,26 @@ void board_input(struct sl_soc *s, int part, int value)
             resolve(s, a->a.pin, 1);
         }
     }
+}
+
+/* Turning an encoder: each detent closes A and B and opens them again, in
+ * the order that gives its direction, 2.5 ms apart; the contacts bounce as
+ * switches do. Steps queue up behind any still turning. */
+void board_turn(struct sl_soc *s, int part, int steps)
+{
+    uint64_t at = soc_now_ps(s);
+    for (int k = 0; k < B->enc_n; k++) if (B->enc[k].at > at) at = B->enc[k].at;
+    const uint64_t gap = 2500ull * 1000000ull;
+    int n = steps < 0 ? -steps : steps;
+    for (int k = 0; k < n && B->enc_n + 4 <= SL_ENC_QUEUE; k++) {
+        int first = steps > 0 ? SL_ROLE_ENC_A : SL_ROLE_ENC_B, second = steps > 0 ? SL_ROLE_ENC_B : SL_ROLE_ENC_A;
+        const int order[4][2] = { { first, 1 }, { second, 1 }, { first, 0 }, { second, 0 } };
+        for (int j = 0; j < 4; j++) {
+            at += gap;
+            B->enc[B->enc_n++] = (struct sl_enc_step){ at, part, order[j][0], order[j][1] };
+        }
+    }
+    schedule_next(s);
 }
 
 void board_set(struct sl_soc *s, const sl_attach *att, int n)
@@ -424,6 +459,7 @@ void board_set(struct sl_soc *s, const sl_attach *att, int n)
             }
     }
     B->natt = n;
+    B->enc_n = 0;
     bus_set(s);
     for (int slot = 0; slot < SL_PIN_SLOTS; slot++) { B->pin[slot].used = 0; B->pin[slot].audio = 0; B->pin[slot].last_mv = -2; }
     for (int i = 0; i < n; i++)

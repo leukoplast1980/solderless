@@ -279,6 +279,33 @@ static int directive(const char *line)
         sl_device_mem(vm, atoi(a1), (uint32_t)strtoul(a2, NULL, 0), buf, k, 1);
         return 0;
     }
+    if (!strcmp(cmd, "attach") && n >= 4 && !strcmp(a2, "encoder") && nboard + 5 <= SL_MAX_ATTACH) {
+        /* #!attach N encoder CLK DT [SW] [bounce=US]: a KY-040: contacts A (CLK) and B (DT) to GND with
+         * 10 kohm pull-ups on the module, its push switch (SW) to GND without one */
+        char p4[16] = "", p5[16] = "";
+        sscanf(line + 2, "%*s %*s %*s %*s %15s %15s", p4, p5);
+        int clk = parse_pin(a3), dt = parse_pin(p4), sw = parse_pin(p5);
+        if (clk < 0 || dt < 0) return 1;
+        const char *q = strstr(line, "bounce=");
+        int bounce = q ? atoi(q + 7) : 300;
+        int pins[2] = { clk, dt }, roles[2] = { SL_ROLE_ENC_A, SL_ROLE_ENC_B };
+        for (int k = 0; k < 2; k++) {
+            sl_attach *a = &board[nboard++];
+            memset(a, 0, sizeof *a);
+            a->part = atoi(a1); a->kind = SL_ATT_SWITCH; a->role = roles[k]; a->pin = pins[k]; a->bounce_us = bounce;
+            a = &board[nboard++];
+            memset(a, 0, sizeof *a);
+            a->part = atoi(a1); a->kind = SL_ATT_PULL; a->role = roles[k]; a->pin = pins[k]; a->r_ohm = 10000; a->to_vcc = 1;
+        }
+        if (sw >= 0) {
+            sl_attach *a = &board[nboard++];
+            memset(a, 0, sizeof *a);
+            a->part = atoi(a1); a->kind = SL_ATT_SWITCH; a->role = 0; a->pin = sw; a->bounce_us = 2000;
+        }
+        sl_board_set(vm, board, nboard);
+        return 0;
+    }
+    if (!strcmp(cmd, "turn") && n >= 3) { sl_board_turn(vm, atoi(a1), atoi(a2)); return 0; }
     if (!strcmp(cmd, "sensor") && n >= 2) {
         /* #!sensor N: a sensor's state as its sheet shows it */
         char text[1024];

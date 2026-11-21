@@ -76,7 +76,7 @@ class BoardProbeTest {
         val loc = IntArray(2)
         scenario.onActivity { a ->
             val bv = a.findViewById<io.github.leukoplast1980.solderless.ui.BoardView>(R.id.boardView)
-            bv.partBounds(oled.id)?.let { r -> bv.requestRectangleOnScreen(android.graphics.Rect(r.left.toInt(), r.top.toInt(), r.right.toInt(), r.bottom.toInt()), true) }
+            bv.partBounds(oled.id)?.let { r -> bv.requestRectangleOnScreen(android.graphics.Rect(r.left.toInt(), r.top.toInt(), r.right.toInt(), r.bottom.toInt() + (170 * bv.resources.displayMetrics.density).toInt()), true) }   // scrolled clear of the buttons over the bottom
         }
         Thread.sleep(500)
         scenario.onActivity { a ->
@@ -100,6 +100,52 @@ class BoardProbeTest {
     }
 
     private fun ui() = androidx.test.uiautomator.UiDevice.getInstance(InstrumentationRegistry.getInstrumentation())
+
+    /** A rotary encoder: a swipe on its knob turns it, the timer counts, a tap pushes it */
+    @Test
+    fun encoder() {
+        val ctx = InstrumentationRegistry.getInstrumentation().targetContext
+        val scenario = ActivityScenario.launch(MainActivity::class.java)
+        Thread.sleep(2500)
+        val vm = VmHost.get(ctx)
+        val rec = vm.recommender()
+        var b = Board()
+        b = b.apply(rec.propose(b.parts, Part(b.nextId(), PartType.ENCODER, emptyList()))!!)
+        val enc = b.parts[0]
+        Log.i(TAG, "encoder on ${enc.pins}")
+        scenario.onActivity { vm.setBoard(b) }
+        val sample = io.github.leukoplast1980.solderless.board.Samples.forPart(b, vm.chip, enc)
+        for (line in sample.lines().filter { it.isNotBlank() })
+            assertEquals(line, io.github.leukoplast1980.solderless.forth.LineResult.OK, vm.sendLineChecked(line, 5000))
+        assertEquals(io.github.leukoplast1980.solderless.forth.LineResult.OK, vm.sendLineChecked("enc-init", 5000))
+        selectTab(scenario, R.string.tab_board)
+        Thread.sleep(800)
+        var at: android.graphics.RectF? = null
+        val loc = IntArray(2)
+        scenario.onActivity { a ->
+            val bv = a.findViewById<io.github.leukoplast1980.solderless.ui.BoardView>(R.id.boardView)
+            bv.partBounds(enc.id)?.let { r -> bv.requestRectangleOnScreen(android.graphics.Rect(r.left.toInt(), r.top.toInt(), r.right.toInt(), r.bottom.toInt() + (170 * bv.resources.displayMetrics.density).toInt()), true) }   // scrolled clear of the buttons over the bottom
+        }
+        Thread.sleep(500)
+        scenario.onActivity { a ->
+            val bv = a.findViewById<io.github.leukoplast1980.solderless.ui.BoardView>(R.id.boardView)
+            at = bv.partBounds(enc.id); bv.getLocationOnScreen(loc)
+        }
+        assertTrue("encoder drawn", at != null)
+        // the knob sits 62 dp in from the module's header side; swipe right across it
+        val d = ctx.resources.displayMetrics.density
+        val sideLeft = at!!.left < 0.4f * ctx.resources.displayMetrics.widthPixels
+        val kx = loc[0] + (if (sideLeft) at!!.left + (30 + 62) * d else at!!.right - (30 + 62) * d).toInt()
+        val ky = loc[1] + (at!!.top + 18 * d + 46 * d).toInt()
+        ui().swipe(kx.toInt(), ky, (kx + 80 * d).toInt(), ky, 30)
+        Thread.sleep(1500)
+        val steps = runCatching { vm.peekWords(intArrayOf(io.github.leukoplast1980.solderless.board.ChipPins.BASE[(enc.pins[0].function as io.github.leukoplast1980.solderless.board.Function.Timer).timer]!!.toInt() + 0x24))[0] }.getOrDefault(0)
+        Log.i(TAG, "encoder counted $steps")
+        assertTrue("a swipe right turned it clockwise: $steps", steps in 8..40)
+        screenshot("encoder-board.png")
+        scenario.onActivity { vm.setBoard(Board()) }
+        scenario.close()
+    }
 
     /** A BMP280 and an SCD41 on one I2C bus with an OLED: their samples read what the sheets set */
     @Test
@@ -134,7 +180,7 @@ class BoardProbeTest {
             val loc = IntArray(2)
             scenario.onActivity { a ->
                 val bv = a.findViewById<io.github.leukoplast1980.solderless.ui.BoardView>(R.id.boardView)
-                bv.partBounds(p.id)?.let { r -> bv.requestRectangleOnScreen(android.graphics.Rect(r.left.toInt(), r.top.toInt(), r.right.toInt(), r.bottom.toInt()), true) }
+                bv.partBounds(p.id)?.let { r -> bv.requestRectangleOnScreen(android.graphics.Rect(r.left.toInt(), r.top.toInt(), r.right.toInt(), r.bottom.toInt() + (170 * bv.resources.displayMetrics.density).toInt()), true) }   // scrolled clear of the buttons over the bottom
             }
             Thread.sleep(500)
             scenario.onActivity { a ->
@@ -197,7 +243,7 @@ class BoardProbeTest {
             val loc = IntArray(2)
             scenario.onActivity { a ->
                 val bv = a.findViewById<io.github.leukoplast1980.solderless.ui.BoardView>(R.id.boardView)
-                bv.partBounds(p.id)?.let { r -> bv.requestRectangleOnScreen(android.graphics.Rect(r.left.toInt(), r.top.toInt(), r.right.toInt(), r.bottom.toInt()), true) }
+                bv.partBounds(p.id)?.let { r -> bv.requestRectangleOnScreen(android.graphics.Rect(r.left.toInt(), r.top.toInt(), r.right.toInt(), r.bottom.toInt() + (170 * bv.resources.displayMetrics.density).toInt()), true) }   // scrolled clear of the buttons over the bottom
             }
             Thread.sleep(500)
             scenario.onActivity { a ->
@@ -247,7 +293,7 @@ class BoardProbeTest {
         val loc = IntArray(2)
         scenario.onActivity { a ->
             val bv = a.findViewById<io.github.leukoplast1980.solderless.ui.BoardView>(R.id.boardView)
-            bv.partBounds(flash.id)?.let { r -> bv.requestRectangleOnScreen(android.graphics.Rect(r.left.toInt(), r.top.toInt(), r.right.toInt(), r.bottom.toInt()), true) }
+            bv.partBounds(flash.id)?.let { r -> bv.requestRectangleOnScreen(android.graphics.Rect(r.left.toInt(), r.top.toInt(), r.right.toInt(), r.bottom.toInt() + (170 * bv.resources.displayMetrics.density).toInt()), true) }   // scrolled clear of the buttons over the bottom
         }
         Thread.sleep(500)
         scenario.onActivity { a ->

@@ -200,6 +200,21 @@ class RecommenderTest {
         assertEquals("the board survives a save", moved, Board.fromJson(moved.toJson()))
     }
 
+    @Test fun anEncoderTakesCh1AndCh2OfATimerOfItsOwn() {
+        var b = place(Board(), new(PartType.ENCODER, 1))
+        val e = b.parts[0]
+        val a = e.pins[0].function as Function.Timer
+        val c = e.pins[1].function as Function.Timer
+        assertEquals(1, a.channel); assertEquals(2, c.channel); assertEquals(a.timer, c.timer)
+        assertTrue(a.timer in setOf("TIM1", "TIM2", "TIM3", "TIM4", "TIM8"))
+        assertTrue("SW on a plain input", e.pins[2].function is Function.Gpio)
+        b = place(b, new(PartType.LED, 2))
+        val led = b.parts.first { it.id == 2 }
+        assertTrue("no PWM on the encoder's timer: ${led.pins}", (led.pins[0].function as? Function.Timer)?.timer != a.timer)
+        val att = b.attachments(chip)
+        assertTrue("contacts with module pull-ups", (0 until att.size / Board.ATT_INTS).count { att[it * Board.ATT_INTS + 1] == Board.ROLE_ENC_A } == 2)
+    }
+
     @Test fun headersInBothOrders() {
         val (l, r) = chip.headers(HeaderOrder.ADAPTER)
         assertEquals(32, l.size); assertEquals(32, r.size)

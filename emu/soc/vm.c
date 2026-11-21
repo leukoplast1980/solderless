@@ -710,6 +710,18 @@ static void board_input_fn(sl_vm *vm, void *arg)
     board_input(vm->soc, io->part, io->value);
 }
 
+static void board_turn_fn(sl_vm *vm, void *arg)
+{
+    struct board_input_io *io = arg;
+    board_turn(vm->soc, io->part, io->value);
+}
+
+void sl_board_turn(sl_vm *vm, int part, int steps)
+{
+    struct board_input_io io = { part, steps };
+    run_on_vm(vm, board_turn_fn, &io);
+}
+
 void sl_board_input(sl_vm *vm, int part, int value)
 {
     struct board_input_io io = { part, value };

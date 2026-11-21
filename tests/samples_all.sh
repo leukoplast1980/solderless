@@ -28,6 +28,7 @@ one() {
                 v16) [ $i = 1 ] && echo "#!attach 1 tft $pins";;
                 v17) [ $i = 1 ] && echo "#!attach 1 bmp280 $pins";;
                 v18) [ $i = 1 ] && echo "#!attach 1 scd41 $pins";;
+                v19) [ $i = 1 ] && echo "#!attach 1 encoder $pins";;
                 *) echo "#!attach $i audio $p";;
             esac
             i=$((i + 1))

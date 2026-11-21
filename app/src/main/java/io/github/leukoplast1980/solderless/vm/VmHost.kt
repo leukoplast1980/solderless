@@ -376,6 +376,9 @@ class VmHost private constructor(context: Context) {
     fun snapshot(): Snapshot = Snapshot(NativeVm.snapshot(handle))
     fun readMemory(address: Int, length: Int): ByteArray? = NativeVm.readMemory(handle, address, length)
     fun peekWords(addresses: IntArray): IntArray = NativeVm.peekWords(handle, addresses)
+
+    /** An encoder turned by some detents, clockwise when positive */
+    fun boardTurn(partId: Int, steps: Int) = NativeVm.boardTurn(handle, partId, steps)
     fun waitingForKey(): Boolean = NativeVm.waitingForKey(handle)
     fun readLog(): String? = NativeVm.readLog(handle)
 

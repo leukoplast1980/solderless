@@ -274,6 +274,13 @@ JNIEXPORT jstring JNICALL FN(deviceRead)(JNIEnv *env, jclass cls, jlong h, jint 
     return (*env)->NewStringUTF(env, text);
 }
 
+/* A rotary encoder turned by some detents */
+JNIEXPORT void JNICALL FN(boardTurn)(JNIEnv *env, jclass cls, jlong h, jint part, jint steps)
+{
+    (void)env; (void)cls;
+    sl_board_turn(VM(h), part, steps);
+}
+
 /* What a sensor senses, as the user sets it */
 JNIEXPORT void JNICALL FN(deviceInput)(JNIEnv *env, jclass cls, jlong h, jint part, jstring what, jdouble value)
 {

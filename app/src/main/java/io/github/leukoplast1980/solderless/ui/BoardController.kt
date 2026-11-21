@@ -37,6 +37,7 @@ import com.google.android.material.slider.Slider
 import io.github.leukoplast1980.solderless.R
 import io.github.leukoplast1980.solderless.board.Board
 import io.github.leukoplast1980.solderless.board.ChipPins
+import io.github.leukoplast1980.solderless.board.Function as PinFunction
 import io.github.leukoplast1980.solderless.board.LedColour
 import io.github.leukoplast1980.solderless.board.Part
 import io.github.leukoplast1980.solderless.board.PartType
@@ -111,6 +112,7 @@ class BoardController(
         view.board = vm.board
         view.onPress = { p, down -> vm.boardInput(p.id, if (down) 1 else 0) }
         view.onPot = { p, v -> vm.boardInput(p.id, v) }
+        view.onTurn = { p, steps -> vm.boardTurn(p.id, steps) }
         view.onLongPress = { showSettings(it) }
         view.onTap = {
             when (it.type) {
@@ -165,6 +167,22 @@ class BoardController(
             deviceText[p.id] = text
             if (Regex("Status\tBUSY 1").containsMatchIn(text)) view.deviceBusy += p.id else view.deviceBusy -= p.id
             flashSheet?.let { (id, update) -> if (id == p.id) update(text) }
+        }
+        // what each encoder's timer counts, when it is in encoder mode
+        val encs = vm.board.parts.filter { it.type == PartType.ENCODER && it.pins.firstOrNull()?.function is PinFunction.Timer }
+        if (encs.isNotEmpty()) {
+            val addr = encs.flatMap { p ->
+                val base = ChipPins.BASE[(p.pins[0].function as PinFunction.Timer).timer]!!.toInt()
+                listOf(base + 0x08, base + 0x24, base + 0x00)
+            }.toIntArray()
+            val v = vm.peekWords(addr)
+            for ((k, p) in encs.withIndex()) {
+                val smcr = v[3 * k]; val sms = (smcr and 7) or ((smcr shr 13) and 8)
+                val on = sms in 1..3 && (v[3 * k + 2] and 1) != 0
+                val timer = (p.pins[0].function as PinFunction.Timer).timer
+                val cnt = if (timer == "TIM2") v[3 * k + 1].toLong() else (v[3 * k + 1] and 0xFFFF).toShort().toLong()
+                if (on) view.encoderCounts[p.id] = cnt else view.encoderCounts.remove(p.id)
+            }
         }
         for (p in vm.board.parts.filter { it.type == PartType.BARO || it.type == PartType.CO2 }) {
             val text = vm.readDevice(p.id, oledBuf) ?: continue
@@ -336,6 +354,7 @@ class BoardController(
             PartType.MATRIX to "SPI: CLK and DIN, and CS",
             PartType.BARO to "I2C: SCL and SDA",
             PartType.CO2 to "I2C: SCL and SDA",
+            PartType.ENCODER to "timer CH1 and CH2, an input",
             PartType.TFT to "SPI: SCL and SDA; CS, DC, RES",
         )
         val grid = android.widget.GridLayout(activity).apply { columnCount = 2 }
@@ -724,6 +743,7 @@ class BoardController(
         PartType.TFT -> "ST7789 · 240 × ${p.tftRows} · ${p.spi ?: "SPI"}"
         PartType.BARO -> "BMP280 · ${p.i2c ?: "I2C"} · address " + "0x%02X".format(java.util.Locale.ROOT, p.i2cAddr)
         PartType.CO2 -> "SCD41 · ${p.i2c ?: "I2C"} · address 0x62"
+        PartType.ENCODER -> "KY-040 · ${(p.pins.firstOrNull()?.function as? PinFunction.Timer)?.timer ?: "timer"} encoder mode"
     }
 
     private fun showRewire(pr: Recommender.Proposal, pin: String?) {

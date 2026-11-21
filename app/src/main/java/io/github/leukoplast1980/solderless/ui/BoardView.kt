@@ -53,6 +53,10 @@ class BoardView @JvmOverloads constructor(context: Context, attrs: AttributeSet?
 
     // ---- what touches do ----------------------------------------------
     var onPress: (Part, Boolean) -> Unit = { _, _ -> }
+    /** An encoder turned by some detents, clockwise when positive */
+    var onTurn: (Part, Int) -> Unit = { _, _ -> }
+    /** What an encoder's timer counts now, as the board shows it */
+    val encoderCounts = HashMap<Int, Long>()
     var onPot: (Part, Int) -> Unit = { _, _ -> }
     var onLongPress: (Part) -> Unit = {}
     /** A tap on a part that does not react to touch (not a button or a pot), or on a button's label */
@@ -138,6 +142,7 @@ class BoardView @JvmOverloads constructor(context: Context, attrs: AttributeSet?
         PartType.FLASH -> dp(124f)
         PartType.MATRIX -> dp(30f) + matrixWidth(p)
         PartType.BARO, PartType.CO2 -> dp(30f) + dp(74f) + dp(64f)
+        PartType.ENCODER -> dp(30f) + dp(96f)
         PartType.TFT -> dp(30f) + tftWidth()
     }
 
@@ -172,9 +177,13 @@ class BoardView @JvmOverloads constructor(context: Context, attrs: AttributeSet?
             val parts = (board.parts + listOfNotNull(ghost)).filter { p -> sideOf(p) == side }
                 .map { it to anchor(it) }.sortedBy { it.second }
             var floor = top
+            val anchors = ArrayList<Float>()
             for ((p, y) in parts) {
                 val (above, below) = extent(p)
                 val w = widthOf(p)
+                // parts on the same bus pins cannot all sit at them: taller rows would not help
+                if (anchors.any { kotlin.math.abs(it - y) < 1f }) sidestepped += p.id
+                anchors += y
                 val blocks = taken[-side]!!.filter { it.third + w > inner - dp(6f) }.toMutableList()
                 if (strip != null && (side == stripSide || strip.third + w > inner - dp(6f))) blocks += strip
                 blocks.sortBy { it.first }
@@ -200,7 +209,7 @@ class BoardView @JvmOverloads constructor(context: Context, attrs: AttributeSet?
         val chip = chip ?: return
         canvas.drawColor(cBg)
         if (rowH == 0f) rowH = baseRow
-        hit.clear(); hitLabel.clear(); rowHit.clear(); pinY.clear(); pinSide.clear()
+        hit.clear(); hitLabel.clear(); knobs.clear(); rowHit.clear(); pinY.clear(); pinSide.clear()
         val (left, right) = chip.headers(order)
         drawHeader(canvas, left, true)
         drawHeader(canvas, right, false)
@@ -296,6 +305,7 @@ class BoardView @JvmOverloads constructor(context: Context, attrs: AttributeSet?
         PartType.FLASH -> dp(58f) to dp(50f)
         PartType.MATRIX -> dp(58f) to dp(50f)
         PartType.BARO -> dp(52f) to dp(40f)
+        PartType.ENCODER -> dp(46f) to dp(52f)
         PartType.CO2 -> dp(44f) to dp(32f)
         PartType.TFT -> if (p.tftRows == 320) dp(98f) to dp(94f) else dp(80f) to dp(76f)
         else -> dp(26f) to dp(24f)
@@ -523,6 +533,7 @@ class BoardView @JvmOverloads constructor(context: Context, attrs: AttributeSet?
             PartType.FLASH -> drawFlash(c, p, cy, x0, sg, isGhost, box)
             PartType.MATRIX -> drawMatrix(c, p, cy, x0, sg, isGhost, box)
             PartType.BARO, PartType.CO2 -> drawSensor(c, p, cy, x0, sg, isGhost, box)
+            PartType.ENCODER -> drawEncoder(c, p, cy, x0, sg, isGhost, box)
             PartType.TFT -> drawTft(c, p, cy, x0, sg, isGhost, box)
         }
         box.sort()
@@ -724,6 +735,46 @@ class BoardView @JvmOverloads constructor(context: Context, attrs: AttributeSet?
         if (!isGhost) hitLabel += RectF(minOf(l, tx - dp(64f)), top - dp(20f), maxOf(r, tx + dp(64f)), bottom) to p
     }
 
+    /** Detents each encoder was turned, for drawing its knob */
+    private val encoderTurned = HashMap<Int, Int>()
+    /** Where each encoder's knob is, for touches */
+    private val knobs = HashMap<Int, RectF>()
+
+    /** A KY-040 encoder: its pins facing the header, the knob with its pointer, what the timer counts */
+    private fun drawEncoder(c: Canvas, p: Part, cy: Float, x0: Float, sg: Int, isGhost: Boolean, box: RectF) {
+        val gc = if (isGhost) cHigh else null
+        val near = x0 + sg * dp(30f)
+        val far = near + sg * dp(96f)
+        val top = cy - dp(40f); val bottom = cy + dp(40f)
+        val l = minOf(near, far); val r = maxOf(near, far)
+        fill.color = 0xFF16304A.toInt()
+        if (!isGhost) c.drawRoundRect(RectF(l, top, r, bottom), dp(5f), dp(5f), fill)
+        setStroke(gc ?: 0xFF4A6A86.toInt(), isGhost, 1.4f)
+        c.drawRoundRect(RectF(l, top, r, bottom), dp(5f), dp(5f), stroke)
+        val ys = (0 until 5).map { cy - dp(26f) + it * dp(13f) }
+        modulePins(c, p, near, sg, ys, listOf("CLK", "DT", "SW"), isGhost) { _, pin -> wireColour(pin) }
+        // the knob: a shaft in a nut, a pointer that turns 18° a detent
+        val kx = near + sg * dp(62f); val kr = dp(21f)
+        fill.color = 0xFF2A333A.toInt(); c.drawCircle(kx, cy, kr, fill)
+        setStroke(gc ?: 0xFF8A9690.toInt(), isGhost, 1.4f); c.drawCircle(kx, cy, kr, stroke)
+        val pressed = pressedParts.contains(p.id)
+        fill.color = if (pressed) 0xFF4E5A62.toInt() else 0xFF3C474E.toInt(); c.drawCircle(kx, cy, dp(10f), fill)
+        setStroke(gc ?: 0xFFB9C2BC.toInt(), isGhost, 1.2f); c.drawCircle(kx, cy, dp(10f), stroke)
+        val a = Math.toRadians(-90.0 + 18.0 * (encoderTurned[p.id] ?: 0))
+        setStroke(gc ?: cText, isGhost, 2f)
+        c.drawLine(kx, cy, kx + (dp(16f) * Math.cos(a)).toFloat(), cy + (dp(16f) * Math.sin(a)).toFloat(), stroke)
+        if (!isGhost) knobs[p.id] = RectF(kx - kr - dp(6f), cy - kr - dp(6f), kx + kr + dp(6f), cy + kr + dp(6f))
+        label(c, "Encoder · KY-040", (l + r) / 2, top - dp(5f), 9.5f, gc ?: cText, bold = true)
+        if (!isGhost) {
+            val t = (p.pins.firstOrNull()?.function as? Function.Timer)?.timer
+            val cnt = encoderCounts[p.id]
+            label(c, if (cnt != null && t != null) "count $cnt · $t" else "swipe to turn, tap to push",
+                (l + r) / 2, bottom + dp(12f), 8.5f, if (cnt != null) cHigh else cLabel)
+        }
+        box.set(x0, top - dp(18f), far, bottom + dp(16f))
+        if (!isGhost) hitLabel += RectF(l, top - dp(20f), r, top + dp(2f)) to p
+    }
+
     /** Parts that report being busy (a flash erasing or programming) */
     val deviceBusy = HashSet<Int>()
 
@@ -822,6 +873,9 @@ class BoardView @JvmOverloads constructor(context: Context, attrs: AttributeSet?
 
     private val pressedParts = HashSet<Int>()
     private var dragPart: Part? = null
+    private var knobPart: Part? = null
+    private var knobX = 0f; private var knobY = 0f
+    private var knobSent = 0
     private var dragStartY = 0f
     private var dragStartValue = 0
 
@@ -836,6 +890,7 @@ class BoardView @JvmOverloads constructor(context: Context, attrs: AttributeSet?
         }
         override fun onSingleTapUp(e: MotionEvent): Boolean {
             hitLabel.lastOrNull { it.first.contains(e.x, e.y) }?.let { onTap(it.second); return true }
+            if (knobs.values.any { it.contains(e.x, e.y) }) return true      // the knob turns and pushes
             partAt(e.x, e.y)?.let { p -> if (p.type != PartType.BUTTON && p.type != PartType.POT) onTap(p); return true }
             if (partAt(e.x, e.y) == null && hitLabel.none { it.first.contains(e.x, e.y) }) rowHit.firstOrNull { it.first.contains(e.x, e.y) }?.let { onPinTap(it.second) }
             return true
@@ -852,6 +907,12 @@ class BoardView @JvmOverloads constructor(context: Context, attrs: AttributeSet?
         gestures.onTouchEvent(e)
         when (e.actionMasked) {
             MotionEvent.ACTION_DOWN -> {
+                knobs.entries.firstOrNull { it.value.contains(e.x, e.y) }?.let { (id, _) ->
+                    knobPart = board.parts.firstOrNull { it.id == id }
+                    knobX = e.x; knobY = e.y; knobSent = 0
+                    parent?.requestDisallowInterceptTouchEvent(true)
+                    return true
+                }
                 val p = partAt(e.x, e.y) ?: return true
                 when (p.type) {
                     PartType.BUTTON -> { pressedParts += p.id; onPress(p, true); invalidate(); parent?.requestDisallowInterceptTouchEvent(true) }
@@ -859,11 +920,31 @@ class BoardView @JvmOverloads constructor(context: Context, attrs: AttributeSet?
                     else -> {}
                 }
             }
-            MotionEvent.ACTION_MOVE -> dragPart?.let { p ->
+            MotionEvent.ACTION_MOVE -> knobPart?.let { p ->
+                // a swipe turns it: right or up is clockwise, one detent every 16 dp
+                val steps = ((e.x - knobX) - (e.y - knobY)) / dp(16f)
+                val want = steps.toInt()
+                if (want != knobSent) {
+                    onTurn(p, want - knobSent)
+                    encoderTurned[p.id] = (encoderTurned[p.id] ?: 0) + want - knobSent
+                    knobSent = want
+                    invalidate()
+                }
+            } ?: dragPart?.let { p ->
                 val v = (dragStartValue + ((dragStartY - e.y) / dp(120f) * 1000)).toInt().coerceIn(0, 1000)
                 if (v != potValue[p.id]) { potValue[p.id] = v; onPot(p, v); invalidate() }
             }
             MotionEvent.ACTION_UP, MotionEvent.ACTION_CANCEL -> {
+                knobPart?.let { p ->
+                    // a tap on the knob pushes it, for a moment
+                    val moved = Math.hypot((e.x - knobX).toDouble(), (e.y - knobY).toDouble()) > dp(8f)
+                    if (!moved && knobSent == 0 && e.actionMasked == MotionEvent.ACTION_UP) {
+                        pressedParts += p.id; onPress(p, true); invalidate()
+                        postDelayed({ pressedParts -= p.id; onPress(p, false); invalidate() }, 180)
+                    }
+                    knobPart = null
+                    return true
+                }
                 for (id in pressedParts) board.parts.firstOrNull { it.id == id }?.let { onPress(it, false) }
                 pressedParts.clear()
                 dragPart = null
