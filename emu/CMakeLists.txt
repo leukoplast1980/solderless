@@ -26,6 +26,8 @@ set(SL_SOURCES
   parts/w25q.c
   parts/max7219.c
   parts/st7789.c
+  parts/bmp280.c
+  parts/scd41.c
   soc/vm.c
   gen/g431_data.c
 )
@@ -35,7 +37,7 @@ target_include_directories(slemu PUBLIC include PRIVATE core soc gen)
 target_compile_options(slemu PRIVATE -Wall -Wextra -Wno-unused-parameter)
 set_property(TARGET slemu PROPERTY POSITION_INDEPENDENT_CODE ON)
 find_package(Threads REQUIRED)
-target_link_libraries(slemu PUBLIC Threads::Threads)
+target_link_libraries(slemu PUBLIC Threads::Threads m)
 
 # Host-only tools and tests (not built for Android)
 if(NOT ANDROID)

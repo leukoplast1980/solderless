@@ -101,6 +101,67 @@ class BoardProbeTest {
 
     private fun ui() = androidx.test.uiautomator.UiDevice.getInstance(InstrumentationRegistry.getInstrumentation())
 
+    /** A BMP280 and an SCD41 on one I2C bus with an OLED: their samples read what the sheets set */
+    @Test
+    fun sensors() {
+        val ctx = InstrumentationRegistry.getInstrumentation().targetContext
+        val scenario = ActivityScenario.launch(MainActivity::class.java)
+        Thread.sleep(2500)
+        val vm = VmHost.get(ctx)
+        val rec = vm.recommender()
+        var b = Board()
+        for (t in listOf(PartType.OLED, PartType.BARO, PartType.CO2)) b = b.apply(rec.propose(b.parts, Part(b.nextId(), t, emptyList()))!!)
+        val baro = b.parts.first { it.type == PartType.BARO }
+        val co2 = b.parts.first { it.type == PartType.CO2 }
+        b = b.with(baro.copy(pressureHpa = 987.6, tempC = 18.5))
+        Log.i(TAG, "sensors on ${baro.pins} at ${baro.i2cAddr}, ${co2.i2cAddr}")
+        scenario.onActivity { vm.setBoard(b) }
+        for (p in listOf(baro, co2)) {
+            val sample = io.github.leukoplast1980.solderless.board.Samples.forPart(b, vm.chip, p)
+            for (line in sample.lines().filter { it.isNotBlank() })
+                assertEquals(line, io.github.leukoplast1980.solderless.forth.LineResult.OK, vm.sendLineChecked(line, 5000))
+        }
+        assertEquals(io.github.leukoplast1980.solderless.forth.LineResult.OK,
+            vm.sendLineChecked("baro-init baro. cr co2-init 5100 ms co2-read . co2. cr", 30000))
+        val text = vm.readDevice(baro.id, ByteArray(16)) ?: ""
+        Log.i(TAG, "baro: $text")
+        assertTrue("calibration read: $text", "24 bytes read" in text)
+        selectTab(scenario, R.string.tab_board)
+        Thread.sleep(1000)
+        screenshot("sensors-board.png")
+        for ((p, name) in listOf(baro to "baro-sheet.png", co2 to "co2-sheet.png")) {
+            var at: android.graphics.RectF? = null
+            val loc = IntArray(2)
+            scenario.onActivity { a ->
+                val bv = a.findViewById<io.github.leukoplast1980.solderless.ui.BoardView>(R.id.boardView)
+                bv.partBounds(p.id)?.let { r -> bv.requestRectangleOnScreen(android.graphics.Rect(r.left.toInt(), r.top.toInt(), r.right.toInt(), r.bottom.toInt()), true) }
+            }
+            Thread.sleep(500)
+            scenario.onActivity { a ->
+                val bv = a.findViewById<io.github.leukoplast1980.solderless.ui.BoardView>(R.id.boardView)
+                at = bv.partBounds(p.id); bv.getLocationOnScreen(loc)
+            }
+            assertTrue("${p.type} drawn", at != null)
+            ui().click(loc[0] + at!!.centerX().toInt(), loc[1] + at!!.centerY().toInt())
+            Thread.sleep(1500)
+            screenshot(name)
+            assertTrue("sheet open", ui().hasObject(androidx.test.uiautomator.By.text(p.type.title)))
+            if (p.type == PartType.CO2) {
+                ui().findObject(androidx.test.uiautomator.By.text(ctx.getString(R.string.sensor_breathe))).click()
+                Thread.sleep(300)
+            }
+            InstrumentationRegistry.getInstrumentation().uiAutomation.performGlobalAction(android.accessibilityservice.AccessibilityService.GLOBAL_ACTION_BACK)
+            Thread.sleep(800)
+        }
+        assertEquals(io.github.leukoplast1980.solderless.forth.LineResult.OK, vm.sendLineChecked("5100 ms co2-read . co2. cr", 30000))
+        val co2Text = vm.readDevice(co2.id, ByteArray(16)) ?: ""
+        Log.i(TAG, "co2: $co2Text")
+        val ppm = Regex("Reading\t(\\d+) ppm").find(co2Text)?.groupValues?.get(1)?.toInt() ?: 0
+        assertTrue("a breath raises CO2: $ppm", ppm > 1500)
+        scenario.onActivity { vm.setBoard(Board()) }
+        scenario.close()
+    }
+
     /** An LED matrix and a colour display on SPI: their samples draw, the board and the close-ups show it */
     @Test
     fun displays() {

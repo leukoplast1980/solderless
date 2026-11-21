@@ -94,6 +94,8 @@ object Samples {
             PartType.FLASH -> flash(c, n, chip, p)
             PartType.MATRIX -> matrix(c, n, chip, p)
             PartType.TFT -> tft(c, n, chip, p)
+            PartType.BARO -> baro(c, n, chip, p)
+            PartType.CO2 -> co2(c, n, chip, p)
         }
         return c.text()
     }
@@ -115,6 +117,9 @@ object Samples {
             "${p.spi}: CS ${p.pins[0].pin}, CLK ${p.pins[1].pin}, DIN ${p.pins[2].pin}"
         PartType.TFT -> "colour display, ST7789 240 × ${p.tftRows}, on ${p.spi}: CS ${p.pins[0].pin}, SCL ${p.pins[1].pin}, " +
             "SDA ${p.pins[2].pin}, DC ${p.pins[3].pin}, RES ${p.pins[4].pin}"
+        PartType.BARO -> "pressure sensor, BMP280, on ${p.i2c}: SCL ${p.pins[0].pin}, SDA ${p.pins[1].pin}, address " +
+            "$%02X".format(java.util.Locale.ROOT, p.i2cAddr)
+        PartType.CO2 -> "CO₂ sensor, SCD41, on ${p.i2c}: SCL ${p.pins[0].pin}, SDA ${p.pins[1].pin}, address \$62"
     }
 
     // ---- pieces --------------------------------------------------------
@@ -624,6 +629,128 @@ object Samples {
         c.add("  $n-init $n-bars")
         c.add("  0 begin  70 ${p.tftRows / 2 - 50} 169 ${p.tftRows / 2 + 49} 4 pick $n-colour $n-fill  1+  300 ms key? until drop ;")
         tryIt(c, "$n-init $n-bars   or   $n-demo (Enter stops it)")
+    }
+
+    /** I2C as a master, the words every I2C part's sample uses: start a transfer, a byte out or in, the STOP */
+    private fun i2cWords(c: Code, n: String) {
+        val i = "$n-i2c"
+        c.add(": $n-isr ( -- u ) $i \$18 + @ ;", "I2C ISR")
+        c.add(": $n-go ( n flags -- )", "START a transfer of n bytes")
+        c.add("  swap 16 lshift or  $n-addr 1 lshift or", "CR2: NBYTES, the address, the flags")
+        c.add("  1 13 lshift or  $i 4 + ! ;", "START")
+        c.add("1 25 lshift constant $n-auto", "AUTOEND: STOP after the last byte")
+        c.add("1 10 lshift 1 25 lshift or constant $n-rd", "RD_WRN: a read, and AUTOEND")
+        c.add(": >$n ( b -- )", "one byte out")
+        c.add("  begin $n-isr 2 and until  $i \$28 + ! ;", "wait for TXIS, then TXDR")
+        c.add(": $n> ( -- b )", "one byte in")
+        c.add("  begin $n-isr 4 and until  $i \$24 + @ ;", "wait for RXNE, then RXDR")
+        c.add(": $n-sent ( -- ) begin $n-isr \$40 and until ;", "TC: all bytes out, no STOP yet")
+        c.add(": $n-end ( -- )", "the transfer's STOP")
+        c.add("  begin $n-isr \$20 and until  \$30 $i \$1C + ! ;", "wait for STOPF; clear it and NACKF")
+    }
+
+    private fun i2cInit(c: Code, n: String, chip: ChipPins, p: Part) {
+        val f = p.pins[0].function as Function.I2c
+        val i = "$n-i2c"
+        gpioClocks(c, chip, p.pins)
+        c.add("  1 ${I2C_CLOCK[f.periph]} lshift $APB1ENR1 bis!", "RCC APB1ENR1: clock for ${f.periph}")
+        for ((r, u) in p.pins.withIndex()) {
+            val base = "$n-${p.type.roles[r]}"
+            mode(c, base, "10", "alternate function", pushPull = false)
+            c.add("  1 $base-pin lshift $base-port 4 + bis!", "OTYPER: open-drain, as I2C needs")
+            altFunction(c, base, bit(chip, u), u.function)
+        }
+        c.add("  0 $i !", "CR1: PE off while setting the timing")
+        c.add("  \$00310F13 $i \$10 + !", "TIMINGR: SCL about 380 kHz from 16 MHz")
+        c.add("  1 $i !", "CR1: PE, on")
+    }
+
+    /** Hundredths as a number with two decimals: 2150 prints 21.50 */
+    private fun dot2(c: Code, n: String) {
+        c.add(": $n.2 ( n -- ) dup >r abs s>d <# # # [char] . hold #S r> sign #> type space ;", "2150 prints 21.50")
+    }
+
+    private fun baro(c: Code, n: String, chip: ChipPins, p: Part) {
+        p.pins[0].function as? Function.I2c ?: return
+        i2cWords(c, n)
+        c.add(": $n! ( v reg -- ) 2 $n-auto $n-go  >$n >$n  $n-end ;", "write a register")
+        c.add(": $n-from ( reg n -- )", "point at reg, then read n bytes with $n>")
+        c.add("  1 0 $n-go  swap >$n  $n-sent  $n-rd $n-go ;", "a repeated START turns it round")
+        c.add(": $n@ ( reg -- b ) 1 $n-from $n> $n-end ;", "read a register")
+        c.gap()
+        c.add("24 buffer: $n-cal", "this chip's calibration: dig_T1 .. dig_P9")
+        c.add(": $n-u ( k -- u ) 2* $n-cal + dup c@ swap 1+ c@ 8 lshift or ;", "word k, little-endian, unsigned")
+        c.add(": $n-s ( k -- n ) $n-u dup \$8000 and if \$10000 - then ;", "word k, signed")
+        c.add(": $n-raw ( reg -- adc ) 3 $n-from", "20 bits: msb, lsb, xlsb")
+        c.add("  $n> 12 lshift $n> 4 lshift or $n> 4 rshift or $n-end ;")
+        c.add("0 variable $n-fine  0 variable $n-v1  0 variable $n-v2", "t_fine, and two in-between values")
+        c.add(": $n-t ( -- n )", "°C in hundredths: the datasheet's 32-bit formula")
+        c.add("  \$FA $n-raw")
+        c.add("  dup 3 rshift 0 $n-u 2* - 1 $n-s * 11 arshift")
+        c.add("  swap 4 rshift 0 $n-u - dup * 12 arshift 2 $n-s * 14 arshift +")
+        c.add("  dup $n-fine !  5 * 128 + 8 arshift ;")
+        c.add(": $n-p ( -- pa )", "pascals; after $n-t, which sets t_fine")
+        c.add("  $n-fine @ 1 arshift 64000 - $n-v1 !")
+        c.add("  $n-v1 @ 2 arshift dup * 11 arshift 8 $n-s * $n-v2 !")
+        c.add("  $n-v1 @ 7 $n-s * 2* $n-v2 +!")
+        c.add("  $n-v2 @ 2 arshift 6 $n-s 16 lshift + $n-v2 !")
+        c.add("  $n-v1 @ 2 arshift dup * 13 arshift 5 $n-s * 3 arshift")
+        c.add("  $n-v1 @ 4 $n-s * 1 arshift + 18 arshift $n-v1 !")
+        c.add("  32768 $n-v1 @ + 3 $n-u * 15 arshift $n-v1 !")
+        c.add("  $n-v1 @ 0= if 0 exit then")
+        c.add("  1048576 \$F7 $n-raw - $n-v2 @ 12 arshift - 3125 *")
+        c.add("  dup \$80000000 u< if 2* $n-v1 @ u/mod nip else $n-v1 @ u/mod nip 2* then")
+        c.add("  dup 3 rshift dup * 13 rshift 11 $n-s * 12 arshift $n-v1 !")
+        c.add("  dup 2 rshift 10 $n-s * 13 arshift $n-v2 !")
+        c.add("  $n-v1 @ $n-v2 @ + 9 $n-s + 4 arshift + ;")
+        dot2(c, n)
+        c.add(": $n. ( -- ) $n-t $n.2 .\" °C  \" $n-p $n.2 .\" hPa\" ;", "a reading: 21.50 °C  1013.20 hPa")
+        c.gap()
+        c.add(": $n-init ( -- )")
+        i2cInit(c, n, chip, p)
+        c.add("  \$D0 $n@ \$58 <> if .\" No BMP280 at \" $n-addr hex. cr exit then", "its id: 58")
+        c.add("  \$88 24 $n-from  24 0 do $n> $n-cal i + c! loop  $n-end", "the calibration, 88 to 9F")
+        c.add("  \$10 \$F5 $n!", "config: standby 0.5 ms, IIR filter ×16")
+        c.add("  \$57 \$F4 $n!", "ctrl_meas: temperature ×2, pressure ×16, normal mode")
+        c.add("  50 ms ;", "the first measurement takes 37.5 ms")
+        c.gap()
+        c.add("\\ A reading every half second until a key is pressed")
+        c.add(": $n-demo ( -- ) $n-init  begin $n. cr 500 ms key? until ;")
+        tryIt(c, "$n-init $n.   or   $n-demo (Enter stops it)")
+    }
+
+    private fun co2(c: Code, n: String, chip: ChipPins, p: Part) {
+        p.pins[0].function as? Function.I2c ?: return
+        i2cWords(c, n)
+        c.add(": $n-crc8 ( c b -- c )", "CRC-8, polynomial 31, one byte in")
+        c.add("  xor 8 0 do dup \$80 and if 2* \$31 xor else 2* then \$FF and loop ;")
+        c.add(": $n-crc ( u -- c ) \$FF over 8 rshift $n-crc8 swap \$FF and $n-crc8 ;", "of a 16-bit word, from FF")
+        c.add(": $n-cmd ( c -- ) 2 $n-auto $n-go  dup 8 rshift >$n >$n  $n-end ;", "a 16-bit command")
+        c.add(": $n-cmd+ ( u c -- )", "a command with one word, its CRC after it")
+        c.add("  5 $n-auto $n-go  dup 8 rshift >$n >$n  dup 8 rshift >$n dup >$n $n-crc >$n  $n-end ;")
+        c.add(": $n-answer ( n -- flag )", "read n words; false if it does not answer")
+        c.add("  3 * $n-rd $n-go  begin $n-isr %10100 and until", "RXNE, or NACKF")
+        c.add("  $n-isr \$10 and if $n-end false else true then ;")
+        c.add(": $n-word ( -- u ) $n> 8 lshift $n> or  $n> drop ;", "a word; its CRC not checked here")
+        c.gap()
+        c.add("0 variable $n-ppm  0 variable $n-t  0 variable $n-rh")
+        c.add(": $n-ready? ( -- flag )", "get_data_ready_status")
+        c.add("  \$E4B8 $n-cmd 1 ms  1 $n-answer if $n-word $n-end \$7FF and 0<> else false then ;")
+        c.add(": $n-read ( -- flag )", "read_measurement: CO₂, temperature, humidity")
+        c.add("  \$EC05 $n-cmd 1 ms  3 $n-answer 0= if false exit then", "no new data: it does not answer")
+        c.add("  $n-word $n-ppm !  $n-word $n-t !  $n-word $n-rh !  $n-end true ;")
+        dot2(c, n)
+        c.add(": $n. ( -- ) $n-ppm @ . .\" ppm  \"", "a reading: 820 ppm  22.00 °C  45.00 %")
+        c.add("  $n-t @ 17500 * 65535 / 4500 - $n.2 .\" °C  \"  $n-rh @ 10000 * 65535 / $n.2 .\" %\" ;")
+        c.gap()
+        c.add(": $n-init ( -- )")
+        i2cInit(c, n, chip, p)
+        c.add("  \$3F86 $n-cmd 500 ms", "stop_periodic_measurement: it may still run from before")
+        c.add("  \$21B1 $n-cmd ;", "start_periodic_measurement: a reading every 5 s")
+        c.gap()
+        c.add("\\ The readings as they come, until a key is pressed")
+        c.add(": $n-demo ( -- ) $n-init  begin $n-ready? if $n-read drop $n. cr then 200 ms key? until ;")
+        tryIt(c, "$n-init 5100 ms $n-read . $n.   or   $n-demo (Enter stops it)")
     }
 
     private val SCALE = "523 494 440 392 349 330 294 262"

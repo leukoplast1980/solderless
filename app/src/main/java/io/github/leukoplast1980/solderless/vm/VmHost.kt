@@ -237,6 +237,7 @@ class VmHost private constructor(context: Context) {
         NativeVm.boardSet(handle, board.attachments(chip))
         memorySums.clear()
         for (p in board.parts) if (p.type == PartType.FLASH) loadDeviceMemory(p)
+        for (p in board.parts) sendSensor(p)
         if (!wiringFile().isFile && board.parts.isNotEmpty()) writeWiring()
         updateAudio()
     }
@@ -263,8 +264,31 @@ class VmHost private constructor(context: Context) {
         for (p in before.parts) if (p.type == PartType.FLASH && b.parts.none { it.id == p.id && it.type == PartType.FLASH }) {
             memoryFile(p.id).delete(); memorySums.remove(p.id)
         }
+        for (p in b.parts) sendSensor(p)
         updateAudio()
     }
+
+    /** A sensor's settings to the emulated part */
+    fun sendSensor(p: io.github.leukoplast1980.solderless.board.Part) {
+        when (p.type) {
+            PartType.BARO -> {
+                NativeVm.deviceInput(handle, p.id, "pressure_pa", p.pressureHpa * 100.0)
+                NativeVm.deviceInput(handle, p.id, "temp_c", p.tempC)
+            }
+            PartType.CO2 -> {
+                NativeVm.deviceInput(handle, p.id, "co2_ppm", p.co2Ppm.toDouble())
+                NativeVm.deviceInput(handle, p.id, "temp_c", p.tempC)
+                NativeVm.deviceInput(handle, p.id, "rh", p.rhPct.toDouble())
+            }
+            else -> {}
+        }
+    }
+
+    /** A breath on the CO2 sensor: it jumps to about 3000 ppm, then settles back */
+    fun breathe(partId: Int) = NativeVm.deviceInput(handle, partId, "breath", 1.0)
+
+    /** The phone's barometer, for a pressure sensor that follows it */
+    fun setPressure(partId: Int, hpa: Double) = NativeVm.deviceInput(handle, partId, "pressure_pa", hpa * 100.0)
 
     // ------------------------------------------------------------------
     // Memory parts (W25Q): their contents are kept with the project, as

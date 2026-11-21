@@ -748,6 +748,19 @@ size_t sl_device_mem(sl_vm *vm, int part, uint32_t addr, uint8_t *buf, size_t le
     return io.n;
 }
 
+struct din_io { int part; const char *what; double v; };
+static void din_fn(sl_vm *vm, void *arg)
+{
+    struct din_io *io = arg;
+    bus_device_input(vm->soc, io->part, io->what, io->v);
+}
+
+void sl_device_input(sl_vm *vm, int part, const char *what, double value)
+{
+    struct din_io io = { part, what, value };
+    run_on_vm(vm, din_fn, &io);
+}
+
 void sl_board_read(sl_vm *vm, sl_board_state *out)
 {
     run_on_vm(vm, board_read_fn, out);

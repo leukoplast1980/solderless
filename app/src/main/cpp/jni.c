@@ -274,6 +274,16 @@ JNIEXPORT jstring JNICALL FN(deviceRead)(JNIEnv *env, jclass cls, jlong h, jint 
     return (*env)->NewStringUTF(env, text);
 }
 
+/* What a sensor senses, as the user sets it */
+JNIEXPORT void JNICALL FN(deviceInput)(JNIEnv *env, jclass cls, jlong h, jint part, jstring what, jdouble value)
+{
+    (void)cls;
+    const char *w = (*env)->GetStringUTFChars(env, what, NULL);
+    if (!w) return;
+    sl_device_input(VM(h), part, w, value);
+    (*env)->ReleaseStringUTFChars(env, what, w);
+}
+
 /* A memory part's contents: len bytes at addr into or out of buf */
 JNIEXPORT jint JNICALL FN(deviceMem)(JNIEnv *env, jclass cls, jlong h, jint part, jint addr, jbyteArray buf, jint len, jboolean write)
 {

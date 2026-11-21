@@ -145,4 +145,53 @@ int st7789_message(struct st7789 *t, char *out, size_t len);
 void st7789_pixels(const struct st7789 *t, uint16_t *px);
 size_t st7789_text(const struct st7789 *t, uint64_t now_ps, char *out, size_t len);
 
+/* BMP280 pressure and temperature sensor, I2C */
+enum { BMP280_MSG_NO_MEASUREMENT = 1, BMP280_MSG_NO_CALIBRATION };
+struct bmp280 {
+    double pressure_pa, temp_c;     /* what the user set */
+    uint8_t ctrl_meas, config, ptr;
+    int first, pair, reading;
+    int32_t adc_t, adc_p, filt_t, filt_p, shadow_t, shadow_p;
+    uint64_t busy_until, next_ps, last_done;
+    unsigned ran;
+    /* what the driver has done, for the sheet */
+    int id_read, wrote_ctrl, wrote_config, did_reset, data_read;
+    uint32_t cal_read;
+    int msg, said;
+};
+
+void bmp280_power_on(struct bmp280 *b);
+void bmp280_start(struct bmp280 *b, int read, uint64_t now_ps);
+void bmp280_byte(struct bmp280 *b, uint8_t v, uint64_t now_ps);
+uint8_t bmp280_read(struct bmp280 *b, uint64_t now_ps);
+void bmp280_input(struct bmp280 *b, const char *what, double v, uint64_t now_ps);
+int bmp280_message(struct bmp280 *b, char *out, size_t len);
+size_t bmp280_text(struct bmp280 *b, uint64_t now_ps, char *out, size_t len);
+
+/* SCD41 CO2, temperature and humidity sensor, I2C */
+enum { SCD41_IDLE, SCD41_PERIODIC, SCD41_LOW_POWER, SCD41_SINGLE, SCD41_ASLEEP };
+enum { SCD41_MSG_PERIODIC = 1, SCD41_MSG_NO_DATA, SCD41_MSG_BUSY, SCD41_MSG_CRC, SCD41_MSG_UNKNOWN };
+struct scd41 {
+    double co2, temp_c, rh;         /* what the user set */
+    uint64_t breath_at;
+    int mode, single_rht, ready, asc, changed, writing;
+    uint64_t next_ps, busy_until, cmd_at, last_meas;
+    uint16_t out_co2, out_t, out_rh, offset_raw, altitude, pressure_hpa, serial[3];
+    uint8_t in[8], resp[9];
+    int nin, nresp, rpos;
+    uint16_t cmd, ignored;
+    unsigned commands, measured, reads;
+    int msg;
+    unsigned said;
+};
+
+void scd41_power_on(struct scd41 *c, uint32_t seed);
+int scd41_start(struct scd41 *c, int read, uint64_t now_ps);     /* acknowledged? */
+int scd41_byte(struct scd41 *c, uint8_t b, uint64_t now_ps);     /* acknowledged? */
+uint8_t scd41_read(struct scd41 *c);
+void scd41_stop(struct scd41 *c, uint64_t now_ps);
+void scd41_input(struct scd41 *c, const char *what, double v, uint64_t now_ps);
+int scd41_message(struct scd41 *c, char *out, size_t len);
+size_t scd41_text(struct scd41 *c, uint64_t now_ps, char *out, size_t len);
+
 #endif

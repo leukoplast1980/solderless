@@ -185,6 +185,21 @@ class RecommenderTest {
         assertEquals("the board survives a save", b, Board.fromJson(b.toJson()))
     }
 
+    @Test fun sensorsJoinTheI2cBusAtTheirOwnAddresses() {
+        var b = place(Board(), new(PartType.OLED, 1))
+        b = place(b, new(PartType.BARO, 2))
+        b = place(b, new(PartType.BARO, 3))
+        b = place(b, new(PartType.CO2, 4))
+        val oled = b.parts.first { it.id == 1 }
+        for (id in 2..4) assertEquals("part $id shares the OLED's bus", oled.pins, b.parts.first { it.id == id }.pins)
+        assertEquals(listOf(0x3C, 0x76, 0x77, 0x62), b.parts.sortedBy { it.id }.map { it.i2cAddr })
+        val a = b.attachments(chip)
+        assertEquals(Board.DEV_BMP280, a[2 * Board.ATT_INTS + 8]); assertEquals(0x76, a[2 * Board.ATT_INTS + 9])
+        assertEquals(Board.DEV_SCD41, a[6 * Board.ATT_INTS + 8]); assertEquals(0x62, a[6 * Board.ATT_INTS + 9])
+        val moved = b.with(b.parts.first { it.id == 2 }.copy(pressureHpa = 950.5, followBarometer = true))
+        assertEquals("the board survives a save", moved, Board.fromJson(moved.toJson()))
+    }
+
     @Test fun headersInBothOrders() {
         val (l, r) = chip.headers(HeaderOrder.ADAPTER)
         assertEquals(32, l.size); assertEquals(32, r.size)

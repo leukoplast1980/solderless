@@ -189,4 +189,15 @@
     <string name="hex_discard_yes">Leave</string>
     <string name="matrix_closeup_hint">Each LED as bright as the chip drives it: its intensity, and how many rows it scans.</string>
     <string name="tft_closeup_hint">The panel as it shows its frame memory now.</string>
+    <string name="sensor_pressure">Pressure</string>
+    <string name="sensor_temperature">Temperature</string>
+    <string name="sensor_co2">CO₂</string>
+    <string name="sensor_humidity">Humidity</string>
+    <string name="sensor_follow_barometer">Follow the phone\'s barometer</string>
+    <string name="sensor_no_barometer">Follow the phone\'s barometer (this phone has none)</string>
+    <string name="sensor_breathe">Breathe on it</string>
+    <string name="sensor_breathe_note">CO₂ jumps to about 3000 ppm, then settles back over a minute.</string>
+    <string name="sensor_driver">What the driver has done</string>
+    <string name="sensor_state">State</string>
+    <string name="co2_address_note">The SCD41 is always at 0x62: two of them cannot share a bus.</string>
 </resources>

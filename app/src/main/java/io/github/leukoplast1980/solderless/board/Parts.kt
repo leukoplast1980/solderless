@@ -17,6 +17,17 @@ enum class PartType(val prefix: String, val title: String, val roles: List<Strin
     FLASH("flash", "SPI flash", listOf("cs", "clk", "di", "do")),
     MATRIX("matrix", "LED matrix", listOf("cs", "clk", "din")),
     TFT("tft", "Colour display", listOf("cs", "scl", "sda", "dc", "res")),
+    BARO("baro", "Pressure sensor", listOf("scl", "sda")),
+    CO2("co2", "CO₂ sensor", listOf("scl", "sda")),
+    ;
+
+    /** I2C addresses the part can be set to, the default first */
+    val addresses: List<Int> get() = when (this) {
+        OLED -> listOf(0x3C, 0x3D)
+        BARO -> listOf(0x76, 0x77)
+        CO2 -> listOf(0x62)
+        else -> emptyList()
+    }
 }
 
 enum class LedColour(val title: String, val vfMv: Int, val argb: Long) {
@@ -62,6 +73,12 @@ data class Part(
     val flashMbit: Int = 64,                // W25Q32, W25Q64, W25Q128
     val matrixChips: Int = 4,               // MAX7219 modules: one 8 x 8, or a 4-in-1 board
     val tftRows: Int = 240,                 // ST7789: 240 x 240 (1.3"), or 240 x 320 (2.0")
+    // What a sensor senses, as the user sets it
+    val pressureHpa: Double = 1013.2,
+    val tempC: Double = 21.5,
+    val co2Ppm: Int = 820,
+    val rhPct: Int = 45,
+    val followBarometer: Boolean = false,   // BMP280: the phone's own pressure sensor sets it
 ) {
     fun needs(): List<Need> = when (type) {
         PartType.BUTTON -> listOf(if (interrupt) Need.INPUT_EXTI else Need.INPUT)
@@ -70,7 +87,7 @@ data class Part(
         PartType.POT -> listOf(Need.ADC)
         PartType.SPEAKER -> listOf(if (dacDrive) Need.DAC_OR_PWM else Need.PWM)
         PartType.PIEZO -> listOf(Need.PWM)
-        PartType.OLED -> listOf(Need.I2C_SCL, Need.I2C_SDA)
+        PartType.OLED, PartType.BARO, PartType.CO2 -> listOf(Need.I2C_SCL, Need.I2C_SDA)
         PartType.FLASH -> listOf(Need.CS, Need.SPI_SCK, Need.SPI_MOSI, Need.SPI_MISO)
         PartType.MATRIX -> listOf(Need.CS, Need.SPI_SCK, Need.SPI_MOSI)
         // RES idles high like a chip select, so it stays off PB8 too
@@ -143,6 +160,9 @@ object Passives {
         )
         PartType.OLED -> listOf(Passive(p.id, 0, "on the module", "4.7 kΩ × 2", 4700,
             "pull-ups on SCL and SDA: I2C lines are open-drain, something has to pull them high"))
+        PartType.BARO -> listOf(Passive(p.id, 0, "on the module", "10 kΩ × 2", 10000,
+            "pull-ups on SCL and SDA; CSB is pulled high for I2C, SDO sets the address"))
+        PartType.CO2 -> listOf(Passive(p.id, 0, "on the module", "10 kΩ × 2", 10000, "pull-ups on SCL and SDA"))
         PartType.MATRIX -> listOf(
             Passive(p.id, 0, "wire", "VCC to 5 V", 0, "the LEDs and the MAX7219 run from 5 V; DIN, CLK and CS take 3.3 V logic, just"),
             Passive(p.id, 0, "on the module", "10 µF + 100 nF", 0, "decoupling, and RSET setting the LED current"),

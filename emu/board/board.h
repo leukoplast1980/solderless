@@ -71,7 +71,7 @@ struct sl_dev {
     uint8_t spi_in, spi_out, next_out;
     int miso_level;             /* what DO shows while driven */
     int dec_sck;                /* pin-level decoder: SCK as last seen */
-    union { struct ssd1306 oled; struct w25q flash; struct max7219 matrix; struct st7789 tft; } m;
+    union { struct ssd1306 oled; struct w25q flash; struct max7219 matrix; struct st7789 tft; struct bmp280 baro; struct scd41 co2; } m;
 };
 
 #define SL_TRACE_RING 65536
@@ -129,6 +129,7 @@ int bus_pin_pulled_up(struct sl_soc *s, int slot);
 void bus_set(struct sl_soc *s);                       /* rebuild the parts from the attachments */
 void bus_pin_changed(struct sl_soc *s, int slot);     /* a pin's level changed: the bit-bang decoders, chip selects */
 void bus_free(struct sl_soc *s);
+void bus_device_input(struct sl_soc *s, int part, const char *what, double v);
 int bus_pin_is_miso(struct sl_soc *s, int slot);
 int bus_pin_drive(struct sl_soc *s, int slot, int *level);  /* a part drives this line (I2C: low only) */
 size_t bus_device_mem(struct sl_soc *s, int part, uint32_t addr, uint8_t *buf, size_t len, int write);

@@ -11,7 +11,7 @@ slemu=$1 fw=$2 dir=${3:-app/build/samples/all}
 out=$(mktemp -d)
 one() {
     f=$1; b=$(basename "$f" .fs); v=${b%%_*}
-    pins=$(echo "$b" | sed 's/^v[0-9]*_[a-z]*_//' | tr '-' ' ')
+    pins=$(echo "$b" | sed 's/^v[0-9]*_[a-z0-9]*_//' | tr '-' ' ')
     try=$(grep '^\\ Try it: ' "$f" | sed 's/^\\ Try it: //; s/   or   .*//; s/ (.*//')
     {
         i=1
@@ -26,6 +26,8 @@ one() {
                 v14) [ $i = 1 ] && echo "#!attach 1 flash $pins";;
                 v15) [ $i = 1 ] && echo "#!attach 1 matrix $pins chips=4";;
                 v16) [ $i = 1 ] && echo "#!attach 1 tft $pins";;
+                v17) [ $i = 1 ] && echo "#!attach 1 bmp280 $pins";;
+                v18) [ $i = 1 ] && echo "#!attach 1 scd41 $pins";;
                 *) echo "#!attach $i audio $p";;
             esac
             i=$((i + 1))

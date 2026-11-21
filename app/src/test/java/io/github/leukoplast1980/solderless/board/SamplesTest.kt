@@ -58,6 +58,9 @@ class SamplesTest {
         Part(21, PartType.MATRIX, listOf(gpio("PB10"), spi("PB3", "SCK"), spi("PB5", "MOSI")), matrixChips = 1),
         Part(22, PartType.TFT, listOf(gpio("PA4"), spi("PA5", "SCK"), spi("PA7", "MOSI"), gpio("PB0"), gpio("PB1"))),
         Part(23, PartType.TFT, listOf(gpio("PB12"), spi("PB13", "SCK"), spi("PB15", "MOSI"), gpio("PC6"), gpio("PC7")), tftRows = 320),
+        Part(24, PartType.BARO, listOf(i2c("PB8", "SCL"), i2c("PB9", "SDA")), i2cAddr = 0x76),
+        Part(25, PartType.CO2, listOf(i2c("PB8", "SCL"), i2c("PB9", "SDA")), i2cAddr = 0x62),
+        Part(26, PartType.BARO, listOf(i2c("PC8", "SCL"), i2c("PC9", "SDA")), i2cAddr = 0x77),
     ))
 
     @Test fun everySampleIsTestedOnTheEmulator() {
@@ -93,6 +96,8 @@ class SamplesTest {
             Part(1, PartType.FLASH, emptyList()),
             Part(1, PartType.MATRIX, emptyList()),
             Part(1, PartType.TFT, emptyList()),
+            Part(1, PartType.BARO, emptyList(), i2cAddr = 0x76),
+            Part(1, PartType.CO2, emptyList(), i2cAddr = 0x62),
         )
         var n = 0
         for ((vi, v) in variants.withIndex()) for (o in rec.options(emptyList(), v, 0)) {

@@ -122,6 +122,8 @@ enum {
     SL_DEV_W25Q = 2,    /* serial flash, SPI; addr: JEDEC capacity 0x16 (32 Mbit), 0x17 (64), 0x18 (128) */
     SL_DEV_MAX7219 = 3, /* 8 x 8 LED matrix module(s), SPI-style; addr: chips in the chain (1-8) */
     SL_DEV_ST7789 = 4,  /* colour TFT, SPI with DC and RES; addr: rows of the panel, 240 or 320 */
+    SL_DEV_BMP280 = 5,  /* pressure and temperature, I2C; addr 0x76 or 0x77 */
+    SL_DEV_SCD41 = 6,   /* CO2, temperature and humidity, I2C; addr 0x62 */
 };
 /* Signals of bus parts, as sl_attach.role */
 enum { SL_SIG_SCL = 0, SL_SIG_SDA = 1, SL_SIG_SCK = 2, SL_SIG_MOSI = 3, SL_SIG_MISO = 4, SL_SIG_CS = 5,
@@ -180,6 +182,10 @@ size_t sl_device_read(sl_vm *vm, int part, uint8_t *pixels, size_t len, char *te
  * directly, as an external programmer would: a write sets bytes as given,
  * 1s included. Returns the bytes moved; 0 if the part has no memory. */
 size_t sl_device_mem(sl_vm *vm, int part, uint32_t addr, uint8_t *buf, size_t len, int write);
+
+/* What a sensor senses, as the user sets it: BMP280 "pressure_pa", "temp_c";
+ * SCD41 "co2_ppm", "temp_c", "rh", and "breath" (any value: a breath on it now). */
+void sl_device_input(sl_vm *vm, int part, const char *what, double value);
 
 /* Sound: every change on a pin with an SL_ATT_AUDIO part, timestamped in
  * emulated time. A level (mV) for edges and DAC samples, or a PWM setting

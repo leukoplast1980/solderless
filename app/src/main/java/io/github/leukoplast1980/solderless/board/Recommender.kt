@@ -199,9 +199,12 @@ class Recommender(private val chip: ChipPins, hseFitted: Boolean = false, lseFit
     }
 
     /** An address no other part on the same bus has: the OLED's SA0 strap gives 0x3C or 0x3D */
+    /** An address of the part's own that no other part on the same bus has */
     private fun freeAddress(p: Part, others: List<Part>): Int {
-        val onBus = others.filter { it.type == p.type && it.pins == p.pins }.map { it.i2cAddr }.toSet()
-        return listOf(p.i2cAddr, 0x3C, 0x3D).firstOrNull { it !in onBus } ?: p.i2cAddr
+        val onBus = others.filter { it.pins == p.pins }.map { it.i2cAddr }.toSet()
+        val own = p.type.addresses
+        val first = if (p.i2cAddr in own) listOf(p.i2cAddr) else emptyList()
+        return (first + own).firstOrNull { it !in onBus } ?: own.firstOrNull() ?: p.i2cAddr
     }
 
     fun propose(board: List<Part>, newPart: Part): Proposal? {

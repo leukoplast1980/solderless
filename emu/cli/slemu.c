@@ -133,13 +133,17 @@ static int directive(const char *line)
         return 0;
     }
     if (!strcmp(cmd, "input") && n >= 3) { sl_board_input(vm, atoi(a1), atoi(a2)); return 0; }
-    if (!strcmp(cmd, "attach") && n >= 4 && !strcmp(a2, "oled") && nboard + 2 <= SL_MAX_ATTACH) {
-        /* #!attach N oled SCL SDA [addr=0x3D] [pull=OHM]: an SSD1306 I2C module, 4.7 kohm pull-ups on board */
+    if (!strcmp(cmd, "attach") && n >= 4 && (!strcmp(a2, "oled") || !strcmp(a2, "bmp280") || !strcmp(a2, "scd41"))
+        && nboard + 2 <= SL_MAX_ATTACH) {
+        /* #!attach N oled|bmp280|scd41 SCL SDA [addr=0x3D] [pull=OHM]: an I2C module with its pull-ups
+         * (OLED 4.7 kohm at 0x3C, BMP280 10 kohm at 0x76, SCD41 10 kohm at 0x62) */
         char a4[16] = "";
         sscanf(line + 2, "%*s %*s %*s %*s %15s", a4);
         int scl = parse_pin(a3), sda = parse_pin(a4);
         if (scl < 0 || sda < 0) return 1;
-        int addr = 0x3C, pull = 4700;
+        int dev = !strcmp(a2, "bmp280") ? SL_DEV_BMP280 : !strcmp(a2, "scd41") ? SL_DEV_SCD41 : SL_DEV_SSD1306;
+        int addr = dev == SL_DEV_BMP280 ? 0x76 : dev == SL_DEV_SCD41 ? 0x62 : 0x3C;
+        int pull = dev == SL_DEV_SSD1306 ? 4700 : 10000;
         const char *q = strstr(line, "addr=");
         if (q) addr = (int)strtol(q + 5, NULL, 0);
         q = strstr(line, "pull=");
@@ -147,7 +151,7 @@ static int directive(const char *line)
         for (int k = 0; k < 2; k++) {
             sl_attach *a = &board[nboard++];
             memset(a, 0, sizeof *a);
-            a->part = atoi(a1); a->kind = SL_ATT_DEVICE; a->dev = SL_DEV_SSD1306; a->addr = addr;
+            a->part = atoi(a1); a->kind = SL_ATT_DEVICE; a->dev = dev; a->addr = addr;
             a->role = k ? SL_SIG_SDA : SL_SIG_SCL; a->pin = k ? sda : scl; a->r_ohm = pull;
         }
         sl_board_set(vm, board, nboard);
@@ -273,6 +277,19 @@ static int directive(const char *line)
             unsigned x; sscanf(h, "%2x", &x); buf[k++] = (uint8_t)x;
         }
         sl_device_mem(vm, atoi(a1), (uint32_t)strtoul(a2, NULL, 0), buf, k, 1);
+        return 0;
+    }
+    if (!strcmp(cmd, "sensor") && n >= 2) {
+        /* #!sensor N: a sensor's state as its sheet shows it */
+        char text[1024];
+        sl_device_read(vm, atoi(a1), NULL, 0, text, sizeof text);
+        fputs(text, stdout);
+        fflush(stdout);
+        return 0;
+    }
+    if (!strcmp(cmd, "set") && n >= 4) {
+        /* #!set N WHAT VALUE: what a sensor senses (pressure_pa, temp_c, co2_ppm, rh, breath) */
+        sl_device_input(vm, atoi(a1), a2, strtod(a3, NULL));
         return 0;
     }
     if (!strcmp(cmd, "oled") && n >= 2) {

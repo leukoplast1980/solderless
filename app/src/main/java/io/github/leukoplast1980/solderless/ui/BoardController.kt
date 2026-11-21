@@ -71,6 +71,8 @@ class BoardController(
     /** Displays: what each controller holds, read with the board */
     private val oledBuf = ByteArray(128 * 64)
     private val panelBuf = ByteArray(240 * 320 * 2)
+    /** A sensor's sheet while open: its part and what updates it from the state text */
+    private var sensorSheet: Pair<Int, (String) -> Unit>? = null
     /** A matrix or colour display close up: its part and what updates the sheet */
     private var panelCloseUp: Pair<Int, (ByteArray, String) -> Unit>? = null
     private val deviceText = HashMap<Int, String>()
@@ -92,6 +94,13 @@ class BoardController(
     private var bottomInset = 0
 
     init {
+        activity.lifecycle.addObserver(object : androidx.lifecycle.DefaultLifecycleObserver {
+            override fun onResume(owner: androidx.lifecycle.LifecycleOwner) = updateBarometer(true)
+            override fun onPause(owner: androidx.lifecycle.LifecycleOwner) = updateBarometer(false)
+        })
+    }
+
+    init {
         makeDraggable()
         potSlider.addOnChangeListener { _, v, fromUser -> if (fromUser && openPot >= 0) setPot(openPot, v.toInt()) }
         stepOnHold(activity.findViewById(R.id.potMinus), -10)
@@ -108,6 +117,7 @@ class BoardController(
                 PartType.OLED -> showOled(it)
                 PartType.FLASH -> showFlash(it)
                 PartType.MATRIX, PartType.TFT -> showPanel(it)
+                PartType.BARO, PartType.CO2 -> showSensor(it)
                 else -> showSample(it)
             }
         }
@@ -156,6 +166,15 @@ class BoardController(
             if (Regex("Status\tBUSY 1").containsMatchIn(text)) view.deviceBusy += p.id else view.deviceBusy -= p.id
             flashSheet?.let { (id, update) -> if (id == p.id) update(text) }
         }
+        for (p in vm.board.parts.filter { it.type == PartType.BARO || it.type == PartType.CO2 }) {
+            val text = vm.readDevice(p.id, oledBuf) ?: continue
+            deviceText[p.id] = text
+            text.lines().firstOrNull { it.startsWith("Reading\t") }?.let { r ->
+                view.deviceReadings[p.id] = r.substringAfter('\t').split(" · ").let { parts ->
+                    if (p.type == PartType.CO2) listOf(parts[0], parts.drop(1).joinToString(" · ")) else parts }
+            }
+            sensorSheet?.let { (id, update) -> if (id == p.id) update(text) }
+        }
         for (p in vm.board.parts.filter { it.type == PartType.MATRIX || it.type == PartType.TFT }) {
             val text = vm.readDevice(p.id, panelBuf) ?: continue
             val n = if (p.type == PartType.MATRIX) 64 * p.matrixChips else 240 * p.tftRows * 2
@@ -189,6 +208,7 @@ class BoardController(
         view.ghost = null
         view.highlightPins = emptySet()
         rebuildPinned()
+        updateBarometer()
     }
 
     // ------------------------------------------------------------------
@@ -314,6 +334,8 @@ class BoardController(
             PartType.OLED to "I2C: SCL and SDA",
             PartType.FLASH to "SPI: CLK, DI, DO, and CS",
             PartType.MATRIX to "SPI: CLK and DIN, and CS",
+            PartType.BARO to "I2C: SCL and SDA",
+            PartType.CO2 to "I2C: SCL and SDA",
             PartType.TFT to "SPI: SCL and SDA; CS, DC, RES",
         )
         val grid = android.widget.GridLayout(activity).apply { columnCount = 2 }
@@ -437,6 +459,107 @@ class BoardController(
         }
         dlg.setOnDismissListener { closeUp = null }
         return dlg
+    }
+
+    /** A slider for a value the sensor senses: the label, the value as it reads, the range under it */
+    private fun sliderRow(parent: LinearLayout, label: String, value: Float, from: Float, to: Float, step: Float,
+                          fmt: (Float) -> String, live: (Float) -> Unit, done: (Float) -> Unit): com.google.android.material.slider.Slider {
+        val head = LinearLayout(activity).apply { orientation = LinearLayout.HORIZONTAL; setPadding(0, dp(10), 0, 0) }
+        head.addView(TextView(activity).apply { text = label; textSize = 14f; setTextColor(color(R.color.console_text)) }, LinearLayout.LayoutParams(0, -2, 1f))
+        val shown = TextView(activity).apply { text = fmt(value); textSize = 14f; typeface = Typeface.MONOSPACE; setTextColor(0xFF80DEEA.toInt()) }
+        head.addView(shown)
+        parent.addView(head)
+        val slider = com.google.android.material.slider.Slider(activity).apply {
+            valueFrom = from; valueTo = to; stepSize = step
+            this.value = ((Math.round(value / step) * step).coerceIn(from, to))
+            labelBehavior = com.google.android.material.slider.LabelFormatter.LABEL_GONE
+            contentDescription = label
+            addOnChangeListener { _, v, fromUser -> shown.text = fmt(v); if (fromUser) live(v) }
+            addOnSliderTouchListener(object : com.google.android.material.slider.Slider.OnSliderTouchListener {
+                override fun onStartTrackingTouch(sl: com.google.android.material.slider.Slider) {}
+                override fun onStopTrackingTouch(sl: com.google.android.material.slider.Slider) { done(sl.value) }
+            })
+        }
+        parent.addView(slider)
+        val ends = LinearLayout(activity).apply { orientation = LinearLayout.HORIZONTAL; setPadding(dp(12), 0, dp(12), 0) }
+        ends.addView(TextView(activity).apply { text = fmt(from); textSize = 11f; setTextColor(color(R.color.label)) }, LinearLayout.LayoutParams(0, -2, 1f))
+        ends.addView(TextView(activity).apply { text = fmt(to); textSize = 11f; setTextColor(color(R.color.label)) })
+        parent.addView(ends)
+        return slider
+    }
+
+    private fun savePart(id: Int, change: (Part) -> Part) {
+        val cur = vm.board.parts.firstOrNull { it.id == id } ?: return
+        setBoard(vm.board.with(change(cur)))
+    }
+
+    /** A sensor: what it senses, set with sliders; what the driver has done with it */
+    private fun showSensor(p: Part): BottomSheetDialog {
+        val baro = p.type == PartType.BARO
+        val dlg = sheet { col, dlg ->
+            title(col, p.type.title, (if (baro) "BMP280 module · " else "SCD41 module · ") + (p.i2c ?: "I2C") + " · address " +
+                "0x%02X".format(java.util.Locale.ROOT, p.i2cAddr))
+            val loc = java.util.Locale.ROOT
+            if (baro) {
+                val pressure = sliderRow(col, activity.getString(R.string.sensor_pressure), p.pressureHpa.toFloat(), 300f, 1100f, 0.1f,
+                    { "%.1f hPa".format(loc, it) }, { vm.setPressure(p.id, it.toDouble()) }) { v -> savePart(p.id) { it.copy(pressureHpa = v.toDouble()) } }
+                sliderRow(col, activity.getString(R.string.sensor_temperature), p.tempC.toFloat(), -40f, 85f, 0.1f,
+                    { "%.1f °C".format(loc, it) }, { v -> vm.sendSensor(p.copy(tempC = v.toDouble())) }) { v -> savePart(p.id) { it.copy(tempC = v.toDouble()) } }
+                val hasBarometer = barometer != null
+                switch(col, activity.getString(if (hasBarometer) R.string.sensor_follow_barometer else R.string.sensor_no_barometer), p.followBarometer && hasBarometer) { on ->
+                    pressure.isEnabled = !on
+                    savePart(p.id) { it.copy(followBarometer = on) }
+                }
+                pressure.isEnabled = !(p.followBarometer && hasBarometer)
+                if (!hasBarometer) (col.getChildAt(col.childCount - 1)).isEnabled = false
+            } else {
+                sliderRow(col, activity.getString(R.string.sensor_co2), p.co2Ppm.toFloat(), 400f, 5000f, 10f,
+                    { "%.0f ppm".format(loc, it) }, { v -> vm.sendSensor(p.copy(co2Ppm = v.toInt())) }) { v -> savePart(p.id) { it.copy(co2Ppm = v.toInt()) } }
+                sliderRow(col, activity.getString(R.string.sensor_temperature), p.tempC.toFloat(), -10f, 60f, 0.1f,
+                    { "%.1f °C".format(loc, it) }, { v -> vm.sendSensor(p.copy(tempC = v.toDouble())) }) { v -> savePart(p.id) { it.copy(tempC = v.toDouble()) } }
+                sliderRow(col, activity.getString(R.string.sensor_humidity), p.rhPct.toFloat(), 0f, 100f, 1f,
+                    { "%.0f %%".format(loc, it) }, { v -> vm.sendSensor(p.copy(rhPct = v.toInt())) }) { v -> savePart(p.id) { it.copy(rhPct = v.toInt()) } }
+                col.addView(MaterialButton(activity, null, com.google.android.material.R.attr.materialButtonOutlinedStyle).apply {
+                    text = activity.getString(R.string.sensor_breathe); isAllCaps = false
+                    setOnClickListener { vm.breathe(p.id) }
+                }, LinearLayout.LayoutParams(-1, dp(48)).apply { topMargin = dp(12) })
+                col.addView(body(activity.getString(R.string.sensor_breathe_note), R.color.label))
+            }
+            section(col, activity.getString(if (baro) R.string.sensor_driver else R.string.sensor_state))
+            val rows = LinearLayout(activity).apply { orientation = LinearLayout.VERTICAL }
+            col.addView(rows)
+            val update = { text: String ->
+                fillState(rows, text.lines().filter { !it.startsWith("Bus\t") && !it.startsWith("Reading\t") }.joinToString("\n"))
+            }
+            sensorSheet = p.id to update
+            deviceText[p.id]?.let(update)
+            buttons(col, activity.getString(R.string.board_sample_code) to { dlg.dismiss(); showSample(p) },
+                activity.getString(R.string.board_part_settings) to { dlg.dismiss(); showSettings(p) }, primaryLast = false)
+        }
+        dlg.setOnDismissListener { sensorSheet = null }
+        return dlg
+    }
+
+    // ------------------------------------------------------------------
+    // The phone's barometer, for pressure sensors that follow it
+
+    private val sensorManager = activity.getSystemService(android.content.Context.SENSOR_SERVICE) as? android.hardware.SensorManager
+    private val barometer = sensorManager?.getDefaultSensor(android.hardware.Sensor.TYPE_PRESSURE)
+    private var listening = false
+    private val barometerListener = object : android.hardware.SensorEventListener {
+        override fun onSensorChanged(e: android.hardware.SensorEvent) {
+            val hpa = e.values[0].toDouble()
+            for (p in vm.board.parts) if (p.type == PartType.BARO && p.followBarometer) vm.setPressure(p.id, hpa)
+        }
+        override fun onAccuracyChanged(s: android.hardware.Sensor?, a: Int) {}
+    }
+
+    /** Listens to the barometer while a pressure sensor follows it and the app is in front */
+    fun updateBarometer(resumed: Boolean = activity.lifecycle.currentState.isAtLeast(androidx.lifecycle.Lifecycle.State.RESUMED)) {
+        val want = resumed && barometer != null && vm.board.parts.any { it.type == PartType.BARO && it.followBarometer }
+        if (want && !listening) sensorManager?.registerListener(barometerListener, barometer, android.hardware.SensorManager.SENSOR_DELAY_NORMAL)
+        if (!want && listening) sensorManager?.unregisterListener(barometerListener)
+        listening = want
     }
 
     /** A matrix or colour display close up: the LEDs or the panel, and what its controller holds */
@@ -599,6 +722,8 @@ class BoardController(
         PartType.FLASH -> "${p.flashName} · ${p.flashMbit / 8} MB · ${p.spi ?: "SPI"}"
         PartType.MATRIX -> (if (p.matrixChips == 1) "MAX7219 · 8 × 8" else "${p.matrixChips} × MAX7219 · ${8 * p.matrixChips} × 8") + " · ${p.spi ?: "SPI"}"
         PartType.TFT -> "ST7789 · 240 × ${p.tftRows} · ${p.spi ?: "SPI"}"
+        PartType.BARO -> "BMP280 · ${p.i2c ?: "I2C"} · address " + "0x%02X".format(java.util.Locale.ROOT, p.i2cAddr)
+        PartType.CO2 -> "SCD41 · ${p.i2c ?: "I2C"} · address 0x62"
     }
 
     private fun showRewire(pr: Recommender.Proposal, pin: String?) {
@@ -667,6 +792,9 @@ class BoardController(
                     "GPIO${'A' + (vm.chip.gpio(p.pins[0].pin)?.port ?: 0)}_PUPDR = ${if (p.toVcc) "10" else "01"} for ${p.pins[0].pin}.", R.color.label))
             }
             PartType.SPEAKER -> choice(col, "Driven by", listOf("DAC", "PWM"), if (p.dacDrive) 0 else 1) { update(p.copy(dacDrive = it == 0)) }
+            PartType.BARO -> choice(col, "Address (the SDO pin)", listOf("0x76 · SDO to GND", "0x77 · SDO to 3V3"), if (p.i2cAddr == 0x77) 1 else 0) {
+                update(p.copy(i2cAddr = if (it == 1) 0x77 else 0x76)) }
+            PartType.CO2 -> col.addView(body(activity.getString(R.string.co2_address_note), R.color.label))
             PartType.MATRIX -> choice(col, "Module", listOf("8 × 8 · one MAX7219", "32 × 8 · four in one"), if (p.matrixChips == 1) 0 else 1) {
                 update(p.copy(matrixChips = if (it == 0) 1 else 4)) }
             PartType.TFT -> choice(col, "Panel", listOf("240 × 240 · 1.3\"", "240 × 320 · 2.0\""), if (p.tftRows == 320) 1 else 0) {

@@ -137,6 +137,7 @@ class BoardView @JvmOverloads constructor(context: Context, attrs: AttributeSet?
         PartType.PIEZO, PartType.SPEAKER -> dp(72f)
         PartType.FLASH -> dp(124f)
         PartType.MATRIX -> dp(30f) + matrixWidth(p)
+        PartType.BARO, PartType.CO2 -> dp(30f) + dp(74f) + dp(64f)
         PartType.TFT -> dp(30f) + tftWidth()
     }
 
@@ -294,6 +295,8 @@ class BoardView @JvmOverloads constructor(context: Context, attrs: AttributeSet?
         PartType.OLED -> dp(56f) to dp(52f)
         PartType.FLASH -> dp(58f) to dp(50f)
         PartType.MATRIX -> dp(58f) to dp(50f)
+        PartType.BARO -> dp(52f) to dp(40f)
+        PartType.CO2 -> dp(44f) to dp(32f)
         PartType.TFT -> if (p.tftRows == 320) dp(98f) to dp(94f) else dp(80f) to dp(76f)
         else -> dp(26f) to dp(24f)
     }
@@ -519,6 +522,7 @@ class BoardView @JvmOverloads constructor(context: Context, attrs: AttributeSet?
             PartType.OLED -> drawOled(c, p, cy, x0, sg, isGhost, box)
             PartType.FLASH -> drawFlash(c, p, cy, x0, sg, isGhost, box)
             PartType.MATRIX -> drawMatrix(c, p, cy, x0, sg, isGhost, box)
+            PartType.BARO, PartType.CO2 -> drawSensor(c, p, cy, x0, sg, isGhost, box)
             PartType.TFT -> drawTft(c, p, cy, x0, sg, isGhost, box)
         }
         box.sort()
@@ -672,6 +676,52 @@ class BoardView @JvmOverloads constructor(context: Context, attrs: AttributeSet?
         label(c, "ST7789 · 240 × ${p.tftRows}", (l + r) / 2, top - dp(5f), 9.5f, gc ?: cText, bold = true)
         box.set(x0, top - dp(18f), far, bottom + dp(4f))
         if (!isGhost) hitLabel += RectF(l, top - dp(20f), r, bottom) to p
+    }
+
+    /** What a sensor reads now, as its module shows it next to it: "1013.2 hPa", "21.5 °C" */
+    val deviceReadings = HashMap<Int, List<String>>()
+
+    /** A sensor module on I2C: its pins facing the header, the chip, what it reads now */
+    private fun drawSensor(c: Canvas, p: Part, cy: Float, x0: Float, sg: Int, isGhost: Boolean, box: RectF) {
+        val gc = if (isGhost) cHigh else null
+        val baro = p.type == PartType.BARO
+        val near = x0 + sg * dp(30f)
+        val far = near + sg * dp(74f)
+        val rows = if (baro) 6 else 4
+        val top = cy - dp(6.5f) * rows - dp(6f); val bottom = cy + dp(6.5f) * rows + dp(6f)
+        val l = minOf(near, far); val r = maxOf(near, far)
+        fill.color = if (baro) 0xFF3A1F4A.toInt() else 0xFF1E3A2A.toInt()      // the purple BMP280 board, the green SCD41
+        if (!isGhost) c.drawRoundRect(RectF(l, top, r, bottom), dp(5f), dp(5f), fill)
+        setStroke(gc ?: if (baro) 0xFF7A5A8E.toInt() else 0xFF4E8A62.toInt(), isGhost, 1.4f)
+        c.drawRoundRect(RectF(l, top, r, bottom), dp(5f), dp(5f), stroke)
+        val ys = (0 until rows).map { cy - dp(6.5f) * (rows - 1) + it * dp(13f) }
+        // VCC, GND, then SCL and SDA in header order; the BMP280 also has CSB and SDO, strapped on the module
+        val names = listOf("SCL", "SDA")
+        modulePins(c, p, near, sg, ys.take(4), names, isGhost) { _, pin -> busColour(pin) }
+        if (baro) {
+            val al = if (sg > 0) Paint.Align.LEFT else Paint.Align.RIGHT
+            for ((k, n) in listOf("CSB", "SDO").withIndex()) {
+                fill.color = 0xFF7A6A4A.toInt(); c.drawCircle(near, ys[4 + k], dp(3f), fill)
+                label(c, n, near + sg * dp(6f), ys[4 + k] + dp(2.5f), 6.5f, 0xFF8A7A9A.toInt(), al)
+            }
+        }
+        // the chip: the BMP280's metal can, the SCD41's square with its opening
+        val cx = near + sg * dp(52f)
+        fill.color = if (baro) 0xFFB8BEC2.toInt() else 0xFF2A2F33.toInt()
+        val half = dp(if (baro) 7f else 10f)
+        c.drawRoundRect(RectF(cx - half, cy - half, cx + half, cy + half), dp(2f), dp(2f), fill)
+        if (!baro) { fill.color = 0xFF0E1012.toInt(); c.drawCircle(cx, cy, dp(4f), fill) }
+        else { fill.color = 0xFF6A7074.toInt(); c.drawCircle(cx + dp(3f), cy - dp(3f), dp(1.2f), fill) }
+        val name = if (baro) "BMP280 · " + "0x%02X".format(java.util.Locale.ROOT, p.i2cAddr) else "SCD41 · 0x62"
+        label(c, name, (l + r) / 2, top - dp(5f), 9.5f, gc ?: cText, bold = true)
+        // the readings, beyond the module
+        val lines = deviceReadings[p.id] ?: if (baro) listOf("%.1f hPa".format(java.util.Locale.ROOT, p.pressureHpa),
+            "%.1f °C".format(java.util.Locale.ROOT, p.tempC)) else listOf("${p.co2Ppm} ppm", "%.1f °C · %d %%".format(java.util.Locale.ROOT, p.tempC, p.rhPct))
+        val tx = far + sg * dp(6f)
+        val tal = if (sg > 0) Paint.Align.LEFT else Paint.Align.RIGHT
+        if (!isGhost) for ((k, t) in lines.withIndex()) label(c, t, tx, cy - dp(4f) + k * dp(13f), 9f, cAnalog, tal)
+        box.set(x0, top - dp(18f), far + sg * dp(64f), bottom + dp(4f))
+        if (!isGhost) hitLabel += RectF(minOf(l, tx - dp(64f)), top - dp(20f), maxOf(r, tx + dp(64f)), bottom) to p
     }
 
     /** Parts that report being busy (a flash erasing or programming) */

@@ -25,6 +25,8 @@ static const char *dev_name(int kind)
     case SL_DEV_W25Q: return "W25Q flash";
     case SL_DEV_MAX7219: return "MAX7219";
     case SL_DEV_ST7789: return "ST7789 display";
+    case SL_DEV_BMP280: return "BMP280";
+    case SL_DEV_SCD41: return "SCD41";
     default: return "part";
     }
 }
@@ -37,6 +39,8 @@ static uint32_t dev_max_hz(int kind)
     case SL_DEV_W25Q: return 50000000u;     /* read (03) is the slowest command: 50 MHz */
     case SL_DEV_MAX7219: return 10000000u;
     case SL_DEV_ST7789: return 62500000u;   /* write cycle 16 ns */
+    case SL_DEV_BMP280: return 3400000u;    /* high-speed mode */
+    case SL_DEV_SCD41: return 400000u;
     default: return 100000u;
     }
 }
@@ -55,6 +59,8 @@ static void dev_power_on(struct sl_dev *d)
     if (d->kind == SL_DEV_W25Q) w25q_init(&d->m.flash, d->addr, seed);
     if (d->kind == SL_DEV_MAX7219) max7219_power_on(&d->m.matrix, d->addr, seed);
     if (d->kind == SL_DEV_ST7789) st7789_init(&d->m.tft, d->addr, seed);
+    if (d->kind == SL_DEV_BMP280) bmp280_power_on(&d->m.baro);
+    if (d->kind == SL_DEV_SCD41) scd41_power_on(&d->m.co2, seed);
 }
 
 static void dev_free(struct sl_dev *d)
@@ -121,20 +127,36 @@ static int on_bus(const struct sl_dev *d, int scl, int sda)
     return d->pin[SL_SIG_SCL] == scl && d->pin[SL_SIG_SDA] == sda;
 }
 
+static void part_messages(struct sl_soc *s, struct sl_dev *d);
+
 /* Address phase for one part: does it answer? */
 static int dev_start(struct sl_soc *s, struct sl_dev *d, int addr, int read)
 {
     d->selected = 0;
     if (d->addr != addr) return 0;
-    d->selected = 1;
     d->dec_read = read;
+    uint64_t now = soc_now_ps(s);
     if (d->kind == SL_DEV_SSD1306) ssd1306_start(&d->m.oled);
+    if (d->kind == SL_DEV_BMP280) bmp280_start(&d->m.baro, read, now);
+    if (d->kind == SL_DEV_SCD41) {
+        int ack = scd41_start(&d->m.co2, read, now);
+        part_messages(s, d);
+        if (!ack) return 0;
+    }
+    d->selected = 1;
     return 1;
 }
 
 static int dev_write(struct sl_soc *s, struct sl_dev *d, uint8_t b)
 {
-    if (d->kind == SL_DEV_SSD1306) ssd1306_byte(&d->m.oled, b, soc_now_ps(s));
+    uint64_t now = soc_now_ps(s);
+    if (d->kind == SL_DEV_SSD1306) ssd1306_byte(&d->m.oled, b, now);
+    if (d->kind == SL_DEV_BMP280) bmp280_byte(&d->m.baro, b, now);
+    if (d->kind == SL_DEV_SCD41) {
+        int ack = scd41_byte(&d->m.co2, b, now);
+        part_messages(s, d);
+        return ack;
+    }
     return 1;
 }
 
@@ -142,12 +164,15 @@ static uint8_t dev_read(struct sl_soc *s, struct sl_dev *d)
 {
     /* SSD1306 over I2C: only the status byte; D6 is set while the display is off */
     if (d->kind == SL_DEV_SSD1306) return d->m.oled.on ? 0x00 : 0x40;
+    if (d->kind == SL_DEV_BMP280) { uint8_t v = bmp280_read(&d->m.baro, soc_now_ps(s)); part_messages(s, d); return v; }
+    if (d->kind == SL_DEV_SCD41) return scd41_read(&d->m.co2);
     return 0xFF;
 }
 
 static void dev_stop(struct sl_soc *s, struct sl_dev *d)
 {
     if (d->selected && d->kind == SL_DEV_SSD1306) ssd1306_stop(&d->m.oled);
+    if (d->selected && d->kind == SL_DEV_SCD41) { scd41_stop(&d->m.co2, soc_now_ps(s)); part_messages(s, d); }
     d->selected = 0;
 }
 
@@ -241,6 +266,14 @@ static void part_messages(struct sl_soc *s, struct sl_dev *d)
     if (d->kind == SL_DEV_ST7789) {
         int code;
         while ((code = st7789_message(&d->m.tft, m, sizeof m))) soc_log(s, LOG_PART + d->kind * 8 + code, "%s", m);
+    }
+    if (d->kind == SL_DEV_BMP280) {
+        int code;
+        while ((code = bmp280_message(&d->m.baro, m, sizeof m))) soc_log(s, LOG_PART + d->kind * 8 + code, "%s", m);
+    }
+    if (d->kind == SL_DEV_SCD41) {
+        int code;
+        while ((code = scd41_message(&d->m.co2, m, sizeof m))) soc_log(s, LOG_PART + d->kind * 8 + code, "%s", m);
     }
 }
 
@@ -441,7 +474,7 @@ static void decode(struct sl_soc *s, struct sl_dev *d)
                                 d->dec_byte, dev_name(d->kind), d->addr, d->addr << 1, d->addr << 1 | 1);
                     d->dec_phase = DEC_SKIP; break;
                 }
-            } else dev_write(s, d, d->dec_byte);
+            } else if (!dev_write(s, d, d->dec_byte)) { d->dec_phase = DEC_SKIP; break; }   /* not acknowledged */
             hold_sda(s, d, 1);              /* acknowledge */
             d->dec_ack = 0;
             d->dec_phase = DEC_ACK;
@@ -497,6 +530,16 @@ int bus_pin_drive(struct sl_soc *s, int slot, int *level)
     return 0;
 }
 
+void bus_device_input(struct sl_soc *s, int part, const char *what, double v)
+{
+    for (int i = 0; i < B->ndev; i++) {
+        struct sl_dev *d = &B->dev[i];
+        if (d->part != part) continue;
+        if (d->kind == SL_DEV_BMP280) bmp280_input(&d->m.baro, what, v, soc_now_ps(s));
+        if (d->kind == SL_DEV_SCD41) scd41_input(&d->m.co2, what, v, soc_now_ps(s));
+    }
+}
+
 int bus_pin_is_miso(struct sl_soc *s, int slot)
 {
     for (int i = 0; i < B->ndev; i++) if (is_spi(B->dev[i].kind) && B->dev[i].pin[SL_SIG_MISO] == slot) return 1;
@@ -533,6 +576,21 @@ size_t bus_device_read(struct sl_soc *s, int part, uint8_t *px, size_t len, char
             }
             return n;
         }
+    }
+    for (int i = 0; i < B->ndev; i++) {
+        struct sl_dev *d = &B->dev[i];
+        if (d->part != part || (d->kind != SL_DEV_BMP280 && d->kind != SL_DEV_SCD41)) continue;
+        if (text && tlen) {
+            char sc[6] = "", sd[6] = "";
+            if (d->pin[SL_SIG_SCL] >= 0) pin_label(d->pin[SL_SIG_SCL], sc);
+            if (d->pin[SL_SIG_SDA] >= 0) pin_label(d->pin[SL_SIG_SDA], sd);
+            int k = snprintf(text, tlen, "Bus\tI2C 0x%02X · SCL %s · SDA %s\n", d->addr, sc, sd);
+            if (k > 0 && (size_t)k < tlen) {
+                if (d->kind == SL_DEV_BMP280) bmp280_text(&d->m.baro, soc_now_ps(s), text + k, tlen - k);
+                else scd41_text(&d->m.co2, soc_now_ps(s), text + k, tlen - k);
+            }
+        }
+        return 0;
     }
     for (int i = 0; i < B->ndev; i++) {
         struct sl_dev *d = &B->dev[i];

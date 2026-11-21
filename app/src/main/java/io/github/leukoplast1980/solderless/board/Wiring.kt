@@ -29,6 +29,11 @@ object Wiring {
             PartType.OLED -> if (role == 0) "${u.pin} (pin ${pin.number}) → OLED SCL; the module pulls it up (4.7 kΩ)"
                 else "${u.pin} (pin ${pin.number}) → OLED SDA, pulled up on the module; VCC → 3V3, GND → GND, " +
                     "address 0x%02X (SA0 to %s)".format(java.util.Locale.ROOT, p.i2cAddr, if (p.i2cAddr == 0x3D) "3V3" else "GND")
+            PartType.BARO -> if (role == 0) "${u.pin} (pin ${pin.number}) → BMP280 SCL; the module pulls it up (10 kΩ)"
+                else "${u.pin} (pin ${pin.number}) → BMP280 SDA; VCC → 3V3, GND → GND, CSB → 3V3 (I2C), SDO → " +
+                    (if (p.i2cAddr == 0x77) "3V3 (address 0x77)" else "GND (address 0x76)")
+            PartType.CO2 -> if (role == 0) "${u.pin} (pin ${pin.number}) → SCD41 SCL; the module pulls it up (10 kΩ)"
+                else "${u.pin} (pin ${pin.number}) → SCD41 SDA; VDD → 3V3, GND → GND, address 0x62"
             PartType.MATRIX -> when (role) {
                 0 -> "${u.pin} (pin ${pin.number}) → MAX7219 CS (LOAD); VCC → 5 V, GND → GND"
                 1 -> "${u.pin} (pin ${pin.number}) → MAX7219 CLK"
@@ -124,6 +129,8 @@ object Wiring {
                 PartType.PIEZO -> add("piezo buzzer, passive")
                 PartType.OLED -> add("OLED module, SSD1306, 128 × 64, 0.96\", I2C (4 pins)")
                 PartType.FLASH -> add("SPI flash module, ${p.flashName} (8 pins)")
+                PartType.BARO -> add("pressure sensor module, BMP280, I2C (6 pins)")
+                PartType.CO2 -> add("CO₂ sensor module, Sensirion SCD41, I2C")
                 PartType.MATRIX -> add(if (p.matrixChips == 1) "LED matrix module, MAX7219, 8 × 8" else "LED matrix module, MAX7219, ${p.matrixChips} in 1, ${8 * p.matrixChips} × 8")
                 PartType.TFT -> add(if (p.tftRows == 320) "colour display module, ST7789, 240 × 320, 2.0\" IPS" else "colour display module, ST7789, 240 × 240, 1.3\" IPS, with CS")
             }

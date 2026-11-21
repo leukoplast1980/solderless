@@ -54,6 +54,8 @@ data class Board(val parts: List<Part> = emptyList()) {
             PartType.SPEAKER, PartType.PIEZO -> att(p.id, r, u.pin, ATT_AUDIO, false, 0, 0, 0)
             // role 0 SCL, 1 SDA, as SL_SIG_*; 4.7 kohm pull-ups on the module
             PartType.OLED -> att(p.id, r, u.pin, ATT_DEVICE, false, 4700, 0, 0, DEV_SSD1306, p.i2cAddr)
+            PartType.BARO -> att(p.id, r, u.pin, ATT_DEVICE, false, 10000, 0, 0, DEV_BMP280, p.i2cAddr)
+            PartType.CO2 -> att(p.id, r, u.pin, ATT_DEVICE, false, 10000, 0, 0, DEV_SCD41, p.i2cAddr)
             // roles CS, CLK, DI, DO as SL_SIG_CS, SCK, MOSI, MISO; WP and HOLD tied high
             // CS (and the display's RES) have a 10 kohm pull-up on the module: a part whose
             // CS pin is not set up yet stays deselected, and that pin cannot be BOOT0
@@ -75,7 +77,9 @@ data class Board(val parts: List<Part> = emptyList()) {
             .put("activeHigh", p.activeHigh).put("dimmable", p.dimmable).put("toVcc", p.toVcc)
             .put("externalPull", p.externalPull).put("bounceUs", p.bounceUs).put("interrupt", p.interrupt)
             .put("dacDrive", p.dacDrive).put("pinned", p.pinnedOverTabs).put("i2cAddr", p.i2cAddr)
-            .put("flashMbit", p.flashMbit).put("matrixChips", p.matrixChips).put("tftRows", p.tftRows))
+            .put("flashMbit", p.flashMbit).put("matrixChips", p.matrixChips).put("tftRows", p.tftRows)
+            .put("pressureHpa", p.pressureHpa).put("tempC", p.tempC).put("co2Ppm", p.co2Ppm).put("rhPct", p.rhPct)
+            .put("followBarometer", p.followBarometer))
     }).toString(1)
 
     companion object {
@@ -89,6 +93,8 @@ data class Board(val parts: List<Part> = emptyList()) {
         const val DEV_W25Q = 2
         const val DEV_MAX7219 = 3
         const val DEV_ST7789 = 4
+        const val DEV_BMP280 = 5
+        const val DEV_SCD41 = 6
         /** sl_attach.role of a colour display's roles: SL_SIG_CS, SCK, MOSI, DC, RES */
         val TFT_SIG = intArrayOf(5, 2, 3, 6, 7)
         /** sl_attach.role of a flash's roles: SL_SIG_CS, SCK, MOSI, MISO */
@@ -133,8 +139,11 @@ data class Board(val parts: List<Part> = emptyList()) {
                     toVcc = o.optBoolean("toVcc", false), externalPull = o.optBoolean("externalPull", false),
                     bounceUs = o.optInt("bounceUs", 2000), interrupt = o.optBoolean("interrupt", true),
                     dacDrive = o.optBoolean("dacDrive", true), pinnedOverTabs = o.optBoolean("pinned", false),
-                    i2cAddr = o.optInt("i2cAddr", 0x3C), flashMbit = o.optInt("flashMbit", 64),
+                    i2cAddr = o.optInt("i2cAddr", type.addresses.firstOrNull() ?: 0x3C), flashMbit = o.optInt("flashMbit", 64),
                     matrixChips = o.optInt("matrixChips", 4), tftRows = o.optInt("tftRows", 240),
+                    pressureHpa = o.optDouble("pressureHpa", 1013.2), tempC = o.optDouble("tempC", 21.5),
+                    co2Ppm = o.optInt("co2Ppm", 820), rhPct = o.optInt("rhPct", 45),
+                    followBarometer = o.optBoolean("followBarometer", false),
                 )
             })
         }
