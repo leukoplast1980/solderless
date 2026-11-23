@@ -219,8 +219,15 @@ class BoardView @JvmOverloads constructor(context: Context, attrs: AttributeSet?
                 val pins = if (k == 0) own.sortedBy { (uses[it] ?: 1) > 1 } else own
                 val (above, below) = extent(p)
                 // pins level with the leads they go to: a later part's own pins with its last leads
-                val leads = leadOffsets(p).takeLast(pins.size)
-                val shift = if (leads.isEmpty()) 0f else dp(leads.average().toFloat()) / r
+                val all = leadOffsets(p)
+                val leads = all.takeLast(pins.size)
+                var shift = if (leads.isEmpty()) 0f else dp(leads.average().toFloat()) / r
+                if (pins.isNotEmpty() && pins.size < all.size) {
+                    // and its top pin a little below the last lead the bus's lanes come in to, so no
+                    // wire of its own runs along theirs (the top pin is (size - 1) / 2 rows above the middle)
+                    val bus = dp(all[all.size - pins.size - 1]) + dp(8f)
+                    shift = maxOf(shift, kotlin.math.ceil(bus / r + (pins.size - 1) / 2f))
+                }
                 SmartOrder.Unit(p.id, pins, span(above + below), reach = widthOf(p), shift = shift)
             }
         }
