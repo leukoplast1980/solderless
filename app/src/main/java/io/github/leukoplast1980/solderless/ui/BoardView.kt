@@ -124,6 +124,23 @@ class BoardView @JvmOverloads constructor(context: Context, attrs: AttributeSet?
     private class BusLanes(val shift: Int, val down: Map<String, Int>)
     private val busLanes = HashMap<Int, BusLanes>()
 
+    /** [busLanes] for the buses of a smart [plan] */
+    private fun planBusLanes(plan: SmartOrder.Layout) {
+        fun row(pin: String) = plan.left.indexOfFirst { it.name == pin }.takeIf { it >= 0 }
+            ?: plan.right.indexOfFirst { it.name == pin }
+        for (bus in smartBuses.filter { it.size > 1 }) {
+            val uses = bus.flatMap { q -> q.pins.map { it.pin }.distinct() }.groupingBy { it }.eachCount()
+            val shared = uses.filter { it.value > 1 }.keys.sortedByDescending { row(it) }
+            val rank = shared.withIndex().associate { (j, pin) -> pin to j }
+            val placed = HashSet<String>()
+            for (q in bus) {
+                val mine = q.pins.map { it.pin }
+                busLanes[q.id] = BusLanes(shared.size, rank.filterKeys { it in placed && it in mine })
+                placed += mine
+            }
+        }
+    }
+
     /** The part being drawn, for its wires' lanes */
     private var drawing: Part? = null
 
@@ -152,22 +169,7 @@ class BoardView @JvmOverloads constructor(context: Context, attrs: AttributeSet?
                 r += dp(1f)
                 plan = SmartOrder.layout(chip, smartGroups(r, false), boardW - 2 * headerW - dp(6f))
             }
-            if (plan != null) {
-                smart = plan; smartExact = true; rowH = r
-                fun row(pin: String) = plan.left.indexOfFirst { it.name == pin }.takeIf { it >= 0 }
-                    ?: plan.right.indexOfFirst { it.name == pin }
-                for (bus in smartBuses.filter { it.size > 1 }) {
-                    val uses = bus.flatMap { q -> q.pins.map { it.pin }.distinct() }.groupingBy { it }.eachCount()
-                    val shared = uses.filter { it.value > 1 }.keys.sortedByDescending { row(it) }
-                    val rank = shared.withIndex().associate { (j, pin) -> pin to j }
-                    val placed = HashSet<String>()
-                    for (q in bus) {
-                        val mine = q.pins.map { it.pin }
-                        busLanes[q.id] = BusLanes(shared.size, rank.filterKeys { it in placed && it in mine })
-                        placed += mine
-                    }
-                }
-            }
+            if (plan != null) { smart = plan; smartExact = true; rowH = r; planBusLanes(plan) }
             // too many parts for that: pins still grouped, the parts pushed apart as in the other orders
             else smart = SmartOrder.layout(chip, smartGroups(baseRow, true))
         } else if (autoSpread && chip != null) {
