@@ -127,6 +127,15 @@ class BoardController(
         activity.findViewById<View>(R.id.boardAdd).setOnClickListener { showAdd() }
         activity.findViewById<View>(R.id.boardSupport).setOnClickListener { showSupport() }
         activity.findViewById<View>(R.id.boardPins).setOnClickListener { showPins() }
+        // On a narrow screen "+ Part" shrinks to "+" rather than running off the edge
+        val add = activity.findViewById<com.google.android.material.floatingactionbutton.ExtendedFloatingActionButton>(R.id.boardAdd)
+        val pinsButton = activity.findViewById<View>(R.id.boardPins)
+        (add.parent as View).addOnLayoutChangeListener { row, _, _, _, _, _, _, _, _ ->
+            val room = row.width - row.paddingRight - pinsButton.right
+            val want = add.paddingLeft + add.paddingRight + add.iconSize + add.iconPadding + add.paint.measureText(add.text.toString())
+            if (add.isExtended && room < want) add.post { add.shrink() }
+            else if (!add.isExtended && room >= want) add.post { add.extend() }
+        }
         rebuildPinned()
     }
 
