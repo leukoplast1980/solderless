@@ -274,17 +274,19 @@ reported), SPI parts by their own chip-select pins.
 Settled with the mock-up (Solderless – Breadboard tab mock-up, 19 November
 2026):
 
-- **No chip drawn.** The chip's pins run as two pin headers down the long
-  edges of the Board tab, all 64 with name and pin number; the parts sit in
-  the space between, with short straight wires from their pins.
-- **Header order is a setting**: *adapter order* (pins 1–32 down the left,
-  64–33 down the right, as on an LQFP64-to-DIP adapter, so the screen
-  matches a real chip on a breadboard) or *by port* (PA, PB on the left;
-  PC, PD, PF, NRST and the supply pins on the right). Adapter order is the
-  default. Tapping a pin lists its functions.
-- **Live state.** Wires show their level: high, low, PWM, analog with its
-  voltage, and checks in amber on the wire they concern (a floating input,
-  say). LEDs glow with their average brightness, the RGB LED shows the
+- **No chip drawn, no wires.** The Board tab shows the parts only, in two
+  columns in the order they were added (a part too wide for a column spans
+  both), the USB-serial first. Each lead ends in a net label: a flag with
+  the chip pin it goes to (PA8). Parts on one bus carry the same labels, so
+  nothing is routed and nothing crosses. (Pin headers along the edges with
+  wires to the parts were tried first; with several parts on a bus the
+  wires could not be kept tidy.)
+- **Pins.** Tapping a label opens its pin: what uses it, its alternate
+  functions. The *Pins* button lists all 64 by number with what uses each,
+  which are free and which are kept free.
+- **Live state.** Labels and their stubs show the pin's level: high, low,
+  PWM, analog with its voltage, the bus colour for I2C and SPI lines, and
+  checks in amber on the lead they concern (a floating input, say). LEDs glow with their average brightness, the RGB LED shows the
   mixed colour, the piezo its frequency.
 - **Use and settings.** Tap a part to use it (hold the button, drag the
   pot); long-press for its settings sheet (colour, size, current, pin,
@@ -326,8 +328,6 @@ Settled with the mock-up (Solderless – Breadboard tab mock-up, 19 November
   and a line saying what the part made of the transfer at cursor A or the
   last one shown ("OLED: command AF, display on", "MAX7219: register 0C
   shutdown ← 01, normal operation").
-- **Settings:** spread the pins when parts need room (the tab grows and
-  scrolls), header order.
 - **Displays** (milestone 3) are drawn as their modules with the screen
   content pixel for pixel; tapping one opens a close-up with a pixel grid
   and the controller's state (on/off, contrast, charge pump, addressing,

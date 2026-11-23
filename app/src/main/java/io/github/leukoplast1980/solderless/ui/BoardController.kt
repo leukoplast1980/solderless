@@ -45,7 +45,6 @@ import io.github.leukoplast1980.solderless.board.Passives
 import io.github.leukoplast1980.solderless.board.Recommender
 import io.github.leukoplast1980.solderless.board.Samples
 import io.github.leukoplast1980.solderless.board.Wiring
-import io.github.leukoplast1980.solderless.settings.Settings
 import io.github.leukoplast1980.solderless.vm.BoardState
 import io.github.leukoplast1980.solderless.vm.VmHost
 import java.io.File
@@ -57,7 +56,6 @@ private val CONTRAST = Regex("Contrast\t0x([0-9A-F]{2})")
 class BoardController(
     private val activity: AppCompatActivity,
     private val vm: VmHost,
-    private val settings: Settings,
     private val openFile: (File) -> Unit,
 ) {
     val view: BoardView = activity.findViewById(R.id.boardView)
@@ -111,8 +109,6 @@ class BoardController(
         stepOnHold(activity.findViewById(R.id.potMinus), -10)
         stepOnHold(activity.findViewById(R.id.potPlus), 10)
         view.chip = vm.chip
-        view.order = settings.headerOrder
-        view.autoSpread = settings.boardSpread
         view.board = vm.board
         view.onPress = { p, down -> vm.boardInput(p.id, if (down) 1 else 0) }
         view.onPot = { p, v -> vm.boardInput(p.id, v) }
@@ -130,14 +126,13 @@ class BoardController(
         view.onPinTap = { showPin(it) }
         activity.findViewById<View>(R.id.boardAdd).setOnClickListener { showAdd() }
         activity.findViewById<View>(R.id.boardSupport).setOnClickListener { showSupport() }
+        activity.findViewById<View>(R.id.boardPins).setOnClickListener { showPins() }
         rebuildPinned()
     }
 
     /** The project changed underneath (another project opened). */
     fun reload() {
         view.board = vm.board
-        view.order = settings.headerOrder
-        view.autoSpread = settings.boardSpread
         view.potValue.clear()
         rebuildPinned()
     }
@@ -893,6 +888,36 @@ class BoardController(
             putExtra(Intent.EXTRA_SUBJECT, "$name: wiring and parts")
             putExtra(Intent.EXTRA_TEXT, text)
         }, activity.getString(R.string.board_export)))
+    }
+
+    /** All 64 pins by number and what uses each; tap one for its sheet */
+    private fun showPins(): BottomSheetDialog = sheet { col, dlg ->
+        title(col, "Pins", "LQFP64, by pin number")
+        val reserved = vm.recommender().reserved
+        for (pin in vm.chip.pins.sortedBy { it.number }) {
+            val users = vm.board.parts.flatMap { p ->
+                p.pins.withIndex().filter { it.value.pin == pin.name }.map { "${p.type.title} ${p.type.roles.getOrElse(it.index) { "" }}".trim() }
+            }
+            val what = when {
+                users.isNotEmpty() -> users.joinToString(", ")
+                pin.name == "PA2" -> "USB-serial RX"
+                pin.name == "PA3" -> "USB-serial TX"
+                !pin.isGpio -> "supply"
+                reserved[pin.name] != null -> "kept free: ${reserved[pin.name]}"
+                else -> "free"
+            }
+            val used = users.isNotEmpty() || pin.name == "PA2" || pin.name == "PA3"
+            col.addView(body("%2d  %-5s %s".format(java.util.Locale.ROOT, pin.number, pin.name, what),
+                if (used) R.color.accent else if (pin.isGpio) R.color.console_text else R.color.label, mono = true).apply {
+                minHeight = dp(36)
+                gravity = Gravity.CENTER_VERTICAL
+                val tv = android.util.TypedValue()
+                activity.theme.resolveAttribute(android.R.attr.selectableItemBackground, tv, true)
+                setBackgroundResource(tv.resourceId)
+                isClickable = true
+                setOnClickListener { dlg.dismiss(); showPin(pin) }
+            })
+        }
     }
 
     private fun showPin(pin: ChipPins.Pin): BottomSheetDialog = sheet { col, dlg ->

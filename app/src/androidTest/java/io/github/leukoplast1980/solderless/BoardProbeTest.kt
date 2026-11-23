@@ -169,6 +169,48 @@ class BoardProbeTest {
         scenario.close()
     }
 
+    /** The board without headers: parts in two columns, each lead labelled with its pin; a tap
+     * on a label opens the pin, the Pins button lists all 64 */
+    @Test
+    fun pinLabels() {
+        val ctx = InstrumentationRegistry.getInstrumentation().targetContext
+        val scenario = launch()
+        Thread.sleep(2500)
+        val vm = VmHost.get(ctx)
+        val rec = vm.recommender()
+        var b = Board()
+        for (t in listOf(PartType.BUTTON, PartType.RGB_LED, PartType.POT, PartType.OLED, PartType.BARO))
+            b = b.apply(rec.propose(b.parts, Part(b.nextId(), t, emptyList()))!!)
+        Log.i(TAG, "labels: " + b.parts.joinToString { "${it.type} ${it.pins.map { u -> u.pin }}" })
+        scenario.onActivity { vm.setBoard(b) }
+        selectTab(scenario, R.string.tab_board)
+        Thread.sleep(1000)
+        screenshot("board-labels.png")
+        val pot = b.parts.first { it.type == PartType.POT }.pins.first().pin
+        var at: android.graphics.RectF? = null
+        val loc = IntArray(2)
+        scenario.onActivity { a ->
+            val bv = a.findViewById<io.github.leukoplast1980.solderless.ui.BoardView>(R.id.boardView)
+            for (p in b.parts) for (u in p.pins) assertTrue("${p.type} ${u.pin} labelled", bv.labelBounds(u.pin) != null)
+            assertTrue("USB-serial labelled", bv.labelBounds("PA2") != null && bv.labelBounds("PA3") != null)
+            at = bv.labelBounds(pot); bv.getLocationOnScreen(loc)
+        }
+        ui().click(loc[0] + at!!.centerX().toInt(), loc[1] + at!!.centerY().toInt())
+        Thread.sleep(1500)
+        assertTrue("the pin's sheet opens", ui().findObject(androidx.test.uiautomator.UiSelector().text(pot)).exists())
+        screenshot("board-label-pin.png")
+        InstrumentationRegistry.getInstrumentation().uiAutomation.performGlobalAction(android.accessibilityservice.AccessibilityService.GLOBAL_ACTION_BACK)
+        Thread.sleep(800)
+        scenario.onActivity { a -> a.findViewById<View>(R.id.boardPins).performClick() }
+        Thread.sleep(1500)
+        assertTrue("the pin list", ui().findObject(androidx.test.uiautomator.UiSelector().textContains("USB-serial RX")).exists())
+        screenshot("board-pins.png")
+        InstrumentationRegistry.getInstrumentation().uiAutomation.performGlobalAction(android.accessibilityservice.AccessibilityService.GLOBAL_ACTION_BACK)
+        Thread.sleep(500)
+        scenario.onActivity { vm.setBoard(Board()) }
+        scenario.close()
+    }
+
     /** A BMP280 and an SCD41 on one I2C bus with an OLED: their samples read what the sheets set */
     @Test
     fun sensors() {
@@ -539,8 +581,7 @@ class BoardProbeTest {
         Thread.sleep(7000)
         screenshot("scope-held-7s-later.png")     // held: nothing may have gone
 
-        // An RGB LED on PA8, PA9, PA10 (TIM1 CH1-3): red's pin is the lowest on the
-        // right header, so its rows must follow the pins, wires not crossing
+        // An RGB LED on PA8, PA9, PA10 (TIM1 CH1-3), each lead labelled with its pin
         val rgb = Part(1, PartType.RGB_LED, listOf(
             io.github.leukoplast1980.solderless.board.PinUse("PA8", io.github.leukoplast1980.solderless.board.Function.Timer("TIM1", 1, 6)),
             io.github.leukoplast1980.solderless.board.PinUse("PA9", io.github.leukoplast1980.solderless.board.Function.Timer("TIM1", 2, 6)),

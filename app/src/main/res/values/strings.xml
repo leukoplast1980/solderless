@@ -35,11 +35,9 @@
     <string name="scope_trigger_off">Off: free running</string>
     <string name="scope_cursor_hint">Tap again for cursor B. Long-press clears.</string>
     <string name="scope_show">Show on the scope</string>
-    <string name="header_order">Pins on the Board tab</string>
-    <string name="header_order_adapter">Adapter order: 1–32 down the left, 64–33 down the right, as on an LQFP64-to-DIP adapter</string>
-    <string name="header_order_port">By port: PA and PB on the left; PC, PD, PF and the supply pins on the right</string>
     <string name="board_add_part">Part</string>
     <string name="board_support_button">Support circuit ›</string>
+    <string name="board_pins_button">Pins</string>
     <string name="board_warnings">▲ %1$d</string>
     <string name="board_add_title">Add a part</string>
     <string name="board_add_subtitle">The app picks the pins and the resistors. You can change both.</string>
@@ -61,8 +59,6 @@
     <string name="copy_code">Copy the code</string>
     <string name="code_copied">Code copied</string>
     <string name="pinned_drag">Drag to move</string>
-    <string name="board_spread">Spread the pins when parts need room</string>
-    <string name="board_spread_hint">The Board tab gets taller and scrolls, so crowded parts sit next to their pins.</string>
     <string name="raw_mode">Raw mode</string>
     <string name="copy_all">Copy console</string>
     <string name="clear_screen">Clear console</string>
