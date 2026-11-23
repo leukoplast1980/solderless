@@ -203,7 +203,7 @@ class BoardProbeTest {
         Thread.sleep(800)
         scenario.onActivity { a -> a.findViewById<View>(R.id.boardPins).performClick() }
         Thread.sleep(1500)
-        assertTrue("the pin list", ui().findObject(androidx.test.uiautomator.UiSelector().textContains("USB-serial RX")).exists())
+        assertTrue("the pin list", ui().findObject(androidx.test.uiautomator.UiSelector().textContains("VBAT")).exists())
         screenshot("board-pins.png")
         InstrumentationRegistry.getInstrumentation().uiAutomation.performGlobalAction(android.accessibilityservice.AccessibilityService.GLOBAL_ACTION_BACK)
         Thread.sleep(500)
