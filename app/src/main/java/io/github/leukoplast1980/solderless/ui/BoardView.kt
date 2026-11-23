@@ -111,6 +111,28 @@ class BoardView @JvmOverloads constructor(context: Context, attrs: AttributeSet?
     private var smart: SmartOrder.Layout? = null
     /** Every part has rows of its own in [smart]: placement puts it there as planned */
     private var smartExact = false
+    /** The smart order's buses: parts sharing pins, the first one first */
+    private var smartBuses: List<List<Part>> = emptyList()
+
+    /**
+     * Lanes on a bus, in the smart order: the wires running down from the shared
+     * pins to the parts below the first take the innermost lanes, one per pin
+     * (the lowest pin innermost, as all run down), and every other wire of the
+     * bus's parts turns further in. So a lane starting at a shared pin never runs
+     * along another wire; where it crosses one, it hops.
+     */
+    private class BusLanes(val shift: Int, val down: Map<String, Int>)
+    private val busLanes = HashMap<Int, BusLanes>()
+
+    /** The part being drawn, for its wires' lanes */
+    private var drawing: Part? = null
+
+    /** Where a wire from [pin] turns, for a part that asked for [jog] dp */
+    private fun laneFor(pin: String, jog: Float): Float {
+        val b = drawing?.let { busLanes[it.id] } ?: return jog
+        b.down[pin]?.let { return 6f + 4f * it }
+        return 6f + 4f * (b.shift + (jog - 6f) / 5f)
+    }
 
     /** The two headers, top down */
     private fun headerLists(): Pair<List<ChipPins.Pin>, List<ChipPins.Pin>> =
@@ -120,7 +142,7 @@ class BoardView @JvmOverloads constructor(context: Context, attrs: AttributeSet?
         val w = MeasureSpec.getSize(widthMeasureSpec)
         boardW = w.toFloat()
         rowH = baseRow
-        smart = null; smartExact = false
+        smart = null; smartExact = false; busLanes.clear()
         val chip = chip
         if (order == HeaderOrder.SMART && chip != null) {
             // Smallest row height at which every part gets rows of its own beside its pins
@@ -130,7 +152,22 @@ class BoardView @JvmOverloads constructor(context: Context, attrs: AttributeSet?
                 r += dp(1f)
                 plan = SmartOrder.layout(chip, smartGroups(r, false), boardW - 2 * headerW - dp(6f))
             }
-            if (plan != null) { smart = plan; smartExact = true; rowH = r }
+            if (plan != null) {
+                smart = plan; smartExact = true; rowH = r
+                fun row(pin: String) = plan.left.indexOfFirst { it.name == pin }.takeIf { it >= 0 }
+                    ?: plan.right.indexOfFirst { it.name == pin }
+                for (bus in smartBuses.filter { it.size > 1 }) {
+                    val uses = bus.flatMap { q -> q.pins.map { it.pin }.distinct() }.groupingBy { it }.eachCount()
+                    val shared = uses.filter { it.value > 1 }.keys.sortedByDescending { row(it) }
+                    val rank = shared.withIndex().associate { (j, pin) -> pin to j }
+                    val placed = HashSet<String>()
+                    for (q in bus) {
+                        val mine = q.pins.map { it.pin }
+                        busLanes[q.id] = BusLanes(shared.size, rank.filterKeys { it in placed && it in mine })
+                        placed += mine
+                    }
+                }
+            }
             // too many parts for that: pins still grouped, the parts pushed apart as in the other orders
             else smart = SmartOrder.layout(chip, smartGroups(baseRow, true))
         } else if (autoSpread && chip != null) {
@@ -163,6 +200,7 @@ class BoardView @JvmOverloads constructor(context: Context, attrs: AttributeSet?
         groups += listOf(SmartOrder.Unit(USB_KEY, listOf("PA2", "PA3"), span(3 * r + dp(28f)), gap = 2, reach = dp(62f)))
         val parts = board.parts + listOfNotNull(ghost)
         val buses = ArrayList<MutableList<Part>>()
+        smartBuses = buses
         for (p in parts) {
             val mine = p.pins.map { it.pin }.toSet()
             val hits = buses.filter { b -> b.any { q -> q.pins.any { it.pin in mine } } }
@@ -286,7 +324,8 @@ class BoardView @JvmOverloads constructor(context: Context, attrs: AttributeSet?
         val used = (board.parts + listOfNotNull(ghost)).flatMap { it.pins }.map { it.pin }.toSet()
         // The console adapter is always there
         drawConsole(canvas)
-        for ((p, cy, side) in placeParts()) drawPart(canvas, p, cy, side, p === ghost)
+        for ((p, cy, side) in placeParts()) { drawing = p; drawPart(canvas, p, cy, side, p === ghost) }
+        drawing = null
         drawHops(canvas)
         if (used.isEmpty() && ghost == null) {
             text.textSize = dp(13f); text.color = cLabel; text.textAlign = Paint.Align.CENTER
@@ -461,8 +500,9 @@ class BoardView @JvmOverloads constructor(context: Context, attrs: AttributeSet?
         val (x0, sg) = padX(pin)
         val y = pinY[pin] ?: return
         val col = colour ?: wireColour(pin)
+        val lane = laneFor(pin, jog)
         val pts = if (abs(y - ty) < 0.5f) floatArrayOf(x0, y, tx, ty)
-        else floatArrayOf(x0, y, x0 + sg * dp(jog), y, x0 + sg * dp(jog), ty, tx, ty)
+        else floatArrayOf(x0, y, x0 + sg * dp(lane), y, x0 + sg * dp(lane), ty, tx, ty)
         wire(c, col, dashed, *pts)
         var i = 0
         while (i + 3 < pts.size) { segs += Seg(pin, pts[i], pts[i + 1], pts[i + 2], pts[i + 3], col, dashed); i += 2 }
