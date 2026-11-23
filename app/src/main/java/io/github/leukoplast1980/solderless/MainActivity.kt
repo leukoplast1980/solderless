@@ -162,7 +162,7 @@ class MainActivity : AppCompatActivity() {
             pickFolder = { pickFolder.launch(folder.treeUri) },
         )
         registers = RegistersController(this, vm)
-        boardCtl = BoardController(this, vm, settings) { file -> openInEditor(file) }
+        boardCtl = BoardController(this, vm) { file -> openInEditor(file) }
         scopeCtl = ScopeController(this, vm)
         registers.onPausedChanged = { console.markDictionaryStale() }
         ExtraKeys(findViewById<LinearLayout>(R.id.extraKeys)) { activeInput() }
