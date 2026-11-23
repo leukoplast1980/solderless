@@ -80,9 +80,10 @@ class ChipPins(json: String) {
     fun gpio(name: String): Pin? = byName[name]
     val gpios get() = pins.filter { it.isGpio }
 
-    /** Pins listed as two headers: (left, right), in the order the setting asks for. */
+    /** Pins listed as two headers: (left, right), in the order the setting asks for.
+     * The smart order depends on the parts ([SmartOrder]); here it is adapter order. */
     fun headers(order: HeaderOrder): Pair<List<Pin>, List<Pin>> = when (order) {
-        HeaderOrder.ADAPTER -> pins.filter { it.number <= 32 }.sortedBy { it.number } to
+        HeaderOrder.ADAPTER, HeaderOrder.SMART -> pins.filter { it.number <= 32 }.sortedBy { it.number } to
             pins.filter { it.number > 32 }.sortedByDescending { it.number }
         HeaderOrder.PORT -> {
             val gp = gpios.sortedWith(compareBy({ it.port }, { it.bit }))
@@ -108,4 +109,5 @@ class ChipPins(json: String) {
     }
 }
 
-enum class HeaderOrder { ADAPTER, PORT }
+/** SMART: each part's pins together beside it (see [SmartOrder]) */
+enum class HeaderOrder { SMART, ADAPTER, PORT }

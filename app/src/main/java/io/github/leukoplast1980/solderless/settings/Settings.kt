@@ -28,7 +28,7 @@ class Settings(context: Context) {
     /** Order of the chip's pins along the Board tab's edges */
     var headerOrder: io.github.leukoplast1980.solderless.board.HeaderOrder
         get() = runCatching { io.github.leukoplast1980.solderless.board.HeaderOrder.valueOf(prefs.getString(HEADER_ORDER, "")!!) }
-            .getOrDefault(io.github.leukoplast1980.solderless.board.HeaderOrder.ADAPTER)
+            .getOrDefault(io.github.leukoplast1980.solderless.board.HeaderOrder.SMART)
         set(v) = prefs.edit().putString(HEADER_ORDER, v.name).apply()
 
     /** The Board tab grows taller when parts need room */

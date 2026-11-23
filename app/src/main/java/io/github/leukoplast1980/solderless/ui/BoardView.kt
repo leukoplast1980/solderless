@@ -28,17 +28,21 @@ import io.github.leukoplast1980.solderless.board.HeaderOrder
 import io.github.leukoplast1980.solderless.board.Part
 import io.github.leukoplast1980.solderless.board.PartType
 import io.github.leukoplast1980.solderless.board.Passives
+import io.github.leukoplast1980.solderless.board.SmartOrder
 import io.github.leukoplast1980.solderless.vm.BoardState
 import kotlin.math.abs
 import kotlin.math.sqrt
+
+/** The USB-serial strip's key among the smart order's units (parts have ids from 1) */
+private const val USB_KEY = -1
 
 class BoardView @JvmOverloads constructor(context: Context, attrs: AttributeSet? = null) : View(context, attrs) {
 
     // ---- what to draw -------------------------------------------------
     var chip: ChipPins? = null
         set(v) { field = v; requestLayout(); invalidate() }
-    var order = HeaderOrder.ADAPTER
-        set(v) { field = v; invalidate() }
+    var order = HeaderOrder.SMART
+        set(v) { field = v; requestLayout(); invalidate() }
     var board = Board()
         set(v) { field = v; attOrder = null; requestLayout(); invalidate() }
     /** Spread the header rows when parts need room (a setting) */
@@ -47,7 +51,7 @@ class BoardView @JvmOverloads constructor(context: Context, attrs: AttributeSet?
     var state: BoardState? = null
     /** A part being proposed: drawn dashed */
     var ghost: Part? = null
-        set(v) { field = v; invalidate() }
+        set(v) { field = v; if (order == HeaderOrder.SMART) requestLayout(); invalidate() }
     var highlightPins: Set<String> = emptySet()
         set(v) { field = v; invalidate() }
 
@@ -103,11 +107,33 @@ class BoardView @JvmOverloads constructor(context: Context, attrs: AttributeSet?
     /** The view's width as placement sees it (onMeasure runs before width is set) */
     private var boardW = 0f
 
+    /** The smart order's rows, worked out on measuring; null in the other orders */
+    private var smart: SmartOrder.Layout? = null
+    /** Every part has rows of its own in [smart]: placement puts it there as planned */
+    private var smartExact = false
+
+    /** The two headers, top down */
+    private fun headerLists(): Pair<List<ChipPins.Pin>, List<ChipPins.Pin>> =
+        smart?.let { it.left to it.right } ?: chip!!.headers(order)
+
     override fun onMeasure(widthMeasureSpec: Int, heightMeasureSpec: Int) {
         val w = MeasureSpec.getSize(widthMeasureSpec)
         boardW = w.toFloat()
         rowH = baseRow
-        if (autoSpread && chip != null) {
+        smart = null; smartExact = false
+        val chip = chip
+        if (order == HeaderOrder.SMART && chip != null) {
+            // Smallest row height at which every part gets rows of its own beside its pins
+            var r = baseRow
+            var plan = SmartOrder.layout(chip, smartGroups(r, false), boardW - 2 * headerW - dp(6f))
+            while (plan == null && autoSpread && r < dp(56f)) {
+                r += dp(1f)
+                plan = SmartOrder.layout(chip, smartGroups(r, false), boardW - 2 * headerW - dp(6f))
+            }
+            if (plan != null) { smart = plan; smartExact = true; rowH = r }
+            // too many parts for that: pins still grouped, the parts pushed apart as in the other orders
+            else smart = SmartOrder.layout(chip, smartGroups(baseRow, true))
+        } else if (autoSpread && chip != null) {
             // Smallest row height at which every part sits next to its pins
             var r = baseRow
             while (r < dp(56f)) {
@@ -124,9 +150,46 @@ class BoardView @JvmOverloads constructor(context: Context, attrs: AttributeSet?
         setMeasuredDimension(w, (top + 32 * rowH + bottomPad).toInt())
     }
 
+    /**
+     * The smart order's groups for a row height: the USB-serial strip, then the
+     * parts in the order they were added. Parts sharing a pin (a bus) stay
+     * together: the first has the shared pins, at the end of its own, and the
+     * others follow below it. [minimal]: just the pins, no room for the parts.
+     */
+    private fun smartGroups(r: Float, minimal: Boolean): List<List<SmartOrder.Unit>> {
+        fun span(h: Float) = if (minimal) 0 else kotlin.math.ceil((h + dp(6f)) / r).toInt()
+        val groups = ArrayList<List<SmartOrder.Unit>>()
+        // RX and TX three rows apart, as the strip is drawn; it keeps 14 dp clear above and below
+        groups += listOf(SmartOrder.Unit(USB_KEY, listOf("PA2", "PA3"), span(3 * r + dp(28f)), gap = 2, reach = dp(62f)))
+        val parts = board.parts + listOfNotNull(ghost)
+        val buses = ArrayList<MutableList<Part>>()
+        for (p in parts) {
+            val mine = p.pins.map { it.pin }.toSet()
+            val hits = buses.filter { b -> b.any { q -> q.pins.any { it.pin in mine } } }
+            if (hits.isEmpty()) { buses += mutableListOf(p); continue }
+            val at = buses.indexOf(hits.first())
+            buses.removeAll(hits.toSet())
+            buses.add(minOf(at, buses.size), (hits.flatten() + p).sortedBy { parts.indexOf(it) }.toMutableList())
+        }
+        for (bus in buses) {
+            val uses = bus.flatMap { q -> q.pins.map { it.pin }.distinct() }.groupingBy { it }.eachCount()
+            val seen = HashSet<String>()
+            groups += bus.mapIndexed { k, p ->
+                val own = p.pins.map { it.pin }.distinct().filter { it !in seen }
+                seen += own
+                // the first part's shared pins last, nearest the parts below it
+                val pins = if (k == 0) own.sortedBy { (uses[it] ?: 1) > 1 } else own
+                val (above, below) = extent(p)
+                SmartOrder.Unit(p.id, pins, span(above + below), reach = widthOf(p))
+            }
+        }
+        return groups
+    }
+
     /** Pin rows and sides for a row height (the headers draw the same) */
     private fun computePins(r: Float) {
-        val (left, right) = chip?.headers(order) ?: return
+        if (chip == null) return
+        val (left, right) = headerLists()
         for ((i, p) in left.withIndex()) { pinY[p.name] = top + (i + 0.5f) * r; pinSide[p.name] = 1 }
         for ((i, p) in right.withIndex()) { pinY[p.name] = top + (i + 0.5f) * r; pinSide[p.name] = -1 }
     }
@@ -181,6 +244,13 @@ class BoardView @JvmOverloads constructor(context: Context, attrs: AttributeSet?
             for ((p, y) in parts) {
                 val (above, below) = extent(p)
                 val w = widthOf(p)
+                if (smartExact && smart?.centre?.containsKey(p.id) == true) {
+                    // the smart order gave it rows of its own, clear of the rest
+                    placed += Triple(p, y, side)
+                    taken[side]!! += Triple(y - above, y + below, w)
+                    floor = y + below + dp(6f)
+                    continue
+                }
                 // parts on the same bus pins cannot all sit at them: taller rows would not help
                 if (anchors.any { kotlin.math.abs(it - y) < 1f }) sidestepped += p.id
                 anchors += y
@@ -209,14 +279,15 @@ class BoardView @JvmOverloads constructor(context: Context, attrs: AttributeSet?
         val chip = chip ?: return
         canvas.drawColor(cBg)
         if (rowH == 0f) rowH = baseRow
-        hit.clear(); hitLabel.clear(); knobs.clear(); rowHit.clear(); pinY.clear(); pinSide.clear()
-        val (left, right) = chip.headers(order)
+        hit.clear(); hitLabel.clear(); knobs.clear(); rowHit.clear(); pinY.clear(); pinSide.clear(); segs.clear()
+        val (left, right) = headerLists()
         drawHeader(canvas, left, true)
         drawHeader(canvas, right, false)
         val used = (board.parts + listOfNotNull(ghost)).flatMap { it.pins }.map { it.pin }.toSet()
         // The console adapter is always there
         drawConsole(canvas)
         for ((p, cy, side) in placeParts()) drawPart(canvas, p, cy, side, p === ghost)
+        drawHops(canvas)
         if (used.isEmpty() && ghost == null) {
             text.textSize = dp(13f); text.color = cLabel; text.textAlign = Paint.Align.CENTER
             text.typeface = Typeface.DEFAULT
@@ -289,11 +360,13 @@ class BoardView @JvmOverloads constructor(context: Context, attrs: AttributeSet?
     }
 
     private fun sideOf(p: Part): Int {
+        smart?.side?.get(p.id)?.let { return it }
         val sides = p.pins.mapNotNull { pinSide[it.pin] }
         return if (sides.count { it < 0 } > sides.size / 2) -1 else 1
     }
 
     private fun anchor(p: Part): Float {
+        smart?.centre?.get(p.id)?.let { return top + it * rowH }
         val ys = p.pins.mapNotNull { pinY[it.pin] }
         return if (ys.isEmpty()) top else ys.average().toFloat()
     }
@@ -388,8 +461,36 @@ class BoardView @JvmOverloads constructor(context: Context, attrs: AttributeSet?
         val (x0, sg) = padX(pin)
         val y = pinY[pin] ?: return
         val col = colour ?: wireColour(pin)
-        if (abs(y - ty) < 0.5f) wire(c, col, dashed, x0, y, tx, ty)
-        else wire(c, col, dashed, x0, y, x0 + sg * dp(jog), y, x0 + sg * dp(jog), ty, tx, ty)
+        val pts = if (abs(y - ty) < 0.5f) floatArrayOf(x0, y, tx, ty)
+        else floatArrayOf(x0, y, x0 + sg * dp(jog), y, x0 + sg * dp(jog), ty, tx, ty)
+        wire(c, col, dashed, *pts)
+        var i = 0
+        while (i + 3 < pts.size) { segs += Seg(pin, pts[i], pts[i + 1], pts[i + 2], pts[i + 3], col, dashed); i += 2 }
+    }
+
+    /** A straight piece of wire from a pin, for finding where wires cross */
+    private class Seg(val pin: String, val x1: Float, val y1: Float, val x2: Float, val y2: Float, val colour: Int, val dashed: Boolean)
+    private val segs = ArrayList<Seg>()
+
+    /** Where a wire running across meets one running down from another pin, it hops over it */
+    private fun drawHops(c: Canvas) {
+        val r = dp(3.5f)
+        val arc = RectF()
+        for (h in segs) {
+            if (abs(h.y1 - h.y2) > 0.5f || h.dashed) continue
+            val xa = minOf(h.x1, h.x2); val xb = maxOf(h.x1, h.x2); val y = h.y1
+            for (v in segs) {
+                if (abs(v.x1 - v.x2) > 0.5f || v.dashed || v.pin == h.pin) continue
+                val x = v.x1
+                if (x <= xa + r || x >= xb - r || y <= minOf(v.y1, v.y2) + r || y >= maxOf(v.y1, v.y2) - r) continue
+                fill.color = cBg
+                c.drawRect(x - r - dp(0.5f), y - dp(1.5f), x + r + dp(0.5f), y + dp(1.5f), fill)
+                setStroke(v.colour, false); c.drawLine(x, y - dp(2f), x, y + dp(2f), stroke)
+                setStroke(h.colour, false)
+                arc.set(x - r, y - r, x + r, y + r)
+                c.drawArc(arc, 180f, 180f, false, stroke)
+            }
+        }
     }
 
     private fun drawPart(c: Canvas, p: Part, cy: Float, side: Int, isGhost: Boolean) {
@@ -851,6 +952,8 @@ class BoardView @JvmOverloads constructor(context: Context, attrs: AttributeSet?
         if (pinSide["PA3"] == pinSide["PA2"]) {
             wire(c, wireColour("PA2"), false, x0, y2, bx, y2)
             wire(c, wireColour("PA3"), false, x0, y3, bx, y3)
+            segs += Seg("PA2", x0, y2, bx, y2, wireColour("PA2"), false)
+            segs += Seg("PA3", x0, y3, bx, y3, wireColour("PA3"), false)
         }
         val l = minOf(bx, bx + sg * bw)
         fill.color = cPanel; c.drawRoundRect(RectF(l, t, l + bw, b), dp(5f), dp(5f), fill)
@@ -899,6 +1002,15 @@ class BoardView @JvmOverloads constructor(context: Context, attrs: AttributeSet?
 
     /** Where a part is drawn, in view coordinates (for the UI probe) */
     fun partBounds(id: Int): RectF? = hit.lastOrNull { it.second.id == id }?.first?.let { RectF(it) }
+
+    /** A pin's header (+1 left, -1 right) and row from the top, as drawn (for the UI probe) */
+    fun pinRow(name: String): Pair<Int, Int>? {
+        if (chip == null) return null
+        val (l, r) = headerLists()
+        l.indexOfFirst { it.name == name }.let { if (it >= 0) return 1 to it }
+        r.indexOfFirst { it.name == name }.let { if (it >= 0) return -1 to it }
+        return null
+    }
 
     /** Where an encoder's knob takes touches (for the UI probe) */
     fun knobBounds(id: Int): RectF? = knobs[id]?.let { RectF(it) }

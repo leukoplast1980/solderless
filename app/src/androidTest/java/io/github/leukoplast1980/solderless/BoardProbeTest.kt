@@ -169,6 +169,37 @@ class BoardProbeTest {
         scenario.close()
     }
 
+    /** The smart pin order: each part's pins on adjacent rows of one header, a bus's parts below each other */
+    @Test
+    fun smartOrder() {
+        val ctx = InstrumentationRegistry.getInstrumentation().targetContext
+        val scenario = launch()
+        Thread.sleep(2500)
+        val vm = VmHost.get(ctx)
+        val rec = vm.recommender()
+        var b = Board()
+        for (t in listOf(PartType.BUTTON, PartType.RGB_LED, PartType.POT, PartType.OLED, PartType.BARO))
+            b = b.apply(rec.propose(b.parts, Part(b.nextId(), t, emptyList()))!!)
+        Log.i(TAG, "smart order: " + b.parts.joinToString { "${it.type} ${it.pins.map { u -> u.pin }}" })
+        scenario.onActivity { vm.setBoard(b) }
+        selectTab(scenario, R.string.tab_board)
+        Thread.sleep(1000)
+        screenshot("smart-board.png")
+        scenario.onActivity { a ->
+            val bv = a.findViewById<io.github.leukoplast1980.solderless.ui.BoardView>(R.id.boardView)
+            for (p in b.parts.filter { it.type != PartType.BARO }) {
+                val rows = p.pins.map { bv.pinRow(it.pin)!! }
+                Log.i(TAG, "${p.type}: $rows")
+                assertEquals("${p.type} on one header", 1, rows.map { it.first }.distinct().size)
+                val r = rows.map { it.second }.sorted()
+                assertEquals("${p.type} on adjacent rows", r.size - 1, r.last() - r.first())
+            }
+            assertEquals("USB-serial on one header", bv.pinRow("PA2")!!.first, bv.pinRow("PA3")!!.first)
+        }
+        scenario.onActivity { vm.setBoard(Board()) }
+        scenario.close()
+    }
+
     /** A BMP280 and an SCD41 on one I2C bus with an OLED: their samples read what the sheets set */
     @Test
     fun sensors() {

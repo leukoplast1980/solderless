@@ -277,11 +277,21 @@ Settled with the mock-up (Solderless – Breadboard tab mock-up, 19 November
 - **No chip drawn.** The chip's pins run as two pin headers down the long
   edges of the Board tab, all 64 with name and pin number; the parts sit in
   the space between, with short straight wires from their pins.
-- **Header order is a setting**: *adapter order* (pins 1–32 down the left,
-  64–33 down the right, as on an LQFP64-to-DIP adapter, so the screen
-  matches a real chip on a breadboard) or *by port* (PA, PB on the left;
-  PC, PD, PF, NRST and the supply pins on the right). Adapter order is the
-  default. Tapping a pin lists its functions.
+- **Header order is a setting**: *smart* (the default), *adapter order*
+  (pins 1–32 down the left, 64–33 down the right, as on an LQFP64-to-DIP
+  adapter, so the screen matches a real chip on a breadboard) or *by port*
+  (PA, PB on the left; PC, PD, PF, NRST and the supply pins on the right).
+  Tapping a pin lists its functions.
+- **Smart order.** Each part's pins sit on adjacent rows of one header,
+  beside the part, so no two wires cross; the USB-serial's PA2 and PA3 count
+  as a part. Parts go top to bottom in the order they were added, shared out
+  between the two headers, and two wide parts facing each other get rows of
+  their own. Free pins fill the rows between, in pin-number order, the supply
+  pins last; each row keeps the chip's pin number, so the real chip can be
+  wired from it. Parts on one bus stay together: the first has the shared
+  pins, the others sit below it, and where one of their wires must cross
+  another it hops over it (in every order). The rows re-sort as parts are
+  added, removed or rewired, and while a new part is proposed.
 - **Live state.** Wires show their level: high, low, PWM, analog with its
   voltage, and checks in amber on the wire they concern (a floating input,
   say). LEDs glow with their average brightness, the RGB LED shows the

@@ -31,7 +31,8 @@ faults follow in the next milestones (see [docs/design.md](docs/design.md)).
 Milestone 2, the breadboard:
 
 - the Board tab: the chip's pins as two headers along the screen's long
-  edges (in LQFP64-to-DIP adapter order or by port), parts in between with
+  edges (each part's pins together beside it so no wires cross, or in
+  LQFP64-to-DIP adapter order, or by port), parts in between with
   live wires, glowing LEDs, the pot's voltage, the piezo's frequency
 - buttons (with contact bounce), LEDs, RGB LEDs, potentiometers, piezos
   and speakers; the app picks the pins and the resistors, shows why, and

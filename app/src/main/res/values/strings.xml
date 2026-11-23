@@ -36,6 +36,7 @@
     <string name="scope_cursor_hint">Tap again for cursor B. Long-press clears.</string>
     <string name="scope_show">Show on the scope</string>
     <string name="header_order">Pins on the Board tab</string>
+    <string name="header_order_smart">Smart: each part\'s pins together beside it, so no wires cross (where parts share a bus, a wire hops over another)</string>
     <string name="header_order_adapter">Adapter order: 1–32 down the left, 64–33 down the right, as on an LQFP64-to-DIP adapter</string>
     <string name="header_order_port">By port: PA and PB on the left; PC, PD, PF and the supply pins on the right</string>
     <string name="board_add_part">Part</string>

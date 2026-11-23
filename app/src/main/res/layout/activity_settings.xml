@@ -129,6 +129,13 @@
                 android:layout_height="wrap_content">
 
                 <RadioButton
+                    android:id="@+id/headerSmart"
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:text="@string/header_order_smart"
+                    android:textColor="@color/console_text" />
+
+                <RadioButton
                     android:id="@+id/headerAdapter"
                     android:layout_width="match_parent"
                     android:layout_height="wrap_content"

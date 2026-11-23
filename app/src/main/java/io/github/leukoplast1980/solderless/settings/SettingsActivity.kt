@@ -71,11 +71,13 @@ class SettingsActivity : AppCompatActivity() {
             setOnCheckedChangeListener { _, on -> settings.boardSpread = on }
         }
         val order = findViewById<android.widget.RadioGroup>(R.id.headerOrder)
-        order.check(if (settings.headerOrder == io.github.leukoplast1980.solderless.board.HeaderOrder.PORT) R.id.headerPort else R.id.headerAdapter)
-        order.setOnCheckedChangeListener { _, id ->
-            settings.headerOrder = if (id == R.id.headerPort) io.github.leukoplast1980.solderless.board.HeaderOrder.PORT
-            else io.github.leukoplast1980.solderless.board.HeaderOrder.ADAPTER
-        }
+        val orders = mapOf(
+            R.id.headerSmart to io.github.leukoplast1980.solderless.board.HeaderOrder.SMART,
+            R.id.headerAdapter to io.github.leukoplast1980.solderless.board.HeaderOrder.ADAPTER,
+            R.id.headerPort to io.github.leukoplast1980.solderless.board.HeaderOrder.PORT,
+        )
+        order.check(orders.entries.first { it.value == settings.headerOrder }.key)
+        order.setOnCheckedChangeListener { _, id -> orders[id]?.let { settings.headerOrder = it } }
         // The labels under each switch toggle it too.
         findViewById<View>(R.id.lineWrapHint).setOnClickListener { findViewById<MaterialSwitch>(R.id.lineWrap).toggle() }
         findViewById<View>(R.id.keepScreenOnHint).setOnClickListener { findViewById<MaterialSwitch>(R.id.keepScreenOn).toggle() }
