@@ -9,12 +9,13 @@ package io.github.leukoplast1980.solderless.board
 object SmartOrder {
     /**
      * The rows one part takes: its [pins] in this order, [gap] free rows between
-     * neighbours, centred in at least [span] rows. [reach] is how far the part
-     * reaches in from its header (any unit), so that two parts facing each other
-     * across the board are not given the same rows when together they reach
-     * further than [layout]'s width.
+     * neighbours, in at least [span] rows, the pins centred or [shift] rows lower
+     * (where the part's leads for them are). [reach] is how far the part reaches
+     * in from its header (any unit), so that two parts facing each other across
+     * the board are not given the same rows when together they reach further
+     * than [layout]'s width.
      */
-    class Unit(val key: Int, val pins: List<String>, val span: Int, val gap: Int = 0, val reach: Float = 0f)
+    class Unit(val key: Int, val pins: List<String>, val span: Int, val gap: Int = 0, val reach: Float = 0f, val shift: Float = 0f)
 
     class Layout(
         val left: List<ChipPins.Pin>,
@@ -36,7 +37,7 @@ object SmartOrder {
         // Pins the chip has, each in the first unit that names it
         val taken = HashSet<String>()
         val gs = groups.map { g ->
-            g.map { u -> Unit(u.key, u.pins.filter { it in byName && taken.add(it) }, u.span, u.gap, u.reach) }
+            g.map { u -> Unit(u.key, u.pins.filter { it in byName && taken.add(it) }, u.span, u.gap, u.reach, u.shift) }
         }
         fun body(u: Unit) = if (u.pins.isEmpty()) 0 else u.pins.size + (u.pins.size - 1) * u.gap
         // Rows a unit gets: room for its pins, with as many free rows above as below
@@ -83,7 +84,7 @@ object SmartOrder {
             var row = start
             for (u in g) {
                 val n = rowsOf(u)
-                var r = row + (n - body(u)) / 2
+                var r = (row + (n - body(u)) / 2 + Math.round(u.shift)).coerceIn(row, row + n - body(u))
                 for ((i, name) in u.pins.withIndex()) {
                     if (i > 0) r += u.gap
                     slots[s][r++] = byName[name]

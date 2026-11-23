@@ -77,6 +77,17 @@ class SmartOrderTest {
         assertEquals(2.5f, narrow.centre[2]!!, 0.001f)
     }
 
+    @Test fun pinsShiftedToTheirLeads() {
+        // leads 1.4 rows below the part's centre: its pins one row lower than centred
+        val l = SmartOrder.layout(chip, listOf(listOf(u(1, "PA5", "PA7", span = 7))))!!
+        val m = SmartOrder.layout(chip, listOf(listOf(SmartOrder.Unit(1, listOf("PA5", "PA7"), 7, shift = 1.4f))))!!
+        assertEquals(rowOf(l, "PA5").second + 1, rowOf(m, "PA5").second)
+        assertEquals(l.centre[1], m.centre[1])
+        // never out of the part's own rows (8: 7, and one more for even margins)
+        val far = SmartOrder.layout(chip, listOf(listOf(SmartOrder.Unit(1, listOf("PA5", "PA7"), 7, shift = 9f))))!!
+        assertEquals(7, rowOf(far, "PA7").second)
+    }
+
     @Test fun tooManyRowsDoesNotFit() {
         val groups = (1..12).map { listOf(u(it, span = 8)) }
         assertNull(SmartOrder.layout(chip, groups))

@@ -218,7 +218,10 @@ class BoardView @JvmOverloads constructor(context: Context, attrs: AttributeSet?
                 // the first part's shared pins last, nearest the parts below it
                 val pins = if (k == 0) own.sortedBy { (uses[it] ?: 1) > 1 } else own
                 val (above, below) = extent(p)
-                SmartOrder.Unit(p.id, pins, span(above + below), reach = widthOf(p))
+                // pins level with the leads they go to: a later part's own pins with its last leads
+                val leads = leadOffsets(p).takeLast(pins.size)
+                val shift = if (leads.isEmpty()) 0f else dp(leads.average().toFloat()) / r
+                SmartOrder.Unit(p.id, pins, span(above + below), reach = widthOf(p), shift = shift)
             }
         }
         return groups
@@ -408,6 +411,18 @@ class BoardView @JvmOverloads constructor(context: Context, attrs: AttributeSet?
         smart?.centre?.get(p.id)?.let { return top + it * rowH }
         val ys = p.pins.mapNotNull { pinY[it.pin] }
         return if (ys.isEmpty()) top else ys.average().toFloat()
+    }
+
+    /** Where a part's pins meet it, top down, in dp below its centre (as drawn) */
+    private fun leadOffsets(p: Part): List<Float> = when (p.type) {
+        PartType.RGB_LED -> listOf(-30f, 0f, 30f)
+        PartType.OLED -> listOf(10f, 25f)
+        PartType.BARO -> listOf(-6.5f, 6.5f)
+        PartType.CO2 -> listOf(6.5f, 19.5f)
+        PartType.MATRIX, PartType.ENCODER -> listOf(0f, 13f, 26f)
+        PartType.TFT -> listOf(-13f, 0f, 13f, 26f, 39f)
+        PartType.FLASH -> listOf(-6.5f, 6.5f, 19.5f, 32.5f)
+        else -> listOf(0f)
     }
 
     private fun extent(p: Part): Pair<Float, Float> = when (p.type) {
