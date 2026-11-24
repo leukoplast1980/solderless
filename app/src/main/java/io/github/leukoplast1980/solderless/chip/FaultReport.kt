@@ -113,7 +113,7 @@ class FaultReport(
         if (cfsr and (1 shl 17) != 0) add("BX, BLX or POP {pc} got an even address. Addresses of code end in 1 on this core; in Forth, execute was given something that is not an xt.")
         if (cfsr and (1 shl 25) != 0) add("A divide by 0: / or mod with 0 on the stack.")
         if (cfsr and (1 shl 24) != 0) add("The address is not a multiple of 4.")
-        if (cfsr and (1 shl 19) != 0) add("Give CP10 and CP11 full access in SCB_CPACR first (Stellaris for the G431 does this at start).")
+        if (cfsr and (1 shl 19) != 0) add("The FPU is off after reset and Stellaris leaves it off: give CP10 and CP11 full access in SCB_CPACR first, \$F00000 \$E000ED88 bis!")
         if (cfsr and ((1 shl 12) or (1 shl 11) or (1 shl 4) or (1 shl 3)) != 0)
             add("The stack pointer was ${hex(u(regs[13]))}: RAM is 2000 0000 to 2000 7FFF. The return stack may have overflowed.")
     }
