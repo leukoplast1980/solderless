@@ -130,7 +130,7 @@ class ClockView(context: Context, attrs: AttributeSet? = null) : View(context, a
             val x = pad + i * (sw + gap)
             srcX[i] = x + sw / 2
             val state = when {
-                s.hz == 0L -> "no crystal"
+                s.hz == 0L -> "none"
                 !s.on -> "off"
                 !s.ready -> "starting"
                 else -> freq(s.hz)
