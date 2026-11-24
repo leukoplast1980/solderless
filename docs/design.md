@@ -1,8 +1,8 @@
 # Solderless: design
 
 Status: milestones 1 to 3 implemented and released (0.4.1, 23 November
-2026); milestone 4 next. What the emulator models today is in
-[emulator.md](emulator.md).
+2026); milestone 4 implemented (24 November 2026). What the emulator models
+today is in [emulator.md](emulator.md).
 
 Solderless is an Android app for learning how the STM32G431 works. It
 emulates an STM32G431RB and the parts wired to it on a virtual breadboard. It
