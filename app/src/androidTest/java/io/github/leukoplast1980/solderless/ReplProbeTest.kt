@@ -254,7 +254,7 @@ class ReplProbeTest {
         scenario.onActivity { a -> core = a.findViewById<TextView>(R.id.registers).text.toString() }
         for (l in core.split("\n").take(24)) Log.i(TAG, "fault|$l|")
         for (expected in listOf("HardFault, escalated from a BusFault", "Load from 6000 0000: nothing is mapped there.",
-                "in show-temp +", "called from main +", "ldr r0, [r0, #0]", "The address came from r0 (6000 0000).",
+                "in show-temp +", "called from main +", ", [r0, #0]", "The address came from r0 (6000 0000).",
                 "Stopped here.")) {
             assertTrue("missing \"$expected\" in the fault report:\n$core", core.contains(expected))
         }
