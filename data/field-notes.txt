@@ -23,7 +23,7 @@ GPIO* MODER MODER*
   00 = input
   01 = output
   10 = alternate function (AFR picks which)
-  11 = analog (the state after reset)
+  11 = analog (most pins after reset)
 
 GPIO* OTYPER OT*
   How P{port}{n} drives its output.

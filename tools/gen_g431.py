@@ -358,7 +358,10 @@ def write_registers(svd, periphs, notes_path, json_path):
     out = {"peripherals": [], "blocks": {}}
     entries = [(p["svd"], p["name"], p["base"], p["en"]) for p in periphs]
     entries += [(s, shown, num(svd[s].findtext("baseAddress")), (-1, -1)) for s, shown in CORE]
+    ens = {shown: en for _, shown, _, en in entries}
     for sname, shown, base, en in entries:
+        if shown == "FDCANRAM1":        # the message RAM is clocked with FDCAN1
+            en = ens.get("FDCAN1", en)
         owner = owner_of(sname)
         wide = shown == "TIM2"
         key = owner + (" 32-bit" if wide else "")

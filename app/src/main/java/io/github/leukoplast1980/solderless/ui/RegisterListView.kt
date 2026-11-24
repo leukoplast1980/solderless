@@ -59,7 +59,7 @@ class RegisterListView(context: Context, attrs: AttributeSet? = null) : View(con
 
     private fun heightOf(r: Row): Float = when (r) {
         is Row.Group -> sp(12f) * 2.6f
-        is Row.Periph -> max(dp(44f), sp(14f) * 2.6f)
+        is Row.Periph -> max(dp(36f), sp(14f) * 2.4f)
         is Row.Reg -> sp(13f) * 2.1f
         is Row.Field -> max(dp(32f), sp(12f) * 2.0f)
         is Row.Note -> sp(12f) * 2.2f
