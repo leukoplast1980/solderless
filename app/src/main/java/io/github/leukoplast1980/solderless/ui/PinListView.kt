@@ -170,7 +170,7 @@ class PinListView(context: Context, attrs: AttributeSet? = null) : RowsView(cont
             is Row.Legend -> {
                 var x = pad
                 val mid = (top + bottom) / 2
-                for ((col, name) in listOf(high to "output", alt to "alternate", inputColour to "input", analog to "analog", atReset to "as after reset")) {
+                for ((col, name) in listOf(high to "output", alt to "alternate", inputColour to "input", analog to "analog", atReset to "reset")) {
                     fill.color = col
                     c.drawRect(x, mid - dp(5f), x + dp(10f), mid + dp(5f), fill)
                     small.color = label
