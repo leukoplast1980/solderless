@@ -38,6 +38,7 @@ class ClockView(context: Context, attrs: AttributeSet? = null) : View(context, a
 
     fun show(t: ClockTree) {
         tree = t
+        if (width == 0) { requestLayout(); return }     // measured when laid out
         val h = render(null, width.toFloat())
         if (h != laidOut) requestLayout()
         invalidate()
@@ -75,8 +76,9 @@ class ClockView(context: Context, attrs: AttributeSet? = null) : View(context, a
     // ------------------------------------------------------------------
     // Drawing; with no canvas it only measures (and places the boxes for taps)
 
-    private fun render(c: Canvas?, w: Float): Float {
+    private fun render(c: Canvas?, width: Float): Float {
         val t = tree ?: return dp(100f)
+        val w = max(width, dp(280f))
         if (c == null) boxes.clear()
         val pad = dp(10f)
         val lineH = sp(11f) * 1.45f
@@ -182,7 +184,8 @@ class ClockView(context: Context, attrs: AttributeSet? = null) : View(context, a
         val half = (w - 2 * pad - gap) / 2
         val sys = RectF(pad, y, pad + half, y + boxH)
         box(sys, "SW", true, "SYSCLK", freq(t.sysclkHz) to on)
-        line(true, mx.coerceIn(sys.left + dp(10f), sys.right - dp(10f)), mux.bottom, mx.coerceIn(sys.left + dp(10f), sys.right - dp(10f)), sys.top)
+        val sx = sys.centerX()
+        line(true, mx, mux.bottom, mx, mux.bottom + dp(7f), sx, mux.bottom + dp(7f), sx, sys.top)
         val ok = t.latency >= t.latencyNeeded
         box(RectF(pad + half + gap, y, w - pad, y + boxH), "FLASH", true, "FLASH  ${t.latency} wait states",
             (if (ok) "enough (${t.rangeText})" else "needs ${t.latencyNeeded}!") to (if (ok) on else warn))
