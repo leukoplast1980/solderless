@@ -452,8 +452,15 @@ bottom with the chip's state, Pause and Step.
   asked for. Tapping a write shows its register in Registers, whose field
   sheet also says what last changed the field. The emulator keeps the last
   1024 entries (`sl_access_read`); the app the last 3000.
-- **Clock tree**: live diagram from RCC, from the oscillators through the PLL
-  to each peripheral's clock.
+- **Clocks** (built): a live diagram from RCC: the five oscillators (on,
+  starting, off, or no crystal on this board), the PLL with its M, N and R
+  (Q and P when on) and what it makes of its input, a warning when its
+  settings are out of range, the SYSCLK switch, the flash wait states against
+  what HCLK needs in the core's voltage range, AHB (with SysTick's clock) and
+  the two APB buses with the peripherals they clock, each with its kernel
+  clock (USART, I2C, ADC choices in CCIPR, the timers' ×2). The paths the
+  clock takes are green. A tapped box lists the fields that set it, decoded,
+  and opens them in Registers.
 - **Pins** (built): the LQFP64 package with each pin coloured by its set-up
   (output high or low, alternate function, input, analog, as after reset)
   and the names of the pins in use around it; under it the pins in use:

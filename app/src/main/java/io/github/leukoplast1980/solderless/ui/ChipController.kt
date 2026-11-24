@@ -1,5 +1,5 @@
 /*
- * Solderless - the Chip tab: its sections (Core, Registers, Pins, Log) over a run bar
+ * Solderless - the Chip tab: its sections (Core, Registers, Clocks, Pins, Log) over a run bar
  * with the chip's state, Pause and Step.
  * Copyright (C) 2026 The Solderless authors. GPL-3.0-or-later.
  */
@@ -20,19 +20,22 @@ import io.github.leukoplast1980.solderless.vm.VmHost
 class ChipController(private val activity: Activity, private val vm: VmHost) {
 
     enum class Section(val label: Int) {
-        CORE(R.string.chip_core), REGISTERS(R.string.chip_registers), PINS(R.string.chip_pins), LOG(R.string.chip_log)
+        CORE(R.string.chip_core), REGISTERS(R.string.chip_registers), CLOCKS(R.string.chip_clocks),
+        PINS(R.string.chip_pins), LOG(R.string.chip_log)
     }
 
     val core = CoreSection(activity, vm)
     val registers = RegistersSection(activity, vm)
     val log = LogSection(activity, vm) { name -> show(Section.REGISTERS); registers.search(name) }
     val pins = PinsSection(activity, vm) { name -> show(Section.REGISTERS); registers.search(name) }
+    val clocks = ClocksSection(activity, vm) { name -> show(Section.REGISTERS); registers.search(name) }
 
     private val sections: ChipGroup = activity.findViewById(R.id.chipSections)
     private val coreView: View = activity.findViewById(R.id.coreSection)
     private val registersView: View = activity.findViewById(R.id.registersSection)
     private val logView: View = activity.findViewById(R.id.logSection)
     private val pinsView: View = activity.findViewById(R.id.pinsSection)
+    private val clocksView: View = activity.findViewById(R.id.clocksSection)
     private val runState: TextView = activity.findViewById(R.id.runState)
     private val pauseButton: Button = activity.findViewById(R.id.pause)
     private val stepButton: Button = activity.findViewById(R.id.step)
@@ -86,6 +89,7 @@ class ChipController(private val activity: Activity, private val vm: VmHost) {
         registersView.visibility = if (s == Section.REGISTERS) View.VISIBLE else View.GONE
         logView.visibility = if (s == Section.LOG) View.VISIBLE else View.GONE
         pinsView.visibility = if (s == Section.PINS) View.VISIBLE else View.GONE
+        clocksView.visibility = if (s == Section.CLOCKS) View.VISIBLE else View.GONE
         copyButton.visibility = if (s == Section.CORE) View.VISIBLE else View.GONE
         refresh()
     }
@@ -96,6 +100,7 @@ class ChipController(private val activity: Activity, private val vm: VmHost) {
         when (section) {
             Section.CORE -> core.refresh(s)
             Section.REGISTERS -> registers.refresh()
+            Section.CLOCKS -> clocks.refresh()
             Section.PINS -> pins.refresh()
             Section.LOG -> log.refresh()
         }
