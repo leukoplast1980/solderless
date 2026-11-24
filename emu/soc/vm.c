@@ -345,7 +345,34 @@ void sl_peek_words(sl_vm *vm, const uint32_t *addrs, uint32_t *out, size_t n)
 static void poke_fn(sl_vm *vm, void *arg)
 {
     struct mem_io *io = arg;
+    vm->soc->debug_write = 1;
     io->done = (size_t)cm_debug_write32(&vm->soc->cpu, io->addr, io->word);
+    vm->soc->debug_write = 0;
+}
+
+struct access_io { sl_access *out; size_t max, got; uint32_t lost; };
+
+static void access_fn(sl_vm *vm, void *arg)
+{
+    struct access_io *io = arg;
+    struct sl_alog *l = &vm->soc->alog;
+    uint32_t first = l->head - l->n;
+    while (io->got < io->max && l->n) {
+        const struct sl_alog_entry *e = &l->e[first++ % SL_ALOG_SIZE];
+        io->out[io->got++] = (sl_access){ e->t_ns, e->t_last_ns, e->pc, e->addr, e->value, e->mask,
+                                          e->before, e->after, e->changed, e->count };
+        l->n--;
+    }
+    io->lost = l->lost;
+    l->lost = 0;
+}
+
+size_t sl_access_read(sl_vm *vm, sl_access *out, size_t max, uint32_t *lost)
+{
+    struct access_io io = { out, max, 0, 0 };
+    run_on_vm(vm, access_fn, &io);
+    if (lost) *lost = io.lost;
+    return io.got;
 }
 
 int sl_poke32(sl_vm *vm, uint32_t addr, uint32_t value)

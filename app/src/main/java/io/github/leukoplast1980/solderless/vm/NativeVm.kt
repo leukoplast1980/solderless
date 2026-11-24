@@ -36,6 +36,8 @@ object NativeVm {
     @JvmStatic external fun snapshot(handle: Long): IntArray
     @JvmStatic external fun readMemory(handle: Long, address: Int, length: Int): ByteArray?
     @JvmStatic external fun peekWords(handle: Long, addresses: IntArray): IntArray
+    /** Register writes since the last call: out[0] entries dropped, then 12 ints each (see jni.c). Returns the count. */
+    @JvmStatic external fun accessRead(handle: Long, out: IntArray): Int
     /** A word write as the CPU would make it, side effects included; 0 if it went through. */
     @JvmStatic external fun pokeWord(handle: Long, address: Int, value: Int): Int
 

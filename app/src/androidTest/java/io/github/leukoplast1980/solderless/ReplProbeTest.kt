@@ -13,6 +13,7 @@ import androidx.test.uiautomator.UiDevice
 import com.google.android.material.chip.Chip
 import com.google.android.material.chip.ChipGroup
 import com.google.android.material.tabs.TabLayout
+import io.github.leukoplast1980.solderless.ui.LogListView
 import io.github.leukoplast1980.solderless.ui.RegisterListView
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
@@ -135,8 +136,51 @@ class ReplProbeTest {
         readRows()
         assertTrue("MODER5 shows the change:\n${rows.joinToString("\n")}", rows.contains("field MODER5 01 output"))
         screenshot("chip-registers-written.png")
+
+        // Forth sets ODR5; the Log shows both writes
+        fun selectTab(name: Int) = scenario.onActivity { a ->
+            val tabs = a.findViewById<TabLayout>(R.id.tabs)
+            for (i in 0 until tabs.tabCount) tabs.getTabAt(i)!!.let { if (it.text == a.getString(name)) it.select() }
+        }
+        selectTab(R.string.tab_repl)
+        scenario.onActivity { a ->
+            val input = a.findViewById<EditText>(R.id.input)
+            input.setText("\$20 \$48000014 bis!")
+            input.onEditorAction(EditorInfo.IME_ACTION_SEND)
+        }
+        Thread.sleep(1500)
+        selectTab(R.string.tab_chip)
+        scenario.onActivity { a -> (a.findViewById<ChipGroup>(R.id.chipSections).getChildAt(2) as Chip).performClick() }
+        Thread.sleep(800)
+        var log = emptyList<String>()
+        scenario.onActivity { a ->
+            log = a.findViewById<LogListView>(R.id.logList).rows.map { r ->
+                when (r) {
+                    is LogListView.Row.Write -> "write ${r.where}|${r.register}|${r.lines.joinToString("|") { it.first + " " + it.second }}"
+                    is LogListView.Row.Check -> "check ${r.text}"
+                    is LogListView.Row.Note -> "note ${r.text}"
+                }
+            }
+        }
+        for (l in log.take(30)) Log.i(TAG, "log|$l|")
+        assertTrue("the write from the Registers view:\n${log.joinToString("\n")}",
+            log.contains("write Registers view|GPIOA_MODER|MODER5 11→01 output"))
+        assertTrue("Forth's write:\n${log.joinToString("\n")}",
+            log.any { it.startsWith("write bis! +") && it.endsWith("|GPIOA_ODR|ODR5 0→1 high") })
+        screenshot("chip-log.png")
+        // A tap on a write shows its register
+        scenario.onActivity { a ->
+            a.findViewById<LogListView>(R.id.logList).onTap!!(log.indexOfFirst { it.endsWith("|GPIOA_ODR|ODR5 0→1 high") })
+        }
+        Thread.sleep(800)
+        readRows()
+        assertTrue("GPIOA_ODR in Registers:\n${rows.joinToString("\n")}", rows.contains("field ODR5 1 high"))
+        screenshot("chip-log-register.png")
+        scenario.onActivity { a -> a.findViewById<EditText>(R.id.registerFind).setText("") }
+
         // Leave it as it was
         vm.pokeWord(0x48000000, moder or (3 shl 10))
+        vm.pokeWord(0x48000018, 0x20 shl 16)
     }
 
     companion object {

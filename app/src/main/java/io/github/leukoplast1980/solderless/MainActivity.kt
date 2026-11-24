@@ -97,7 +97,10 @@ class MainActivity : AppCompatActivity() {
     private val poll = object : Runnable {
         override fun run() {
             console.poll()
-            vm.readLog()?.let { console.appendChipMessages(it) }
+            vm.readLog()?.let {
+                console.appendChipMessages(it)
+                vm.accessLog.addMessages(it, vm.snapshot().timeNs)
+            }
             updateTitle()
             handler.postDelayed(this, POLL_MS)
         }
@@ -105,6 +108,7 @@ class MainActivity : AppCompatActivity() {
 
     private val registerRefresh = object : Runnable {
         override fun run() {
+            vm.pollAccessLog()
             if (screen == Screen.CHIP) chipCtl.refresh()
             handler.postDelayed(this, REGISTERS_MS)
         }

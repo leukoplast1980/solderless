@@ -97,8 +97,24 @@ uint32_t sl_peek32(sl_vm *vm, uint32_t addr);
 void sl_peek_words(sl_vm *vm, const uint32_t *addrs, uint32_t *out, size_t n);
 
 /* A word write as the CPU would make it, side effects included (for the
- * Registers view; meant for a paused chip). Returns nonzero on a bus error. */
+ * Registers view). Returns nonzero on a bus error. */
 int sl_poke32(sl_vm *vm, uint32_t addr, uint32_t value);
+
+/* The access log: every write to a peripheral or System Control Space
+ * register, oldest first, taken out of the log. A loop writing a register
+ * from the same instruction comes as one entry with its count. The last
+ * 1024 entries are kept; *lost counts the ones dropped since the last read. */
+#define SL_ACCESS_DEBUG 0xFFFFFFFFu     /* pc of the writes made with sl_poke32 */
+typedef struct {
+    uint64_t t_ns, t_last_ns;   /* emulated time of the first and the last write */
+    uint32_t pc;                /* the instruction that wrote */
+    uint32_t addr;              /* the register (word address) */
+    uint32_t value, mask;       /* what was written (the last time), which bits the writes covered */
+    uint32_t before, after;     /* the register before the first write, after the last */
+    uint32_t changed;           /* bits any of the writes changed */
+    uint32_t count;             /* writes */
+} sl_access;
+size_t sl_access_read(sl_vm *vm, sl_access *out, size_t max, uint32_t *lost);
 
 /* Messages about what the firmware did that a real chip would not tell
  * you (clock off, wrong baud rate, flash misuse, ...). Drains complete

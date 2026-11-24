@@ -7,6 +7,7 @@ package io.github.leukoplast1980.solderless.vm
 
 import io.github.leukoplast1980.solderless.board.Board as Breadboard
 import io.github.leukoplast1980.solderless.board.ChipPins
+import io.github.leukoplast1980.solderless.chip.AccessLog
 import io.github.leukoplast1980.solderless.chip.RegisterMap
 import io.github.leukoplast1980.solderless.board.Recommender
 import io.github.leukoplast1980.solderless.board.Wiring
@@ -74,6 +75,16 @@ class VmHost private constructor(context: Context) {
     /** Every register and field, for the Chip tab: null until [loadRegisterMap] has read it */
     @Volatile var registerMap: RegisterMap? = null
         private set
+
+    /** Register writes and chip messages, for the Chip tab's Log (UI thread only) */
+    val accessLog = AccessLog()
+    private val accessBuf = IntArray(1 + 12 * 1024)
+
+    /** Takes the register writes since the last call into [accessLog] */
+    fun pollAccessLog() {
+        val n = NativeVm.accessRead(handle, accessBuf)
+        accessLog.addWrites(accessBuf, n)
+    }
 
     /** Reads the register descriptions (half a megabyte of JSON): call off the UI thread */
     fun loadRegisterMap(): RegisterMap = registerMap ?: synchronized(this) {

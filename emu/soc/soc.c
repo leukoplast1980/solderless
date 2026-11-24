@@ -414,8 +414,39 @@ static int mmio_write(void *ctx, uint32_t a, int n, uint32_t v)
     }
     unsigned sh = (off & 3u) * 8u;
     uint32_t mask = (n == 4 ? 0xFFFFFFFFu : ((1u << (8 * n)) - 1u)) << sh;
+    uint32_t before = periph_read(s, pi, off & ~3u, 0);
     periph_write(s, pi, off & ~3u, v << sh, mask);
+    soc_alog_add(s, a & ~3u, v << sh, mask, before, periph_read(s, pi, off & ~3u, 0));
     return 0;
+}
+
+static void scs_written(void *ctx, uint32_t a, uint32_t v, uint32_t mask, uint32_t before, uint32_t after)
+{
+    soc_alog_add(ctx, a, v, mask, before, after);
+}
+
+void soc_alog_add(struct sl_soc *s, uint32_t addr, uint32_t value, uint32_t mask, uint32_t before, uint32_t after)
+{
+    struct sl_alog *l = &s->alog;
+    uint32_t pc = s->debug_write ? SL_ACCESS_DEBUG : s->cpu.r[15];
+    uint64_t t = soc_now_ps(s) / 1000u;
+    /* the same instruction writing the same register again (a loop): count it */
+    for (uint32_t k = 1; k <= 8 && k <= l->n; k++) {
+        struct sl_alog_entry *e = &l->e[(l->head - k) % SL_ALOG_SIZE];
+        if (e->pc == pc && e->addr == addr) {
+            e->t_last_ns = t;
+            e->value = value;
+            e->mask |= mask;
+            e->changed |= before ^ after;
+            e->after = after;
+            e->count++;
+            return;
+        }
+    }
+    l->e[l->head % SL_ALOG_SIZE] = (struct sl_alog_entry){ t, t, pc, addr, value, mask, before, after, before ^ after, 1 };
+    l->head++;
+    if (l->n < SL_ALOG_SIZE) l->n++;
+    else l->lost++;
 }
 
 static int mmio_peek(void *ctx, uint32_t a, uint32_t *v)
@@ -515,6 +546,7 @@ void soc_init(struct sl_soc *s)
     s->bus.mmio_read = mmio_read;
     s->bus.mmio_write = mmio_write;
     s->bus.mmio_peek = mmio_peek;
+    s->bus.scs_written = scs_written;
     s->bus.rom_write = rom_write;
 
     cm_init(&s->cpu, &s->bus, SL_NUM_IRQ, 4);

@@ -441,8 +441,17 @@ bottom with the chip's state, Pause and Step.
   `data/g431rb-registers.json` and fixes the SVD where it is wrong for the
   G431 (the USART's BRR, TIM2's 32-bit counter). Peripherals the emulator
   does not model yet are marked "not emulated".
-- **Access log**: which instruction changed which field, from what to what.
-  Filter by peripheral.
+- **Log** (built): every write to a peripheral or core (SysTick, NVIC, SCB)
+  register, newest first: when (emulated time), which instruction (the
+  Forth word and offset, or "Registers view" for the section's own
+  writes), the register, and each field it changed from what to what with
+  what the new value means. A loop writing one register from one
+  instruction is one entry with a count. The chip model's checks (section
+  7) come in between, in amber. Filters: all, writes, checks, one
+  peripheral; the console's own characters (USART2_TDR) are hidden unless
+  asked for. Tapping a write shows its register in Registers, whose field
+  sheet also says what last changed the field. The emulator keeps the last
+  1024 entries (`sl_access_read`); the app the last 3000.
 - **Clock tree**: live diagram from RCC, from the oscillators through the PLL
   to each peripheral's clock.
 - **Pins**: each pin's mode, alternate function, pull and live level.

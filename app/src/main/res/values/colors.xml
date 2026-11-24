@@ -23,6 +23,7 @@
     <color name="analog_dim">#FF1B2A2E</color>
     <color name="danger">#FFFF6B6B</color>
     <color name="chip_message">#FFFFB454</color>
+    <color name="check_background">#FF2A2418</color>
     <color name="error_line">#55FF5050</color>
     <color name="current_line">#FF171D22</color>
     <color name="icon_background">#FF1C2328</color>
