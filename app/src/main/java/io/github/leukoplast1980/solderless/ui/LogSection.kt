@@ -181,11 +181,24 @@ class LogSection(
         private const val MAX_ROWS = 400
         private const val MAX_LINES = 4
 
-        /** Who wrote: the Forth word and offset, the Registers view, or the address */
+        /**
+         * Who wrote: the Forth word and offset, the Registers view, or the
+         * address. The newest word of a region has no end in the dictionary,
+         * so code after it (Stellaris' start-up code after its last core
+         * word) would pass for it: a core word is at most [CORE_WORD] bytes
+         * long here, a user's word [USER_WORD].
+         */
         fun where(vm: VmHost, w: AccessLog.Write): String {
             if (w.debug) return "Registers view"
-            val word = if (vm.project.firmware.isStellaris) vm.dictionary.wordAt(w.pc.toInt()) else null
-            return if (word != null) "${word.name} +${w.pc.toInt() - word.code}" else "pc ${FieldText.word(w.pc)}"
+            val stellaris = vm.project.firmware.isStellaris
+            val word = if (stellaris) vm.dictionary.wordAt(w.pc.toInt()) else null
+            val off = word?.let { (w.pc - (it.code.toLong() and 0xFFFFFFFFL)) }
+            if (word != null && off != null && off < if (word.user) USER_WORD else CORE_WORD) return "${word.name} +$off"
+            val core = stellaris && w.pc < vm.stellaris.flashDictionaryStart
+            return (if (core) "Stellaris, pc " else "pc ") + FieldText.word(w.pc)
         }
+
+        private const val CORE_WORD = 64
+        private const val USER_WORD = 4096
     }
 }
