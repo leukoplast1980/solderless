@@ -13,7 +13,7 @@ echo "== exception model"
 
 echo "== instruction set against Unicorn"
 if python3 -I -c "import unicorn" 2>/dev/null; then
-    python3 -I "$root/tests/cpu/diff_test.py" "$build/libcmtest.so" --cases 5000 --seed "${SEED:-1}"
+    python3 -I "$root/tests/cpu/diff_test.py" "$build/libcmtest.so" --cases 10000 --seed "${SEED:-1}"
 elif [ -n "${REQUIRE_UNICORN:-}" ]; then
     echo "python3 module 'unicorn' not installed" >&2
     exit 1
