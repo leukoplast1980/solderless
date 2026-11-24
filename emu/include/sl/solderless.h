@@ -93,6 +93,12 @@ void sl_snapshot_get(sl_vm *vm, sl_snapshot *out);
 /* Debug reads without side effects. */
 size_t sl_read_memory(sl_vm *vm, uint32_t addr, uint8_t *buf, size_t len);
 uint32_t sl_peek32(sl_vm *vm, uint32_t addr);
+/* n words at once, in one stop of the chip */
+void sl_peek_words(sl_vm *vm, const uint32_t *addrs, uint32_t *out, size_t n);
+
+/* A word write as the CPU would make it, side effects included (for the
+ * Registers view; meant for a paused chip). Returns nonzero on a bus error. */
+int sl_poke32(sl_vm *vm, uint32_t addr, uint32_t value);
 
 /* Messages about what the firmware did that a real chip would not tell
  * you (clock off, wrong baud rate, flash misuse, ...). Drains complete

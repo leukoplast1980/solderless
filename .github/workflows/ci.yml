@@ -27,7 +27,7 @@ jobs:
       - name: Generated chip data is up to date
         run: |
           python3 tools/gen_g431.py data/svd/STM32G431xx.svd data/chip/STM32G431RB.json emu/gen/g431_data.c
-          git diff --exit-code emu/gen/
+          git diff --exit-code emu/gen/ data/g431rb-pins.json data/g431rb-registers.json
 
       - name: Exception model, instruction set against Unicorn, Stellaris transcripts
         env:

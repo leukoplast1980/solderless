@@ -103,6 +103,24 @@ static int directive(const char *line)
         return 0;
     }
     if (!strcmp(cmd, "pins")) { print_pins(); return 0; }
+    if (!strcmp(cmd, "dpeek") && n >= 2) {
+        /* #!dpeek ADDR...: words read as a debugger would (the Registers view) */
+        uint32_t addrs[3], out[3];
+        int k = 0;
+        if (n >= 2) addrs[k++] = (uint32_t)strtoul(a1, NULL, 16);
+        if (n >= 3) addrs[k++] = (uint32_t)strtoul(a2, NULL, 16);
+        if (n >= 4) addrs[k++] = (uint32_t)strtoul(a3, NULL, 16);
+        sl_peek_words(vm, addrs, out, (size_t)k);
+        for (int i = 0; i < k; i++) printf("%08X: %08X\n", addrs[i], out[i]);
+        fflush(stdout);
+        return 0;
+    }
+    if (!strcmp(cmd, "dpoke") && n >= 3) {
+        /* #!dpoke ADDR VALUE: a write as the CPU would make it (the Registers view's Write) */
+        if (sl_poke32(vm, (uint32_t)strtoul(a1, NULL, 16), (uint32_t)strtoul(a2, NULL, 16))) printf("dpoke: bus error\n");
+        fflush(stdout);
+        return 0;
+    }
     if (!strcmp(cmd, "trace")) {
         int slots[16], k = 0;
         char tmp[256]; strncpy(tmp, line + 8, sizeof tmp - 1); tmp[sizeof tmp - 1] = 0;

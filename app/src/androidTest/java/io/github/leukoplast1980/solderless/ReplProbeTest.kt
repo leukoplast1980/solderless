@@ -8,7 +8,12 @@ import android.widget.TextView
 import androidx.test.core.app.ActivityScenario
 import androidx.test.ext.junit.runners.AndroidJUnit4
 import androidx.test.platform.app.InstrumentationRegistry
+import androidx.test.uiautomator.By
+import androidx.test.uiautomator.UiDevice
+import com.google.android.material.chip.Chip
+import com.google.android.material.chip.ChipGroup
 import com.google.android.material.tabs.TabLayout
+import io.github.leukoplast1980.solderless.ui.RegisterListView
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
 import org.junit.Test
@@ -18,9 +23,10 @@ import java.io.FileOutputStream
 
 /**
  * Types a few lines into the console of the emulated G431, checks what
- * Mecrisp-Stellaris and the chip model answer, opens the Registers view,
- * and takes screenshots (saved in the app's external files folder; the UI
- * probe workflow pulls them).
+ * Mecrisp-Stellaris and the chip model answer, opens the Chip tab's Core
+ * and Registers sections, changes a field there, and takes screenshots
+ * (saved in the app's external files folder; the UI probe workflow pulls
+ * them).
  */
 @RunWith(AndroidJUnit4::class)
 class ReplProbeTest {
@@ -69,8 +75,9 @@ class ReplProbeTest {
             val tabs = a.findViewById<TabLayout>(R.id.tabs)
             for (i in 0 until tabs.tabCount) {
                 val t = tabs.getTabAt(i)!!
-                if (t.text == a.getString(R.string.tab_registers)) t.select()
+                if (t.text == a.getString(R.string.tab_chip)) t.select()
             }
+            (a.findViewById<ChipGroup>(R.id.chipSections).getChildAt(0) as Chip).performClick()
         }
         Thread.sleep(1500)
         var regs = ""
@@ -80,6 +87,56 @@ class ReplProbeTest {
             assertTrue("missing \"$expected\" in the registers:\n$regs", regs.contains(expected))
         }
         screenshot("registers.png")
+
+        // Registers: GPIOA open (the default), PA2 and PA3 set up for USART2 by Stellaris
+        scenario.onActivity { a -> (a.findViewById<ChipGroup>(R.id.chipSections).getChildAt(1) as Chip).performClick() }
+        Thread.sleep(2500)
+        var rows = emptyList<String>()
+        fun readRows() = scenario.onActivity { a ->
+            rows = a.findViewById<RegisterListView>(R.id.registerList).rows.map { r ->
+                when (r) {
+                    is RegisterListView.Row.Group -> "group ${r.label}"
+                    is RegisterListView.Row.Periph -> "periph ${r.name} ${r.expanded}"
+                    is RegisterListView.Row.Reg -> "reg ${r.name} ${r.value} ${r.note}"
+                    is RegisterListView.Row.Field -> "field ${r.name} ${r.value} ${r.meaning}"
+                    is RegisterListView.Row.Note -> "note ${r.text}"
+                }
+            }
+        }
+        readRows()
+        for (l in rows.take(40)) Log.i(TAG, "rows|$l|")
+        for (expected in listOf("periph GPIOA true", "field MODER2 10 alternate function (AFR picks which)",
+                "field AFRL2 0111 AF7 USART2_TX", "periph USART2 false")) {
+            assertTrue("missing \"$expected\" in the Registers section:\n${rows.joinToString("\n")}", rows.contains(expected))
+        }
+        screenshot("chip-registers.png")
+
+        // Open all of MODER's fields, then MODER5 close up, and make PA5 an output
+        val ui = UiDevice.getInstance(InstrumentationRegistry.getInstrumentation())
+        fun tapRow(text: String) = scenario.onActivity { a ->
+            val list = a.findViewById<RegisterListView>(R.id.registerList)
+            list.onTap!!(rows.indexOf(text).also { assertTrue("no row \"$text\"", it >= 0) })
+        }
+        tapRow(rows.first { it.startsWith("reg MODER ") })
+        Thread.sleep(300)
+        readRows()
+        tapRow(rows.first { it.startsWith("field MODER5 ") })
+        Thread.sleep(800)
+        assertTrue("the field's sheet", ui.hasObject(By.textStartsWith("GPIOA_MODER · MODER5")))
+        ui.findObject(By.textStartsWith("01  output")).click()
+        Thread.sleep(300)
+        assertTrue("the Forth for it", ui.hasObject(By.text("\$48000000 @ \$C00 bic \$400 or \$48000000 !")))
+        screenshot("chip-field.png")
+        ui.findObject(By.text(InstrumentationRegistry.getInstrumentation().targetContext.getString(R.string.registers_write))).click()
+        Thread.sleep(800)
+        val vm = io.github.leukoplast1980.solderless.vm.VmHost.get(InstrumentationRegistry.getInstrumentation().targetContext)
+        val moder = vm.peekWords(intArrayOf(0x48000000))[0]
+        assertTrue("MODER5 is 01 after the write: %08X".format(moder), (moder shr 10) and 3 == 1)
+        readRows()
+        assertTrue("MODER5 shows the change:\n${rows.joinToString("\n")}", rows.contains("field MODER5 01 output"))
+        screenshot("chip-registers-written.png")
+        // Leave it as it was
+        vm.pokeWord(0x48000000, moder or (3 shl 10))
     }
 
     companion object {

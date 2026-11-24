@@ -99,7 +99,7 @@ val bundleFirmware by tasks.registering(Copy::class) {
         into("examples")
     }
     from(rootProject.file("data")) {
-        include("g431rb-pins.json")
+        include("g431rb-pins.json", "g431rb-registers.json")
         into("chip")
     }
     into(layout.buildDirectory.dir("generated/firmwareAssets"))

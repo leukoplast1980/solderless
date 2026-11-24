@@ -1,0 +1,29 @@
+\ The Registers view's reads and writes, as a debugger makes them (dpeek,  ok.
+\ dpoke): reads without side effects, writes with them  ok.
+#!dpeek 48000000 4002104C E000E010
+48000000: EBFFFFAF
+4002104C: 0000002F
+E000E010: 00000000
+\ PA5 an output, driven high, by poking MODER and BSRR  ok.
+#!dpoke 48000000 EBFFF7AF
+#!dpoke 48000018 00000020
+$48000000 @ hex. EBFFF7AF  ok.
+$48000014 @ hex. 00000020  ok.
+#!dpeek 48000014
+48000014: 00000020
+\ A poke into SysTick (the core's System Control Space) and into RAM  ok.
+#!dpoke E000E014 00001234
+$E000E014 @ hex. 00001234  ok.
+#!dpoke 20007000 CAFEF00D
+$20007000 @ hex. CAFEF00D  ok.
+\ A peripheral with its clock off: the write is lost, as on the chip  ok.
+#!dpoke 40013808 00001234
+
+[chip] USART1 written while its clock is off in RCC: the write is lost (PC 0x00002514)
+#!dpeek 40013808
+40013808: 00000000
+\ Nothing there: a bus error  ok.
+#!dpoke 60000000 1
+dpoke: bus error
+
+[chip] Bus error: write to 0x60000000, where there is no memory or peripheral (PC 0x00002514)
