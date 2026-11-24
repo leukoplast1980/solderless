@@ -157,8 +157,13 @@ struct cm_cpu {
     } loops[16];
     int idle_loop;
 
-    /* Last fault, for the fault explainer */
+    /* Last fault, for the fault explainer: the instruction, the registers as
+     * they were when it faulted (r15 = fault_pc), the exception it raised
+     * before any escalation to HardFault, and how many faults so far */
     uint32_t fault_pc;
+    uint32_t fault_r[16], fault_xpsr;
+    int fault_exc;
+    uint32_t fault_count;
 
     struct cm_bus *bus;
     void *hook_ctx;

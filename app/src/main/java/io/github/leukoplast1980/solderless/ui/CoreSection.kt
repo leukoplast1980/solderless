@@ -15,6 +15,7 @@ import android.text.style.ForegroundColorSpan
 import android.widget.TextView
 import android.widget.Toast
 import io.github.leukoplast1980.solderless.R
+import io.github.leukoplast1980.solderless.chip.FaultReport
 import io.github.leukoplast1980.solderless.vm.Snapshot
 import io.github.leukoplast1980.solderless.vm.VmHost
 import java.nio.ByteBuffer
@@ -28,6 +29,7 @@ class CoreSection(private val activity: Activity, private val vm: VmHost) {
     private val labelColor = activity.getColor(R.color.label)
     private val accentColor = activity.getColor(R.color.accent)
     private val dangerColor = activity.getColor(R.color.danger)
+    private val wordColor = activity.getColor(R.color.syntax_name)
 
     /** Values shown last time. */
     private var previous = HashMap<String, Long>()
@@ -136,33 +138,50 @@ class CoreSection(private val activity: Activity, private val vm: VmHost) {
     }
 
     /** The fault status registers in plain words. */
+    /** The fault explainer: the last fault in words, where, the instruction, why, the registers */
     private fun faultSection(b: SpannableStringBuilder, s: Snapshot) {
-        heading(b, if (s.lockup) "Locked up" else "Fault status")
-        val start = b.length
-        if (s.lockup) b.append("  The core stopped: a fault happened where no fault handler could run.\n  Press Reset.\n")
-        for (line in faultExplanation(s)) b.append("  ").append(line).append('\n')
-        b.setSpan(ForegroundColorSpan(dangerColor), start, b.length, Spanned.SPAN_EXCLUSIVE_EXCLUSIVE)
-        b.append("  CFSR %08X  HFSR %08X  at pc %08X\n".format(java.util.Locale.ROOT, s.cfsr, s.hfsr, s.faultPc))
+        val stellaris = vm.project.firmware.isStellaris
+        val f = FaultReport(
+            s.cfsr, s.hfsr, s.bfar, s.mmfar, s.lockup, s.faultException, s.faultR, s.faultXpsr,
+            read = { a, n -> vm.readMemory(a.toInt(), n) },
+            place = { pc -> LogSection.place(vm, pc) },
+            dataStackBase = if (stellaris) vm.stellaris.dataStackBase.toLong() and MASK else 0L,
+        )
+        heading(b, f.title, dangerColor)
+        for (line in f.causes) coloured(b, "  $line\n", dangerColor)
+        if (f.where != null) {
+            b.append("  in ")
+            coloured(b, f.where, wordColor)
+            if (f.calledFrom.isNotEmpty()) {
+                b.append(", called from ")
+                f.calledFrom.forEachIndexed { k, c -> if (k > 0) b.append(", "); coloured(b, c, wordColor) }
+            }
+            b.append('\n')
+        }
+        b.append("  %08X  %-9s  %s\n".format(java.util.Locale.ROOT, f.pc, f.halfwords, f.insn?.text ?: "(cannot be read)"))
+        for (line in f.hints) coloured(b, "  $line\n", labelColor)
+        b.append("  Registers when it happened:\n")
+        val r = f.regs
+        for (k in 0 until 16 step 2) {
+            val n1 = arrayOf("r0", "r2", "r4", "r6", "r8", "r10", "r12", "lr")[k / 2]
+            val n2 = arrayOf("r1", "r3", "r5", "r7", "r9", "r11", "sp", "pc")[k / 2]
+            val i1 = if (n1 == "lr") 14 else k
+            val i2 = if (n2 == "sp") 13 else if (n2 == "pc") 15 else k + 1
+            b.append("  %-4s %08X   %-4s %08X\n".format(java.util.Locale.ROOT, n1, r[i1], n2, r[i2]))
+        }
+        if (f.dataStack.isNotEmpty()) {
+            b.append("  Data stack: ")
+            b.append(f.dataStack.joinToString("  ") { v -> "%d".format(java.util.Locale.ROOT, v.toInt()) })
+            b.append("  (TOS first)\n")
+        }
+        b.append("  CFSR %08X  HFSR %08X\n".format(java.util.Locale.ROOT, s.cfsr, s.hfsr))
+        if (!s.lockup) coloured(b, "  Stellaris' fault handler tries again and again: press Reset to go on.\n", labelColor)
     }
 
-    private fun faultExplanation(s: Snapshot): List<String> = buildList {
-        val c = s.cfsr
-        val h = s.hfsr
-        if (h and (1 shl 30) != 0) add("A fault was escalated to HardFault (its own handler is off or could not run).")
-        if (h and (1 shl 1) != 0) add("A vector table read failed.")
-        if (h and (1 shl 31) != 0) add("BKPT or a debug event with no debugger attached.")
-        if (c and (1 shl 0) != 0) add("Instruction fetch from a place that cannot hold code (peripheral or system area).")
-        if (c and (1 shl 1) != 0) add("Data access not allowed by the MPU.")
-        if (c and (1 shl 8) != 0) add("Instruction fetch from an address where nothing is mapped.")
-        if (c and (1 shl 9) != 0) add("Load or store at 0x%08X, where nothing is mapped (BFAR).".format(java.util.Locale.ROOT, s.bfar))
-        if (c and (1 shl 12) != 0) add("Stacking the exception frame failed: the stack pointer is bad.")
-        if (c and (1 shl 11) != 0) add("Unstacking on exception return failed: the stack pointer is bad.")
-        if (c and (1 shl 16) != 0) add("Undefined instruction (or an FPU/DSP instruction this core does not run yet).")
-        if (c and (1 shl 17) != 0) add("Branch to an even address: Thumb state lost (BX/BLX/POP to a value with bit 0 clear).")
-        if (c and (1 shl 18) != 0) add("Bad exception return value (EXC_RETURN) in the PC.")
-        if (c and (1 shl 19) != 0) add("Coprocessor instruction while CPACR denies access (FPU off).")
-        if (c and (1 shl 24) != 0) add("Unaligned access where alignment is required (LDM, STM, LDRD, STRD, exclusives).")
-        if (c and (1 shl 25) != 0) add("Division by zero with CCR.DIV_0_TRP set.")
+    private fun coloured(b: SpannableStringBuilder, text: String, color: Int) {
+        val start = b.length
+        b.append(text)
+        b.setSpan(ForegroundColorSpan(color), start, b.length, Spanned.SPAN_EXCLUSIVE_EXCLUSIVE)
     }
 
     private fun exceptionName(n: Int): String = when (n) {
@@ -194,11 +213,11 @@ class CoreSection(private val activity: Activity, private val vm: VmHost) {
         value(b, current, name.trim(), name, hz, "%.3f MHz".format(java.util.Locale.ROOT, hz / 1e6))
     }
 
-    private fun heading(b: SpannableStringBuilder, title: String) {
+    private fun heading(b: SpannableStringBuilder, title: String, color: Int = accentColor) {
         if (b.isNotEmpty()) b.append('\n')
         val start = b.length
         b.append(title).append('\n')
-        b.setSpan(ForegroundColorSpan(accentColor), start, b.length, Spanned.SPAN_EXCLUSIVE_EXCLUSIVE)
+        b.setSpan(ForegroundColorSpan(color), start, b.length, Spanned.SPAN_EXCLUSIVE_EXCLUSIVE)
     }
 
     private fun value(

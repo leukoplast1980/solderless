@@ -1,0 +1,24 @@
+\ The fault explainer's record: a load from where nothing is mapped (@ on  ok.
+\ a wrong address) raises a BusFault, which Stellaris takes as HardFault.  ok.
+\ Its handler would print and retry forever; this one parks the core.  ok.
+#!fault
+no fault
+#!timeout 500
+: park ( -- ) begin again ;  ok.
+' park irq-fault !  ok.
+: show-temp ( -- ) $60000000 @ . ;  ok.
+: main ( -- ) 3 show-temp ;  ok.
+main 
+[chip] Bus error: read of 0x60000000, where there is no memory or peripheral (PC 0x20000530)
+
+line 10: timeout
+#!fault
+exception 5 at 20000530  CFSR 00008200 HFSR 40000000 BFAR 60000000
+r0  60000000  r1  00000000  r2  20000550  r3  00000000
+r4  00000000  r5  20007FA0  r6  00000003  r7  20000284
+r8  00000000  r9  00000000  r10 00000000  r11 00000000
+r12 00000000  sp  20000380  lr  2000055D  pc  20000530
+#!powercycle
+Mecrisp-Stellaris RA 3.0.2 for STM32G431KB by Matthias Koch
+#!fault
+no fault

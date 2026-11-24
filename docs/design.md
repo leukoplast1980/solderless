@@ -471,8 +471,16 @@ bottom with the chip's state, Pause and Step.
   have set it up yet. A tapped pin shows its fields in its port's
   registers, its alternate functions and analog inputs, and opens the port
   in Registers.
-- **Fault explainer**: on a fault, the fault registers decoded into plain
-  words, with the faulting instruction and the stacked registers.
+- **Fault explainer** (built, in Core): the last fault in plain words
+  ("HardFault, escalated from a BusFault", "Load from 6000 0000: nothing
+  is mapped there"), the Forth word it happened in and its callers (from LR
+  and the return stack), the instruction, disassembled, and why it likely
+  happened ("The address came from r6 … r6 is TOS: @, ! or another memory
+  word got a wrong address", what is at the address). Then the registers
+  as they were when it happened (the core records them, as it does the
+  instruction), Forth's data stack and CFSR and HFSR. The disassembler
+  (chip/Thumb.kt) decodes loads, stores, branches, the stack, arithmetic,
+  divides and the FPU's loads and moves; it is tested against GNU objdump.
 - **Run control**: pause, single step, reset, as in Mecrisp Pocket.
 
 ## 9. Export

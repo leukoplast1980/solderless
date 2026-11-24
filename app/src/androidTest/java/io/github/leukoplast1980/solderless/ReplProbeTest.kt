@@ -236,6 +236,30 @@ class ReplProbeTest {
         // Leave it as it was
         vm.pokeWord(0x48000000, moder or (3 shl 10))
         vm.pokeWord(0x48000018, 0x20 shl 16)
+
+        // A fault: @ from where nothing is; the Core section explains it
+        selectTab(R.string.tab_repl)
+        for (line in listOf(": show-temp ( -- ) \$60000000 @ . ;", ": main ( -- ) 3 show-temp ;", "main")) {
+            scenario.onActivity { a ->
+                val input = a.findViewById<EditText>(R.id.input)
+                input.setText(line)
+                input.onEditorAction(EditorInfo.IME_ACTION_SEND)
+            }
+            Thread.sleep(800)
+        }
+        selectTab(R.string.tab_chip)
+        scenario.onActivity { a -> section(a, R.string.chip_core) }
+        Thread.sleep(1000)
+        var core = ""
+        scenario.onActivity { a -> core = a.findViewById<TextView>(R.id.registers).text.toString() }
+        for (l in core.split("\n").take(24)) Log.i(TAG, "fault|$l|")
+        for (expected in listOf("HardFault, escalated from a BusFault", "Load from 6000 0000: nothing is mapped there.",
+                "in show-temp +", "called from main +", "ldr r0, [r0, #0]", "The address came from r0 (6000 0000).")) {
+            assertTrue("missing \"$expected\" in the fault report:\n$core", core.contains(expected))
+        }
+        screenshot("chip-fault.png")
+        vm.reset()
+        Thread.sleep(2000)
     }
 
     companion object {

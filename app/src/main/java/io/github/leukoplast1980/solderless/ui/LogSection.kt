@@ -190,12 +190,17 @@ class LogSection(
          */
         fun where(vm: VmHost, w: AccessLog.Write): String {
             if (w.debug) return "Registers view"
-            val stellaris = vm.project.firmware.isStellaris
-            val word = if (stellaris) vm.dictionary.wordAt(w.pc.toInt()) else null
-            val off = word?.let { (w.pc - (it.code.toLong() and 0xFFFFFFFFL)) }
-            if (word != null && off != null && off < if (word.user) USER_WORD else CORE_WORD) return "${word.name} +$off"
-            val core = stellaris && w.pc < vm.stellaris.flashDictionaryStart
+            place(vm, w.pc)?.let { return it }
+            val core = vm.project.firmware.isStellaris && w.pc < vm.stellaris.flashDictionaryStart
             return (if (core) "Stellaris, pc " else "pc ") + FieldText.word(w.pc)
+        }
+
+        /** The Forth word an address is in and the offset: "show-temp +12", or null */
+        fun place(vm: VmHost, pc: Long): String? {
+            if (!vm.project.firmware.isStellaris) return null
+            val word = vm.dictionary.wordAt(pc.toInt()) ?: return null
+            val off = pc - (word.code.toLong() and 0xFFFFFFFFL)
+            return if (off >= 0 && off < if (word.user) USER_WORD else CORE_WORD) "${word.name} +$off" else null
         }
 
         private const val CORE_WORD = 64

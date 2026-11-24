@@ -400,6 +400,10 @@ static void snapshot_fn(sl_vm *vm, void *arg)
     o->mmfar = c->mmfar;
     o->bfar = c->bfar;
     o->fault_pc = c->fault_pc;
+    memcpy(o->fault_r, c->fault_r, sizeof o->fault_r);
+    o->fault_xpsr = c->fault_xpsr;
+    o->fault_exc = c->fault_exc;
+    o->fault_count = c->fault_count;
     o->cycles = c->cycles;
     o->time_ns = soc_now_ps(s) / 1000u;
     o->hclk = s->hclk;

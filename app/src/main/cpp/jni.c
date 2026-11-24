@@ -107,7 +107,7 @@ JNIEXPORT jint JNICALL FN(sendLine)(JNIEnv *env, jclass cls, jlong h, jbyteArray
 }
 
 /* Layout: see Snapshot.kt */
-#define SNAP_INTS 41
+#define SNAP_INTS 60
 
 JNIEXPORT jintArray JNICALL FN(snapshot)(JNIEnv *env, jclass cls, jlong h)
 {
@@ -123,6 +123,8 @@ JNIEXPORT jintArray JNICALL FN(snapshot)(JNIEnv *env, jclass cls, jlong h)
     v[30] = (jint)(uint32_t)s.time_ns; v[31] = (jint)(uint32_t)(s.time_ns >> 32);
     v[32] = (jint)s.hclk; v[33] = (jint)s.sysclk; v[34] = (jint)s.pclk1; v[35] = (jint)s.pclk2;
     v[36] = s.lockup; v[37] = s.sleeping; v[38] = s.waiting_for_key; v[39] = s.paused; v[40] = s.speed_percent;
+    for (int i = 0; i < 16; i++) v[41 + i] = (jint)s.fault_r[i];
+    v[57] = (jint)s.fault_xpsr; v[58] = s.fault_exc; v[59] = (jint)s.fault_count;
     jintArray out = (*env)->NewIntArray(env, SNAP_INTS);
     if (out) (*env)->SetIntArrayRegion(env, out, 0, SNAP_INTS, v);
     return out;

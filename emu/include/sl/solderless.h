@@ -86,6 +86,13 @@ typedef struct {
     int waiting_for_key;
     int paused;
     int speed_percent;          /* emulated time / wall time, last second */
+    /* The last fault: the registers when it happened (r[15] its
+     * instruction), the exception it raised before any escalation to
+     * HardFault (3 HardFault, 4 MemManage, 5 BusFault, 6 UsageFault), and
+     * the number of faults since power-on (0: none) */
+    uint32_t fault_r[16], fault_xpsr;
+    int fault_exc;
+    uint32_t fault_count;
 } sl_snapshot;
 
 void sl_snapshot_get(sl_vm *vm, sl_snapshot *out);
