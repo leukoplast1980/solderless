@@ -117,6 +117,7 @@ class ChipController(private val activity: Activity, private val vm: VmHost) {
         append(
             when {
                 s.lockup -> "locked up"
+                vm.faultPaused -> "stopped at a fault"
                 s.paused -> "paused"
                 s.waitingForKey -> "waiting for input"
                 s.sleeping -> "sleeping"

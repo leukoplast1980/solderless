@@ -117,6 +117,8 @@ static int directive(const char *line)
         return 0;
     }
     if (!strcmp(cmd, "timeout") && n >= 2) { timeout = atoi(a1); return 0; }   /* #!timeout MS: per line from here on */
+    if (!strcmp(cmd, "faultbreak") && n >= 2) { sl_set_fault_break(vm, atoi(a1)); return 0; }  /* #!faultbreak 1: stop at faults */
+    if (!strcmp(cmd, "resume")) { sl_pause(vm, 0); return 0; }
     if (!strcmp(cmd, "fault")) {
         /* #!fault: the last fault, as the fault explainer gets it */
         sl_snapshot s;

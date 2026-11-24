@@ -577,6 +577,7 @@ static void record_fault(struct cm_cpu *c, int exc, uint32_t pc)
     c->fault_xpsr = cm_xpsr(c);
     c->fault_exc = exc;
     c->fault_count++;
+    c->stop_batch = 1;      /* so the host can stop the chip right here */
 }
 
 /* Takes the synchronous exception raised by the last instruction,

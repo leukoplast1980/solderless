@@ -185,6 +185,19 @@ JNIEXPORT jint JNICALL FN(accessRead)(JNIEnv *env, jclass cls, jlong h, jintArra
     return (jint)n;
 }
 
+JNIEXPORT void JNICALL FN(setFaultBreak)(JNIEnv *env, jclass cls, jlong h, jboolean on)
+{
+    (void)env; (void)cls;
+    sl_set_fault_break(VM(h), on);
+}
+
+/* True once after the chip paused itself at a fault */
+JNIEXPORT jboolean JNICALL FN(faultStopped)(JNIEnv *env, jclass cls, jlong h)
+{
+    (void)env; (void)cls;
+    return sl_fault_stopped(VM(h)) ? JNI_TRUE : JNI_FALSE;
+}
+
 /* A word write as the CPU would make it; 0 if it went through */
 JNIEXPORT jint JNICALL FN(pokeWord)(JNIEnv *env, jclass cls, jlong h, jint addr, jint value)
 {

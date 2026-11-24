@@ -46,6 +46,10 @@ void sl_run(sl_vm *vm);
 void sl_shutdown(sl_vm *vm);
 void sl_pause(sl_vm *vm, int paused);
 void sl_step(sl_vm *vm);                      /* one instruction while paused */
+/* Pause at every fault, right after the core takes it (the snapshot's
+ * fault_r has the registers); sl_fault_stopped says, once, that it did. */
+void sl_set_fault_break(sl_vm *vm, int on);
+int sl_fault_stopped(sl_vm *vm);
 void sl_reset(sl_vm *vm);                     /* the reset button (NRST) */
 void sl_power_cycle(sl_vm *vm);               /* power-on reset: RAM cleared */
 /* Waits until a reset or power cycle asked for has happened (they are applied on the emulator's thread) */

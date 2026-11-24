@@ -481,6 +481,11 @@ bottom with the chip's state, Pause and Step.
   instruction), Forth's data stack and CFSR and HFSR. The disassembler
   (chip/Thumb.kt) decodes loads, stores, branches, the stack, arithmetic,
   divides and the FPU's loads and moves; it is tested against GNU objdump.
+  The app stops the chip at a fault, as a debugger would
+  (`sl_set_fault_break`): Stellaris' handler prints and retries without
+  end, which flooded the console (and, through accessibility events for
+  every change of its text, took a test emulator down). Resume runs the
+  handler once more; Reset starts over.
 - **Run control**: pause, single step, reset, as in Mecrisp Pocket.
 
 ## 9. Export

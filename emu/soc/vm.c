@@ -87,6 +87,9 @@ struct sl_vm {
 
     /* Control */
     int running, shutdown, paused, step_req;
+    int fault_break;                /* pause at every fault (sl_set_fault_break) */
+    uint32_t fault_seen;            /* the CPU's fault count when it last paused for one */
+    _Atomic int fault_stopped;      /* paused at a fault since sl_fault_stopped was asked */
     int waiting;                    /* firmware waits for input */
     _Atomic int reset_req;          /* 1: NRST, 2: power cycle, 3: software reset */
     _Atomic int input_new;
@@ -463,6 +466,16 @@ void sl_pause(sl_vm *vm, int paused)
     pthread_mutex_unlock(&vm->lock);
 }
 
+void sl_set_fault_break(sl_vm *vm, int on)
+{
+    pthread_mutex_lock(&vm->lock);
+    vm->fault_break = on ? 1 : 0;
+    vm->fault_seen = vm->soc->cpu.fault_count;
+    pthread_mutex_unlock(&vm->lock);
+}
+
+int sl_fault_stopped(sl_vm *vm) { return atomic_exchange(&vm->fault_stopped, 0); }
+
 void sl_step(sl_vm *vm)
 {
     pthread_mutex_lock(&vm->lock);
@@ -749,6 +762,16 @@ void sl_run(sl_vm *vm)
         soc_run_batch(s, BATCH);
         pthread_mutex_lock(&vm->lock);
         if (!vm->cfg.deterministic) pace(vm);
+        /* A fault: stop there, as a debugger would, before a handler that
+         * prints and tries again floods the console */
+        uint32_t fc = s->cpu.fault_count;
+        if (fc < vm->fault_seen) vm->fault_seen = 0;       /* reset since */
+        if (vm->fault_break && fc > vm->fault_seen) {
+            vm->fault_seen = fc;
+            vm->paused = 1;
+            atomic_store(&vm->fault_stopped, 1);
+            pthread_cond_broadcast(&vm->host_cv);
+        }
     }
 
     vm->running = 0;

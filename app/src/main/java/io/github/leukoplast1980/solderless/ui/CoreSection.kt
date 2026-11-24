@@ -175,7 +175,7 @@ class CoreSection(private val activity: Activity, private val vm: VmHost) {
             b.append("  (TOS first)\n")
         }
         b.append("  CFSR %08X  HFSR %08X\n".format(java.util.Locale.ROOT, s.cfsr, s.hfsr))
-        if (!s.lockup) coloured(b, "  Stellaris' fault handler tries again and again: press Reset to go on.\n", labelColor)
+        if (!s.lockup && vm.faultPaused) coloured(b, "  Stopped here. Resume runs the fault handler; Reset starts over.\n", labelColor)
     }
 
     private fun coloured(b: SpannableStringBuilder, text: String, color: Int) {

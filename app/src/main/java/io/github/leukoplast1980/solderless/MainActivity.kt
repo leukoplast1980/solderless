@@ -101,6 +101,13 @@ class MainActivity : AppCompatActivity() {
                 console.appendChipMessages(it)
                 vm.accessLog.addMessages(it, vm.snapshot().timeNs)
             }
+            if (vm.stoppedAtFault()) {
+                val note = getString(R.string.stopped_at_fault)
+                console.appendChipMessages(note + "\n")
+                vm.accessLog.addMessages(note, vm.snapshot().timeNs)
+                console.markDictionaryStale()
+                Thread { vm.refreshDictionary() }.start()
+            }
             updateTitle()
             handler.postDelayed(this, POLL_MS)
         }
