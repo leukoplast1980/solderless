@@ -310,6 +310,19 @@
                         </ScrollView>
                     </LinearLayout>
 
+                    <!-- Pins: the package, each pin's set-up and wiring -->
+                    <ScrollView
+                        android:id="@+id/pinsSection"
+                        android:layout_width="match_parent"
+                        android:layout_height="match_parent"
+                        android:visibility="gone">
+
+                        <io.github.leukoplast1980.solderless.ui.PinListView
+                            android:id="@+id/pinList"
+                            android:layout_width="match_parent"
+                            android:layout_height="wrap_content" />
+                    </ScrollView>
+
                     <!-- Log: register writes and the chip's checks -->
                     <LinearLayout
                         android:id="@+id/logSection"

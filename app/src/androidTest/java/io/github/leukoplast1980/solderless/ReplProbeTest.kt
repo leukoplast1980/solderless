@@ -13,7 +13,13 @@ import androidx.test.uiautomator.UiDevice
 import com.google.android.material.chip.Chip
 import com.google.android.material.chip.ChipGroup
 import com.google.android.material.tabs.TabLayout
+import io.github.leukoplast1980.solderless.board.Board
+import io.github.leukoplast1980.solderless.board.Function as PinFunction
+import io.github.leukoplast1980.solderless.board.Part
+import io.github.leukoplast1980.solderless.board.PartType
+import io.github.leukoplast1980.solderless.board.PinUse
 import io.github.leukoplast1980.solderless.ui.LogListView
+import io.github.leukoplast1980.solderless.ui.PinListView
 import io.github.leukoplast1980.solderless.ui.RegisterListView
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
@@ -37,6 +43,12 @@ class ReplProbeTest {
         val dir = InstrumentationRegistry.getInstrumentation().targetContext.getExternalFilesDir(null)!!
         FileOutputStream(File(dir, name)).use { bmp.compress(Bitmap.CompressFormat.PNG, 100, it) }
         Log.i(TAG, "screenshot $name saved in $dir")
+    }
+
+    /** Picks a section of the Chip tab */
+    private fun section(a: MainActivity, label: Int) {
+        val g = a.findViewById<ChipGroup>(R.id.chipSections)
+        (0 until g.childCount).map { g.getChildAt(it) as Chip }.first { it.text == a.getString(label) }.performClick()
     }
 
     @Test
@@ -78,7 +90,7 @@ class ReplProbeTest {
                 val t = tabs.getTabAt(i)!!
                 if (t.text == a.getString(R.string.tab_chip)) t.select()
             }
-            (a.findViewById<ChipGroup>(R.id.chipSections).getChildAt(0) as Chip).performClick()
+            section(a, R.string.chip_core)
         }
         Thread.sleep(1500)
         var regs = ""
@@ -90,7 +102,7 @@ class ReplProbeTest {
         screenshot("registers.png")
 
         // Registers: GPIOA open (the default), PA2 and PA3 set up for USART2 by Stellaris
-        scenario.onActivity { a -> (a.findViewById<ChipGroup>(R.id.chipSections).getChildAt(1) as Chip).performClick() }
+        scenario.onActivity { a -> section(a, R.string.chip_registers) }
         Thread.sleep(2500)
         var rows = emptyList<String>()
         fun readRows() = scenario.onActivity { a ->
@@ -150,7 +162,7 @@ class ReplProbeTest {
         }
         Thread.sleep(1500)
         selectTab(R.string.tab_chip)
-        scenario.onActivity { a -> (a.findViewById<ChipGroup>(R.id.chipSections).getChildAt(2) as Chip).performClick() }
+        scenario.onActivity { a -> section(a, R.string.chip_log) }
         Thread.sleep(800)
         var log = emptyList<String>()
         scenario.onActivity { a ->
@@ -177,6 +189,37 @@ class ReplProbeTest {
         assertTrue("GPIOA_ODR in Registers:\n${rows.joinToString("\n")}", rows.contains("field ODR5 1 high"))
         screenshot("chip-log-register.png")
         scenario.onActivity { a -> a.findViewById<EditText>(R.id.registerFind).setText("") }
+
+        // Pins: PA2 and PA3 for the console, PA5 an output (high), and a pot on a pin set up as an input
+        val boardBefore = vm.board
+        scenario.onActivity { vm.setBoard(Board(listOf(Part(1, PartType.POT, listOf(PinUse("PA1", PinFunction.Adc("ADC1", 2))))))) }
+        val moderNow = vm.peekWords(intArrayOf(0x48000000))[0]
+        vm.pokeWord(0x48000000, moderNow and (3 shl 2).inv())
+        scenario.onActivity { a -> section(a, R.string.chip_pins) }
+        Thread.sleep(800)
+        var pins = emptyList<String>()
+        scenario.onActivity { a ->
+            pins = a.findViewById<PinListView>(R.id.pinList).rows.filterIsInstance<PinListView.Row.Pin>().map {
+                val s = it.setup
+                "${s.name}|${s.summary}|${s.level}|${s.wired.joinToString()}|${s.mismatch ?: ""}"
+            }
+        }
+        for (l in pins) Log.i(TAG, "pins|$l|")
+        assertTrue("the pot's pin first, wrongly set up:\n${pins.joinToString("\n")}", pins[0].startsWith("PA1|input|") &&
+            pins[0].endsWith("|Potentiometer|Potentiometer needs analog for ADC1 IN2 (MODER1 11); it is an input (00)"))
+        assertTrue("the console's TX:\n${pins.joinToString("\n")}", pins.contains("PA2|AF7 USART2_TX|high|USB-serial RX|"))
+        assertTrue("PA5 driven high:\n${pins.joinToString("\n")}", pins.any { it.startsWith("PA5|output · push-pull|high|") })
+        screenshot("chip-pins.png")
+        scenario.onActivity { a ->
+            val l = a.findViewById<PinListView>(R.id.pinList)
+            l.onTapAt!!(l.rows.indexOfFirst { (it as? PinListView.Row.Pin)?.setup?.name == "PA1" }, 10f, 10f)
+        }
+        Thread.sleep(800)
+        assertTrue("the pin's sheet", ui.hasObject(By.textStartsWith("MODER1")))
+        screenshot("chip-pin.png")
+        ui.pressBack()
+        Thread.sleep(300)
+        scenario.onActivity { vm.setBoard(boardBefore) }
 
         // Leave it as it was
         vm.pokeWord(0x48000000, moder or (3 shl 10))

@@ -411,7 +411,7 @@ Shown in the Log and marked on the breadboard and in the Registers view:
 - flash written without unlocking, or over data that was not erased
 - floating inputs, shorts, I2C address clashes
 - bus settings that do not match a part (rule 5)
-- a pin set up differently from its wiring
+- a pin set up differently from its wiring (the Pins section)
 - current per pin and in total above the datasheet limits
 - 5 V parts on 3.3 V logic (MAX7219 modules, for example), and 5 V signals on
   pins that are not 5 V tolerant
@@ -454,7 +454,16 @@ bottom with the chip's state, Pause and Step.
   1024 entries (`sl_access_read`); the app the last 3000.
 - **Clock tree**: live diagram from RCC, from the oscillators through the PLL
   to each peripheral's clock.
-- **Pins**: each pin's mode, alternate function, pull and live level.
+- **Pins** (built): the LQFP64 package with each pin coloured by its set-up
+  (output high or low, alternate function, input, analog, as after reset)
+  and the names of the pins in use around it; under it the pins in use:
+  mode, alternate function by name, output type, pull, level, and what is
+  wired. A pin set up otherwise than its wiring needs is flagged and listed
+  first ("Potentiometer needs analog for ADC1 IN2 (MODER1 11); it is an
+  input (00)"); a pin still as after reset is not, as the program may not
+  have set it up yet. A tapped pin shows its fields in its port's
+  registers, its alternate functions and analog inputs, and opens the port
+  in Registers.
 - **Fault explainer**: on a fault, the fault registers decoded into plain
   words, with the faulting instruction and the stacked registers.
 - **Run control**: pause, single step, reset, as in Mecrisp Pocket.

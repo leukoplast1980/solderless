@@ -33,6 +33,8 @@ abstract class RowsView(context: Context, attrs: AttributeSet?) : View(context, 
 
     /** A tap on a row: its index */
     var onTap: ((Int) -> Unit)? = null
+    /** A tap on a row: its index and where in it (x, y from the row's top); used instead of [onTap] if set */
+    var onTapAt: ((Int, Float, Float) -> Unit)? = null
 
     private var tops = FloatArray(1)
     private var laidOutWidth = -1
@@ -137,7 +139,8 @@ abstract class RowsView(context: Context, attrs: AttributeSet?) : View(context, 
                 invalidate()
                 if (i in 0 until rowCount) {
                     playSoundEffect(SoundEffectConstants.CLICK)
-                    onTap?.invoke(i)
+                    val at = onTapAt
+                    if (at != null) at(i, e.x, e.y - tops[i]) else onTap?.invoke(i)
                 }
             }
             MotionEvent.ACTION_CANCEL -> { pressed = -1; invalidate() }
