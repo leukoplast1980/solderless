@@ -65,7 +65,8 @@ its writable bits, taken from ST's SVD. Behaviour so far:
 - **PWR**: voltage range and boost mode, used for the checks below.
 - **FLASH**: unlock keys (a wrong key locks the controller until reset),
   64-bit programming as two word writes, page and mass erase with the
-  datasheet times and BSY, the error flags for wrong sequences, wait
+  datasheet times and BSY, the error flags for wrong sequences (a flag
+  left set refuses the next program or erase, as on the chip), wait
   states, the end-of-operation and error interrupts. Option bytes read back
   at their factory values.
 - **GPIO**: all registers, including the lock sequence. Pin levels come
@@ -261,7 +262,8 @@ The console shows these in amber, at most three times each per run:
 - HSE or LSE switched on without a crystal on the board
 - RCC_BDCR written while the backup domain is write-protected
 - flash: write without PG, wrong key, wrong sequence, size or alignment,
-  programming over data that was not erased
+  programming over data that was not erased, a program or erase refused
+  because an earlier error flag was not cleared
 - the terminal and a USART using different baud rates or frame formats
 - a USART overrun; typed characters arriving while the receiver is off
 - bus errors: access where there is no memory or peripheral
