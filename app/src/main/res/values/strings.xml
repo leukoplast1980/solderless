@@ -24,6 +24,13 @@
     <string name="registers_write">Write</string>
     <string name="registers_write_failed">The write failed: a bus error</string>
     <string name="chip_log">Log</string>
+    <string name="chip_pins">Pins</string>
+    <string name="pins_fewer">Only the pins in use</string>
+    <string name="pins_in_registers">%1$s in Registers</string>
+    <plurals name="pins_more">
+        <item quantity="one">%d more pin as after reset: show it</item>
+        <item quantity="other">%d more pins as after reset: show them</item>
+    </plurals>
     <string name="log_all">All</string>
     <string name="log_writes">Writes</string>
     <string name="log_checks">Checks</string>
