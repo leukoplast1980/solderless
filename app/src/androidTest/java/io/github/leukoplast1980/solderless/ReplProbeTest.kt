@@ -18,6 +18,7 @@ import io.github.leukoplast1980.solderless.board.Function as PinFunction
 import io.github.leukoplast1980.solderless.board.Part
 import io.github.leukoplast1980.solderless.board.PartType
 import io.github.leukoplast1980.solderless.board.PinUse
+import io.github.leukoplast1980.solderless.ui.ClockView
 import io.github.leukoplast1980.solderless.ui.LogListView
 import io.github.leukoplast1980.solderless.ui.PinListView
 import io.github.leukoplast1980.solderless.ui.RegisterListView
@@ -220,6 +221,17 @@ class ReplProbeTest {
         ui.pressBack()
         Thread.sleep(300)
         scenario.onActivity { vm.setBoard(boardBefore) }
+
+        // Clocks: Stellaris runs on HSI16; the PLL's box lists its fields
+        scenario.onActivity { a -> section(a, R.string.chip_clocks) }
+        Thread.sleep(800)
+        screenshot("chip-clocks.png")
+        scenario.onActivity { a -> a.findViewById<ClockView>(R.id.clockView).onBox!!("PLL") }
+        Thread.sleep(800)
+        assertTrue("the PLL's sheet", ui.hasObject(By.textStartsWith("PLLN")))
+        screenshot("chip-clocks-pll.png")
+        ui.pressBack()
+        Thread.sleep(300)
 
         // Leave it as it was
         vm.pokeWord(0x48000000, moder or (3 shl 10))

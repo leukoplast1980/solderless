@@ -310,6 +310,19 @@
                         </ScrollView>
                     </LinearLayout>
 
+                    <!-- Clocks: the clock tree -->
+                    <ScrollView
+                        android:id="@+id/clocksSection"
+                        android:layout_width="match_parent"
+                        android:layout_height="match_parent"
+                        android:visibility="gone">
+
+                        <io.github.leukoplast1980.solderless.ui.ClockView
+                            android:id="@+id/clockView"
+                            android:layout_width="match_parent"
+                            android:layout_height="wrap_content" />
+                    </ScrollView>
+
                     <!-- Pins: the package, each pin's set-up and wiring -->
                     <ScrollView
                         android:id="@+id/pinsSection"
