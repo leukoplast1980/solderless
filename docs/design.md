@@ -41,7 +41,9 @@ A separate app with its own repository. It copies the editor, console,
 line loader and Forth syntax colouring from Mecrisp Pocket instead of sharing a
 library. The two apps can share code later if that pays off.
 
-Tabs: **Breadboard**, **Console**, **Editor**, **Registers**, **Pins**, **Log**.
+Tabs: **Console**, **Editor**, **Board**, **Scope**, **Chip**. The Chip tab
+holds the learning views (section 8) as sections: Core, Registers, Clocks,
+Pins, Log.
 
 A **project** holds everything for one build: the firmware image, the internal
 flash contents, the breadboard (parts, wiring, settings), the contents of any
@@ -416,9 +418,29 @@ Shown in the Log and marked on the breadboard and in the Registers view:
 
 ## 8. Learning views
 
-- **Registers**: every peripheral register with its fields named and
-  described, from the SVD. Changes are highlighted; fields can be edited
-  while paused.
+Sketched on 24 November 2026 (Solderless – milestone 4 sketch): one Chip
+tab, its sections chosen with chips along the top, a run bar along the
+bottom with the chip's state, Pause and Step.
+
+- **Core**: the CPU's registers, Forth's stacks and the clocks, as in
+  milestone 1, and the fault status.
+- **Registers** (built): every peripheral, the core's SysTick, NVIC and SCB
+  included, grouped by whether RCC has its clock on. A peripheral opens to
+  its registers; each register shows the fields that are not at their reset
+  value or have just changed, decoded ("MODER5 01 output", "AFRL2 0111 AF7
+  USART2_TX"), changes in amber (for 1.5 s while running, since the last Step
+  while paused). A search box finds peripherals, registers and fields by
+  name. Tapping a field opens it: what it does, its values, what is wired to
+  its pin, the Forth (Mecrisp-Stellaris) that sets it, Copy as Forth and
+  Write. Writes go through the bus as the CPU's would, side effects included,
+  running or paused. Names and bits come from ST's SVD; what fields do and
+  what their values mean come from the SVD's lists (RCC, PWR) and from
+  `data/field-notes.txt`, written from RM0440 for the registers a learner
+  meets first (GPIO, RCC, FLASH, USART, SPI, I2C, timers, ADC, DAC, EXTI,
+  SYSCFG, SysTick, SCB). `tools/gen_g431.py` merges both into
+  `data/g431rb-registers.json` and fixes the SVD where it is wrong for the
+  G431 (the USART's BRR, TIM2's 32-bit counter). Peripherals the emulator
+  does not model yet are marked "not emulated".
 - **Access log**: which instruction changed which field, from what to what.
   Filter by peripheral.
 - **Clock tree**: live diagram from RCC, from the oscillators through the PLL

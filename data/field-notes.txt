@@ -1,0 +1,803 @@
+# Notes on register fields for the Registers view, merged into
+# data/g431rb-registers.json by tools/gen_g431.py. ST's SVD names every field
+# but explains few of them; these notes say what a field does and what its
+# values mean, from RM0440 (STM32G4 reference manual) and PM0214 (Cortex-M4).
+#
+#   PERIPHERAL REGISTER[,...] FIELD[,...]    shell patterns, as in the SVD
+#     A sentence about the field.            {n}: the number in the field's
+#                                            name, {port}: the GPIO port
+#     show: ÷{v+1}                           how to show its value: {v},
+#                                            {v+1}, {h} (hex), {h1} (hex of
+#                                            v >> 1), {af} (the pin's AF)
+#     00 = what this value means             binary, of the field's width;
+#     0xx = ...                              x: either bit
+#     (number)                               a number: drop the SVD's list
+#
+# PERIPHERAL matches the peripheral the registers are described for
+# (GPIOA, GPIOC, USART1, TIM2 ...), so GPIO* covers every port.
+
+# ---------------------------------------------------------------- GPIO
+
+GPIO* MODER MODER*
+  What pin P{port}{n} does.
+  00 = input
+  01 = output
+  10 = alternate function (AFR picks which)
+  11 = analog (most pins after reset)
+
+GPIO* OTYPER OT*
+  How P{port}{n} drives its output.
+  0 = push-pull: drives high and low
+  1 = open-drain: drives low, lets go for high
+
+GPIO* OSPEEDR OSPEEDR*
+  How fast P{port}{n}'s output switches. Faster edges ring more and use more current.
+  00 = low speed
+  01 = medium speed
+  10 = high speed
+  11 = very high speed
+
+GPIO* PUPDR PUPDR*
+  The internal resistor on P{port}{n} (about 40 kΩ).
+  00 = no pull-up or pull-down
+  01 = pull-up
+  10 = pull-down
+  11 = reserved
+
+GPIO* IDR IDR*
+  The level read on P{port}{n} (whatever drives it).
+  0 = low
+  1 = high
+
+GPIO* ODR ODR*
+  The level P{port}{n} drives when its MODER is output.
+  0 = low
+  1 = high
+
+GPIO* BSRR BS*
+  Writing 1 sets ODR{n}: P{port}{n} goes high. Writing 0 does nothing, so no read-modify-write is needed.
+  0 = no change
+  1 = set P{port}{n} high
+
+GPIO* BSRR BR*
+  Writing 1 clears ODR{n}: P{port}{n} goes low. If BS{n} is also written, BS wins.
+  0 = no change
+  1 = set P{port}{n} low
+
+GPIO* BRR BR*
+  Writing 1 clears ODR{n}: P{port}{n} goes low.
+  0 = no change
+  1 = set P{port}{n} low
+
+GPIO* AFRL,AFRH AFR*
+  Which peripheral drives P{port}{n} when its MODER is alternate function.
+  show: AF{v} {af}
+  (number)
+
+GPIO* LCKR LCK*
+  Locks P{port}{n}'s settings until the next reset (after the LCKK key sequence).
+  0 = not locked
+  1 = locked
+
+# ---------------------------------------------------------------- RCC
+
+RCC RCC_CFGR HPRE
+  Divides SYSCLK to give HCLK: the core, memories, DMA and GPIO.
+  0xxx = SYSCLK ÷ 1
+  1000 = SYSCLK ÷ 2
+  1001 = SYSCLK ÷ 4
+  1010 = SYSCLK ÷ 8
+  1011 = SYSCLK ÷ 16
+  1100 = SYSCLK ÷ 64
+  1101 = SYSCLK ÷ 128
+  1110 = SYSCLK ÷ 256
+  1111 = SYSCLK ÷ 512
+
+RCC RCC_CFGR PPRE1
+  Divides HCLK to give PCLK1, the APB1 bus clock (USART2, I2C, TIM2 to TIM7, ...).
+  0xx = HCLK ÷ 1
+  100 = HCLK ÷ 2
+  101 = HCLK ÷ 4
+  110 = HCLK ÷ 8
+  111 = HCLK ÷ 16
+
+RCC RCC_CFGR PPRE2
+  Divides HCLK to give PCLK2, the APB2 bus clock (USART1, SPI1, TIM1, TIM8, TIM15 to TIM17, ...).
+  0xx = HCLK ÷ 1
+  100 = HCLK ÷ 2
+  101 = HCLK ÷ 4
+  110 = HCLK ÷ 8
+  111 = HCLK ÷ 16
+
+RCC RCC_CFGR SW
+  Picks the clock that becomes SYSCLK. SWS shows when the switch has happened.
+
+RCC RCC_CFGR SWS
+  The clock SYSCLK comes from now (set by hardware after SW changes).
+
+RCC RCC_PLLCFGR PLLSRC
+  The clock the PLL starts from.
+
+RCC RCC_PLLCFGR PLLM
+  Divides the PLL's input. The result must be 2.66 to 16 MHz.
+  show: ÷{v+1}
+  (number)
+
+RCC RCC_PLLCFGR PLLN
+  Multiplies the divided input to give the VCO frequency, which must be 96 to 344 MHz. Allowed: 8 to 127.
+  show: ×{v}
+  (number)
+
+RCC RCC_PLLCFGR PLLR
+  Divides the VCO to give the R output, which can become SYSCLK (at most 170 MHz).
+
+RCC RCC_PLLCFGR PLLREN
+  Lets the R output out of the PLL. It must be on before SW selects the PLL.
+
+RCC RCC_PLLCFGR PLLPDIV
+  Divides the VCO to give the P output (ADC clock). 0 leaves it to PLLP.
+  (number)
+
+RCC RCC_CR HSION
+  The internal 16 MHz RC oscillator, the clock after reset.
+
+RCC RCC_CR HSEON
+  The external crystal oscillator (on PF0 and PF1).
+
+RCC RCC_CR PLLON
+  The PLL. Its settings in PLLCFGR can only change while it is off.
+
+RCC RCC_CR PLLRDY
+  Set by hardware once the PLL has locked to its new frequency.
+
+RCC RCC_A[HP]B?ENR* *EN
+  The peripheral's clock. While it is off, the peripheral's registers read 0 and writes to them are lost.
+
+# ---------------------------------------------------------------- FLASH and PWR
+
+FLASH ACR LATENCY
+  Wait states: the extra clock cycles a flash read takes. More are needed as HCLK goes up: 0 up to 34 MHz, 4 at 170 MHz (range 1 boost).
+  show: {v} wait states
+  (number)
+
+FLASH ACR PRFTEN
+  Prefetch: reads the next flash words while the current ones run.
+  0 = off
+  1 = on
+
+FLASH ACR ICEN
+  Instruction cache.
+  0 = off
+  1 = on
+
+FLASH ACR DCEN
+  Data cache (for constants read from flash).
+  0 = off
+  1 = on
+
+FLASH CR LOCK
+  Set: CR cannot be written. Writing the two keys to KEYR clears it.
+  0 = unlocked
+  1 = locked
+
+FLASH CR PG
+  Programming: the next writes to flash program it, a double word at a time.
+  0 = off
+  1 = program
+
+FLASH CR PER
+  Page erase: STRT erases the page in PNB.
+  0 = off
+  1 = page erase
+
+FLASH CR PNB
+  The page (2 KB) to erase.
+  (number)
+
+FLASH SR BSY
+  An erase or program operation is running.
+  0 = idle
+  1 = busy
+
+PWR PWR_CR1 VOS
+  The core voltage range. Range 1 allows up to 150 MHz; with boost mode (CR5) up to 170 MHz.
+
+PWR PWR_CR5 R1MODE
+  Boost mode for range 1, needed above 150 MHz.
+
+# ---------------------------------------------------------------- USART
+
+USART* CR1 UE
+  Turns the USART on. Most settings (word length, baud rate, stop bits) can only change while it is off.
+  0 = off
+  1 = on
+
+USART* CR1 TE
+  The transmitter.
+  0 = off
+  1 = on: TX sends
+
+USART* CR1 RE
+  The receiver.
+  0 = off
+  1 = on: RX listens
+
+USART* CR1 M0
+  Word length, with M1: M1 M0 = 00 8 bits, 01 9 bits, 10 7 bits.
+
+USART* CR1 M1
+  Word length, with M0: M1 M0 = 00 8 bits, 01 9 bits, 10 7 bits.
+
+USART* CR1 PCE
+  Parity bit after the data bits.
+  0 = no parity
+  1 = parity
+
+USART* CR1 PS
+  Which parity, when PCE is on.
+  0 = even
+  1 = odd
+
+USART* CR1 OVER8
+  Samples per bit. 8 allows faster baud rates; 16 copes better with noise.
+  0 = 16 samples
+  1 = 8 samples
+
+USART* CR1 RXNEIE
+  An interrupt when a character has arrived (RXNE).
+  0 = off
+  1 = on
+
+USART* CR1 TXEIE
+  An interrupt when TDR is free for the next character (TXE).
+  0 = off
+  1 = on
+
+USART* CR1 TCIE
+  An interrupt when the last character has left completely (TC).
+  0 = off
+  1 = on
+
+USART* CR1 FIFOEN
+  8-character FIFOs for sending and receiving.
+  0 = off
+  1 = on
+
+USART* CR2 STOP
+  Stop bits after each character.
+  00 = 1 stop bit
+  01 = 0.5 stop bit
+  10 = 2 stop bits
+  11 = 1.5 stop bits
+
+USART* CR2 MSBFIRST
+  Bit order on the wire.
+  0 = least significant bit first (usual)
+  1 = most significant bit first
+
+USART* CR2 SWAP
+  Swaps the TX and RX pins.
+  0 = as wired
+  1 = swapped
+
+USART* BRR BRR
+  Divides the USART's clock to give the baud rate: baud = clock ÷ BRR (16 samples per bit).
+  (number)
+
+USART* ISR TXE
+  TDR is empty: the next character can be written.
+  0 = TDR full
+  1 = TDR empty
+
+USART* ISR TC
+  Everything has been sent, including the stop bits.
+  0 = still sending
+  1 = done
+
+USART* ISR RXNE
+  A character has arrived in RDR. Reading RDR clears it.
+  0 = nothing new
+  1 = character waiting
+
+USART* ISR ORE
+  Overrun: a character arrived before the last one was read, and was lost. ICR ORECF clears it.
+  0 = no overrun
+  1 = overrun
+
+USART* ISR FE
+  Framing error: no stop bit where one was expected (often a wrong baud rate).
+  0 = none
+  1 = framing error
+
+USART* ISR BUSY
+  A character is being received.
+  0 = idle
+  1 = receiving
+
+USART* RDR RDR
+  The character received last. Reading it clears RXNE.
+  (number)
+
+USART* TDR TDR
+  Writing a character here sends it.
+  (number)
+
+# ---------------------------------------------------------------- SPI
+
+SPI* CR1 SPE
+  Turns the SPI on.
+  0 = off
+  1 = on
+
+SPI* CR1 MSTR
+  Who drives the clock.
+  0 = slave: SCK comes from outside
+  1 = master: this SPI drives SCK
+
+SPI* CR1 BR
+  Divides PCLK to give the SCK frequency (master).
+  000 = PCLK ÷ 2
+  001 = PCLK ÷ 4
+  010 = PCLK ÷ 8
+  011 = PCLK ÷ 16
+  100 = PCLK ÷ 32
+  101 = PCLK ÷ 64
+  110 = PCLK ÷ 128
+  111 = PCLK ÷ 256
+
+SPI* CR1 CPOL
+  SCK's level while idle. With CPHA it makes the SPI mode: mode = CPOL × 2 + CPHA.
+  0 = low when idle
+  1 = high when idle
+
+SPI* CR1 CPHA
+  Which clock edge data is read on. With CPOL it makes the SPI mode.
+  0 = first edge
+  1 = second edge
+
+SPI* CR1 LSBFIRST
+  Bit order on the wire.
+  0 = most significant bit first (usual)
+  1 = least significant bit first
+
+SPI* CR1 SSM
+  Software slave management: SSI replaces the NSS pin.
+  0 = NSS pin
+  1 = SSI bit
+
+SPI* CR1 SSI
+  The internal NSS level when SSM is set. A master needs it high, or it reports a mode fault.
+  0 = low
+  1 = high
+
+SPI* CR2 DS
+  Bits per frame.
+  show: {v+1} bits
+  (number)
+
+SPI* CR2 FRXTH
+  When RXNE is set.
+  0 = 16 bits received
+  1 = 8 bits received (use for 8-bit frames)
+
+SPI* CR2 SSOE
+  The master drives its NSS pin low while the SPI is on.
+  0 = off
+  1 = on
+
+SPI* SR TXE
+  The transmit FIFO has room.
+  0 = full
+  1 = room
+
+SPI* SR RXNE
+  Data has arrived.
+  0 = empty
+  1 = data waiting
+
+SPI* SR BSY
+  A transfer is running.
+  0 = idle
+  1 = busy
+
+SPI* SR MODF
+  Mode fault: a master saw NSS go low.
+  0 = none
+  1 = mode fault
+
+SPI* SR OVR
+  Overrun: data arrived while the receive FIFO was full.
+  0 = none
+  1 = overrun
+
+SPI* DR DR
+  Writing sends; reading takes what was received.
+  (number)
+
+# ---------------------------------------------------------------- I2C
+
+I2C* CR1 PE
+  Turns the I2C on. Clearing it resets the controller's state.
+  0 = off
+  1 = on
+
+I2C* CR2 SADD
+  The address of the part to talk to (7-bit addresses: bits 7:1).
+  show: part at 0x{h1}
+  (number)
+
+I2C* CR2 RD_WRN
+  The direction of the next transfer.
+  0 = write to the part
+  1 = read from the part
+
+I2C* CR2 NBYTES
+  How many bytes the next transfer moves.
+  (number)
+
+I2C* CR2 START
+  Writing 1 sends a START and the address. Hardware clears it.
+  0 = nothing
+  1 = send START
+
+I2C* CR2 STOP
+  Writing 1 sends a STOP after the current byte.
+  0 = nothing
+  1 = send STOP
+
+I2C* CR2 AUTOEND
+  What happens after NBYTES bytes.
+  0 = wait (TC is set; send START or STOP yourself)
+  1 = send STOP by itself
+
+I2C* TIMINGR PRESC
+  Divides the I2C clock for the timing fields below.
+  show: ÷{v+1}
+  (number)
+
+I2C* TIMINGR SCLL
+  How long SCL stays low, in prescaled clocks.
+  show: {v+1} clocks
+  (number)
+
+I2C* TIMINGR SCLH
+  How long SCL stays high, in prescaled clocks.
+  show: {v+1} clocks
+  (number)
+
+I2C* ISR TXIS
+  The next byte to send can be written to TXDR.
+  0 = not yet
+  1 = write TXDR
+
+I2C* ISR RXNE
+  A byte has arrived in RXDR.
+  0 = nothing new
+  1 = byte waiting
+
+I2C* ISR NACKF
+  The part did not acknowledge (wrong address, or it is busy).
+  0 = none
+  1 = NACK received
+
+I2C* ISR STOPF
+  A STOP has been sent or seen.
+  0 = no
+  1 = STOP
+
+I2C* ISR TC
+  NBYTES bytes are done and AUTOEND is off: send START or STOP.
+  0 = no
+  1 = transfer complete
+
+I2C* ISR BUSY
+  The bus is busy (between a START and a STOP).
+  0 = free
+  1 = busy
+
+# ---------------------------------------------------------------- Timers
+
+TIM* CR1 CEN
+  Starts the counter.
+  0 = stopped
+  1 = counting
+
+TIM* CR1 DIR
+  Count direction (edge-aligned mode).
+  0 = up
+  1 = down
+
+TIM* CR1 ARPE
+  ARR changes wait for the next update event.
+  0 = at once
+  1 = at the next update
+
+TIM* CR1 OPM
+  One-pulse mode: the counter stops at the next update event.
+  0 = keep counting
+  1 = stop after one period
+
+TIM* CR1 CMS
+  Counting mode.
+  00 = edge-aligned: up or down, as DIR says
+  01 = center-aligned 1
+  10 = center-aligned 2
+  11 = center-aligned 3
+
+TIM* PSC PSC
+  Divides the timer clock: the counter counts at clock ÷ (PSC + 1).
+  show: ÷{v+1}
+  (number)
+
+TIM* ARR ARR
+  The counter counts from 0 to ARR, then starts over: one period is ARR + 1 counts.
+  show: {v+1} counts per period
+  (number)
+
+TIM* CNT CNT
+  The counter.
+  (number)
+
+TIM* CCR* CCR*
+  Compare value of channel {n}: in PWM mode the output changes when the counter passes it, so the duty is CCR{n} ÷ (ARR + 1).
+  (number)
+
+TIM* DIER UIE
+  An interrupt at each update event (the counter starting over).
+  0 = off
+  1 = on
+
+TIM* DIER CC*IE
+  An interrupt when channel {n} matches or captures.
+  0 = off
+  1 = on
+
+TIM* SR UIF
+  An update event has happened. Write 0 to clear it.
+  0 = no
+  1 = update
+
+TIM* SR CC*IF
+  Channel {n} has matched or captured. Write 0 to clear it.
+  0 = no
+  1 = yes
+
+TIM* EGR UG
+  Writing 1 restarts the counter and loads PSC and ARR at once.
+  0 = nothing
+  1 = update now
+
+TIM* CCMR*_Output OC*M
+  What output channel {n} does (with OC{n}M_3 as bit 3).
+  000 = frozen: no change
+  001 = high on match
+  010 = low on match
+  011 = toggle on match
+  100 = forced low
+  101 = forced high
+  110 = PWM mode 1: high while CNT < CCR{n}
+  111 = PWM mode 2: low while CNT < CCR{n}
+
+TIM* CCMR*_Output OC*PE
+  CCR{n} changes wait for the next update event.
+  0 = at once
+  1 = at the next update
+
+TIM* CCMR*_Output,CCMR*_Input CC*S
+  Channel {n}'s direction.
+  00 = output
+  01 = input from its own pin (TI{n})
+  10 = input from the neighbouring channel's pin
+  11 = input from TRC
+
+TIM* CCER CC?E
+  Puts channel {n} on its pin.
+  0 = off
+  1 = on
+
+TIM* CCER CC?P
+  Channel {n}'s polarity.
+  0 = active high (inputs: rising edge)
+  1 = active low (inputs: falling edge)
+
+TIM* BDTR MOE
+  Main output enable of an advanced timer (TIM1, TIM8, TIM15 to TIM17): without it no channel reaches its pin.
+  0 = outputs off
+  1 = outputs on
+
+# ---------------------------------------------------------------- ADC
+
+ADC* CR ADEN
+  Turns the ADC on. ADRDY in ISR says when it is ready.
+  0 = off
+  1 = on
+
+ADC* CR ADDIS
+  Writing 1 turns the ADC off.
+  0 = nothing
+  1 = turn off
+
+ADC* CR ADSTART
+  Writing 1 starts conversions. Hardware clears it when a single sequence ends.
+  0 = idle
+  1 = converting
+
+ADC* CR ADCAL
+  Writing 1 calibrates the ADC (while it is off). Hardware clears it when done.
+  0 = done
+  1 = calibrating
+
+ADC* CR DEEPPWD
+  Deep power-down, the state after reset. Clear it before turning on the regulator.
+  0 = powered
+  1 = deep power-down
+
+ADC* CR ADVREGEN
+  The ADC's voltage regulator. Needs 20 µs to start before the ADC can be calibrated or used.
+  0 = off
+  1 = on
+
+ADC* ISR ADRDY
+  The ADC is on and ready.
+  0 = not ready
+  1 = ready
+
+ADC* ISR EOC
+  A conversion has finished: DR holds the result. Reading DR clears it.
+  0 = no
+  1 = result waiting
+
+ADC* ISR EOS
+  The whole sequence has finished.
+  0 = no
+  1 = yes
+
+ADC* ISR OVR
+  Overrun: a result was lost because DR was not read in time.
+  0 = none
+  1 = overrun
+
+ADC* CFGR CONT
+  Conversion mode.
+  0 = single: one sequence per ADSTART
+  1 = continuous
+
+ADC* CFGR RES
+  Resolution.
+  00 = 12 bits
+  01 = 10 bits
+  10 = 8 bits
+  11 = 6 bits
+
+ADC* CFGR ALIGN
+  How the result sits in DR.
+  0 = right-aligned
+  1 = left-aligned
+
+ADC* SQR1 L
+  How many channels the sequence converts.
+  show: {v+1} channels
+  (number)
+
+ADC* SQR* SQ[0-9]*
+  The channel converted at position {n} of the sequence.
+  show: channel {v}
+  (number)
+
+ADC* SMPR* SMP[0-9]*
+  Sampling time of channel {n}: longer suits higher source resistance (a pot's wiper).
+  000 = 2.5 ADC cycles
+  001 = 6.5 ADC cycles
+  010 = 12.5 ADC cycles
+  011 = 24.5 ADC cycles
+  100 = 47.5 ADC cycles
+  101 = 92.5 ADC cycles
+  110 = 247.5 ADC cycles
+  111 = 640.5 ADC cycles
+
+ADC* DR RDATA
+  The last result: 0 is 0 V, 4095 is VREF+ (12 bits).
+  (number)
+
+# ---------------------------------------------------------------- DAC
+
+DAC* DAC_CR EN1
+  Channel 1's output on PA4.
+  0 = off
+  1 = on
+
+DAC* DAC_DHR12R1 DACC1DHR
+  The 12-bit value for channel 1: 0 is 0 V, 4095 is VREF+.
+  (number)
+
+DAC* DAC_DOR1 DACC1DOR
+  What channel 1 outputs now.
+  (number)
+
+# ---------------------------------------------------------------- EXTI, SYSCFG
+
+EXTI IMR1 IM[0-9]*
+  Lets line {n} raise its interrupt. Lines 0 to 15 come from the pins with that number.
+  0 = masked
+  1 = interrupt on
+
+EXTI RTSR1 RT[0-9]*
+  Line {n} triggers on a rising edge.
+  0 = no
+  1 = rising edge
+
+EXTI FTSR1 FT[0-9]*
+  Line {n} triggers on a falling edge.
+  0 = no
+  1 = falling edge
+
+EXTI PR1 PIF*
+  Line {n} has triggered. Write 1 to clear it.
+  0 = no
+  1 = pending
+
+SYSCFG EXTICR* EXTI*
+  Which port's pin {n} drives EXTI line {n}.
+  0000 = PA{n}
+  0001 = PB{n}
+  0010 = PC{n}
+  0011 = PD{n}
+  0100 = PE{n}
+  0101 = PF{n}
+  0110 = PG{n}
+
+# ---------------------------------------------------------------- Core
+
+STK CTRL ENABLE
+  Starts SysTick counting down.
+  0 = stopped
+  1 = counting
+
+STK CTRL TICKINT
+  An interrupt each time the count reaches 0.
+  0 = off
+  1 = on
+
+STK CTRL CLKSOURCE
+  The clock SysTick counts.
+  0 = HCLK ÷ 8
+  1 = HCLK
+
+STK CTRL COUNTFLAG
+  The count has reached 0 since CTRL was last read.
+  0 = no
+  1 = yes
+
+STK LOAD RELOAD
+  The value the count restarts from: one period is RELOAD + 1 clocks.
+  show: {v+1} clocks per period
+  (number)
+
+STK VAL CURRENT
+  The count now. Writing any value clears it.
+  (number)
+
+SCB VTOR TBLOFF
+  Where the vector table is (bits 29:9 of its address).
+  (number)
+
+SCB CCR DIV_0_TRP
+  Division by zero.
+  0 = gives 0
+  1 = UsageFault
+
+SCB CCR UNALIGN__TRP
+  Unaligned word and halfword accesses.
+  0 = allowed
+  1 = UsageFault
+
+SCB SHCSR USGFAULTENA,BUSFAULTENA,MEMFAULTENA
+  This fault's own handler. When off, the fault escalates to HardFault.
+  0 = HardFault instead
+  1 = own handler
+
+SCB CPACR CP
+  Access to the FPU (coprocessors 10 and 11).
+  0000 = no access: FPU instructions fault
+  0101 = privileged access only
+  1111 = full access

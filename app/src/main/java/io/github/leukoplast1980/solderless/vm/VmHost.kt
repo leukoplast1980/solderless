@@ -7,6 +7,7 @@ package io.github.leukoplast1980.solderless.vm
 
 import io.github.leukoplast1980.solderless.board.Board as Breadboard
 import io.github.leukoplast1980.solderless.board.ChipPins
+import io.github.leukoplast1980.solderless.chip.RegisterMap
 import io.github.leukoplast1980.solderless.board.Recommender
 import io.github.leukoplast1980.solderless.board.Wiring
 import io.github.leukoplast1980.solderless.board.PartType
@@ -67,6 +68,18 @@ class VmHost private constructor(context: Context) {
 
     /** The chip's pins and functions, for the Board tab and the recommender */
     val chip: ChipPins
+
+    private val appContext = context.applicationContext
+
+    /** Every register and field, for the Chip tab: null until [loadRegisterMap] has read it */
+    @Volatile var registerMap: RegisterMap? = null
+        private set
+
+    /** Reads the register descriptions (half a megabyte of JSON): call off the UI thread */
+    fun loadRegisterMap(): RegisterMap = registerMap ?: synchronized(this) {
+        registerMap ?: RegisterMap(appContext.assets.open("chip/g431rb-registers.json").use { it.reader().readText() })
+            .also { registerMap = it }
+    }
 
     /** Plays the board's piezo and speaker (created when first needed) */
     private var audioOut: AudioOut? = null
@@ -369,6 +382,8 @@ class VmHost private constructor(context: Context) {
     fun snapshot(): Snapshot = Snapshot(NativeVm.snapshot(handle))
     fun readMemory(address: Int, length: Int): ByteArray? = NativeVm.readMemory(handle, address, length)
     fun peekWords(addresses: IntArray): IntArray = NativeVm.peekWords(handle, addresses)
+    /** For the Registers view: a write as the CPU would make it. True if it went through. */
+    fun pokeWord(address: Int, value: Int): Boolean = NativeVm.pokeWord(handle, address, value) == 0
 
     /** An encoder turned by some detents, clockwise when positive */
     fun boardTurn(partId: Int, steps: Int) = NativeVm.boardTurn(handle, partId, steps)

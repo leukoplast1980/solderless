@@ -369,6 +369,11 @@ size_t cm_peek(const struct cm_cpu *c, uint32_t addr, uint8_t *buf, size_t len)
     return len;
 }
 
+int cm_debug_write32(struct cm_cpu *c, uint32_t addr, uint32_t value)
+{
+    return bus_write(c, addr & ~3u, 4, value, 1);
+}
+
 /* ====================================================================== */
 /* Exceptions (B1.5)                                                      */
 /* ====================================================================== */

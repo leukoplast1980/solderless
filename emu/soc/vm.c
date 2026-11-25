@@ -324,6 +324,37 @@ uint32_t sl_peek32(sl_vm *vm, uint32_t addr)
     return io.word;
 }
 
+struct peek_many { const uint32_t *addrs; uint32_t *out; size_t n; };
+
+static void peek_many_fn(sl_vm *vm, void *arg)
+{
+    struct peek_many *pm = arg;
+    for (size_t i = 0; i < pm->n; i++) {
+        uint8_t b[4];
+        cm_peek(&vm->soc->cpu, pm->addrs[i] & ~3u, b, 4);
+        pm->out[i] = (uint32_t)b[0] | ((uint32_t)b[1] << 8) | ((uint32_t)b[2] << 16) | ((uint32_t)b[3] << 24);
+    }
+}
+
+void sl_peek_words(sl_vm *vm, const uint32_t *addrs, uint32_t *out, size_t n)
+{
+    struct peek_many pm = { addrs, out, n };
+    run_on_vm(vm, peek_many_fn, &pm);
+}
+
+static void poke_fn(sl_vm *vm, void *arg)
+{
+    struct mem_io *io = arg;
+    io->done = (size_t)cm_debug_write32(&vm->soc->cpu, io->addr, io->word);
+}
+
+int sl_poke32(sl_vm *vm, uint32_t addr, uint32_t value)
+{
+    struct mem_io io = { addr, NULL, 0, 0, value };
+    run_on_vm(vm, poke_fn, &io);
+    return (int)io.done;
+}
+
 static void snapshot_fn(sl_vm *vm, void *arg)
 {
     sl_snapshot *o = arg;

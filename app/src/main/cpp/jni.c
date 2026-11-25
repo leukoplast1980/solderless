@@ -148,12 +148,19 @@ JNIEXPORT jintArray JNICALL FN(peekWords)(JNIEnv *env, jclass cls, jlong h, jint
     jint *a = (*env)->GetIntArrayElements(env, addrs, NULL);
     if (!a) return NULL;
     jint *v = malloc(sizeof(jint) * (size_t)(n ? n : 1));
-    for (jsize i = 0; i < n; i++) v[i] = (jint)sl_peek32(VM(h), (uint32_t)a[i]);
+    sl_peek_words(VM(h), (const uint32_t *)a, (uint32_t *)v, (size_t)n);
     (*env)->ReleaseIntArrayElements(env, addrs, a, JNI_ABORT);
     jintArray out = (*env)->NewIntArray(env, n);
     if (out) (*env)->SetIntArrayRegion(env, out, 0, n, v);
     free(v);
     return out;
+}
+
+/* A word write as the CPU would make it; 0 if it went through */
+JNIEXPORT jint JNICALL FN(pokeWord)(JNIEnv *env, jclass cls, jlong h, jint addr, jint value)
+{
+    (void)env; (void)cls;
+    return sl_poke32(VM(h), (uint32_t)addr, (uint32_t)value);
 }
 
 /* Messages from the chip model, or null if there are none. */

@@ -229,26 +229,124 @@
                 </LinearLayout>
             </LinearLayout>
 
-            <!-- Registers -->
+            <!-- Chip: Core, Registers, ... -->
             <LinearLayout
-                android:id="@+id/registersPane"
+                android:id="@+id/chipPane"
                 android:layout_width="match_parent"
                 android:layout_height="match_parent"
                 android:orientation="vertical"
                 android:visibility="gone">
 
+                <HorizontalScrollView
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:scrollbars="none">
+
+                    <com.google.android.material.chip.ChipGroup
+                        android:id="@+id/chipSections"
+                        android:layout_width="wrap_content"
+                        android:layout_height="wrap_content"
+                        android:paddingHorizontal="8dp"
+                        app:chipSpacingHorizontal="6dp"
+                        app:selectionRequired="true"
+                        app:singleLine="true"
+                        app:singleSelection="true" />
+                </HorizontalScrollView>
+
+                <FrameLayout
+                    android:layout_width="match_parent"
+                    android:layout_height="0dp"
+                    android:layout_weight="1">
+
+                    <!-- Core: the CPU's registers, Forth's stacks, the clocks, faults -->
+                    <ScrollView
+                        android:id="@+id/coreSection"
+                        android:layout_width="match_parent"
+                        android:layout_height="match_parent"
+                        android:padding="8dp">
+
+                        <TextView
+                            android:id="@+id/registers"
+                            android:layout_width="match_parent"
+                            android:layout_height="wrap_content"
+                            android:fontFamily="monospace"
+                            android:textColor="@color/console_text"
+                            android:textSize="13sp" />
+                    </ScrollView>
+
+                    <!-- Registers: the peripherals' registers and fields -->
+                    <LinearLayout
+                        android:id="@+id/registersSection"
+                        android:layout_width="match_parent"
+                        android:layout_height="match_parent"
+                        android:orientation="vertical"
+                        android:visibility="gone">
+
+                        <EditText
+                            android:id="@+id/registerFind"
+                            android:layout_width="match_parent"
+                            android:layout_height="wrap_content"
+                            android:layout_marginHorizontal="8dp"
+                            android:fontFamily="monospace"
+                            android:hint="@string/registers_find_hint"
+                            android:imeOptions="actionSearch|flagNoExtractUi"
+                            android:importantForAutofill="no"
+                            android:inputType="text|textNoSuggestions|textCapCharacters"
+                            android:maxLines="1"
+                            android:textColor="@color/console_text"
+                            android:textColorHint="@color/console_hint"
+                            android:textSize="14sp" />
+
+                        <ScrollView
+                            android:id="@+id/registerScroll"
+                            android:layout_width="match_parent"
+                            android:layout_height="0dp"
+                            android:layout_weight="1">
+
+                            <io.github.leukoplast1980.solderless.ui.RegisterListView
+                                android:id="@+id/registerList"
+                                android:layout_width="match_parent"
+                                android:layout_height="wrap_content" />
+                        </ScrollView>
+                    </LinearLayout>
+                </FrameLayout>
+
+                <!-- Run control, under every section -->
                 <LinearLayout
                     android:layout_width="match_parent"
                     android:layout_height="wrap_content"
+                    android:background="@color/bar_background"
                     android:gravity="center_vertical"
+                    android:minHeight="48dp"
                     android:orientation="horizontal"
-                    android:paddingStart="8dp">
+                    android:paddingHorizontal="12dp">
+
+                    <TextView
+                        android:id="@+id/runState"
+                        android:layout_width="0dp"
+                        android:layout_height="wrap_content"
+                        android:layout_weight="1"
+                        android:fontFamily="monospace"
+                        android:maxLines="2"
+                        android:textColor="@color/label"
+                        android:textSize="12sp" />
+
+                    <Button
+                        android:id="@+id/registersCopy"
+                        style="@style/Widget.Material3.Button.TextButton"
+                        android:layout_width="wrap_content"
+                        android:layout_height="wrap_content"
+                        android:minWidth="0dp"
+                        android:paddingHorizontal="8dp"
+                        android:text="@string/registers_copy" />
 
                     <Button
                         android:id="@+id/pause"
                         style="@style/Widget.Material3.Button.TextButton"
                         android:layout_width="wrap_content"
                         android:layout_height="wrap_content"
+                        android:minWidth="0dp"
+                        android:paddingHorizontal="8dp"
                         android:text="@string/pause" />
 
                     <Button
@@ -257,40 +355,10 @@
                         android:layout_width="wrap_content"
                         android:layout_height="wrap_content"
                         android:enabled="false"
+                        android:minWidth="0dp"
+                        android:paddingHorizontal="8dp"
                         android:text="@string/step" />
-
-                    <Button
-                        android:id="@+id/registersCopy"
-                        style="@style/Widget.Material3.Button.TextButton"
-                        android:layout_width="wrap_content"
-                        android:layout_height="wrap_content"
-                        android:text="@string/registers_copy" />
                 </LinearLayout>
-
-                <!-- on its own line: it is long and changes all the time -->
-                <TextView
-                    android:id="@+id/runState"
-                    android:layout_width="match_parent"
-                    android:layout_height="wrap_content"
-                    android:fontFamily="monospace"
-                    android:paddingHorizontal="16dp"
-                    android:textColor="@color/label"
-                    android:textSize="13sp" />
-
-                <ScrollView
-                    android:layout_width="match_parent"
-                    android:layout_height="0dp"
-                    android:layout_weight="1"
-                    android:padding="8dp">
-
-                    <TextView
-                        android:id="@+id/registers"
-                        android:layout_width="match_parent"
-                        android:layout_height="wrap_content"
-                        android:fontFamily="monospace"
-                        android:textColor="@color/console_text"
-                        android:textSize="13sp" />
-                </ScrollView>
             </LinearLayout>
 
 

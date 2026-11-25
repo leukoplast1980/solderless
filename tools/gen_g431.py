@@ -5,10 +5,17 @@
 
 The output lists every peripheral of the STM32G431RB with its registers
 (offset, reset value, writable bits), its RCC enable and reset bits and its
-interrupts, plus the alternate-function table of the LQFP64 package. The
-generated file is committed; CI checks that it is up to date.
+interrupts, plus the alternate-function table of the LQFP64 package.
+
+Next to it, for the app: data/g431rb-pins.json (the package pins and their
+functions) and data/g431rb-registers.json (every register and field, with
+the notes in data/field-notes.txt). The generated files are committed; CI
+checks that they are up to date.
 """
+import fnmatch
 import json
+import os
+import re
 import sys
 import xml.etree.ElementTree as ET
 
@@ -107,7 +114,7 @@ def main():
                 irqs.append(n)
         kind = (info or {}).get("registers", {}).get("kind", cname.lower())
         periphs.append(dict(name=cname, base=base, size=size, regs=regs, en=en, rst=rst,
-                            irqs=irqs[:4], kind=kind))
+                            irqs=irqs[:4], kind=kind, svd=name))
 
     periphs.sort(key=lambda x: x["base"])
     # Trim blocks so they do not overlap the next one
@@ -188,8 +195,11 @@ def main():
     with open(out_path, "w") as f:
         f.write("\n".join(o) + "\n")
 
+    data_dir = os.path.join(os.path.dirname(os.path.abspath(out_path)), "..", "..", "data")
+    nregs, nfields = write_registers(svd, periphs, os.path.join(data_dir, "field-notes.txt"),
+                                     os.path.join(data_dir, "g431rb-registers.json"))
+
     # The same pin data for the app (recommender, Board tab): data/g431rb-pins.json
-    import os
     pkg_pins = {}
     for pp in pkg["pins"]:
         pkg_pins[int(pp["position"])] = pp["signals"]
@@ -206,12 +216,176 @@ def main():
                            if port == entry["port"] and n == entry["bit"]]
             entry["analog"] = [f"{pn}_{sg}" for port, n, pn, sg in analog if port == entry["port"] and n == entry["bit"]]
         out["pins"].append(entry)
-    json_path = os.path.join(os.path.dirname(os.path.abspath(out_path)), "..", "..", "data", "g431rb-pins.json")
+    json_path = os.path.join(data_dir, "g431rb-pins.json")
     with open(json_path, "w") as f:
         json.dump(out, f, indent=1)
         f.write("\n")
     print(f"{len(periphs)} peripherals, {sum(len(p['regs']) for p in periphs)} registers, "
-          f"{len(pins)} pins, {len(afs)} alternate functions, {len(analog)} analog functions")
+          f"{len(pins)} pins, {len(afs)} alternate functions, {len(analog)} analog functions; "
+          f"for the app {nregs} registers with {nfields} fields")
+
+
+# ---------------------------------------------------------------------------
+# data/g431rb-registers.json: the Registers view's description of the chip
+
+# Core peripherals shown with the chip's: SVD name, the name shown
+CORE = [("STK", "SysTick"), ("NVIC", "NVIC"), ("SCB", "SCB")]
+
+# What the emulator models; the rest only keep what is written to them
+MODELLED = {"RCC", "PWR", "FLASH", "EXTI", "SYSCFG", "DBGMCU", "DAC1", "ADC1", "ADC2", "ADC12_COMMON",
+            "USART1", "USART2", "USART3", "UART4", "LPUART1", "I2C1", "I2C2", "I2C3", "SPI1", "SPI2", "SPI3",
+            "TIM1", "TIM2", "TIM3", "TIM4", "TIM6", "TIM7", "TIM8", "TIM15", "TIM16", "TIM17",
+            "SysTick", "NVIC", "SCB"} | {f"GPIO{c}" for c in "ABCDEFG"}
+
+ACCESS = {"read-only": "r", "write-only": "w", "read-write": "rw", "writeOnce": "w", "read-writeOnce": "rw"}
+
+
+def clean(text):
+    return re.sub(r"\s+", " ", (text or "").strip())
+
+
+def read_notes(path):
+    """[(peripheral, register, [field patterns], about, show, values or None)]"""
+    notes, cur = [], None
+    for raw in open(path, encoding="utf-8"):
+        line = raw.rstrip("\n")
+        if not line.strip() or line.lstrip().startswith("#"):
+            continue
+        if not line[0].isspace():
+            per, reg, fields = line.split()
+            cur = dict(per=per, reg=reg, fields=fields.split(","), about="", show="", values=[], number=False)
+            notes.append(cur)
+            continue
+        t = line.strip()
+        if t == "(number)":
+            cur["number"] = True
+        elif t.startswith("show: "):
+            cur["show"] = t[6:]
+        elif " = " in t and re.fullmatch(r"[01x]+", t.split(" = ")[0]):
+            k, v = t.split(" = ", 1)
+            cur["values"].append([k, v])
+        else:
+            cur["about"] = (cur["about"] + " " + t).strip()
+    return notes
+
+
+def note_for(notes, owner, reg, field):
+    for n in notes:
+        if fnmatch.fnmatchcase(owner, n["per"]) and any(fnmatch.fnmatchcase(reg, r) for r in n["reg"].split(",")) \
+                and any(fnmatch.fnmatchcase(field, f) for f in n["fields"]):
+            return n
+    return None
+
+
+def write_registers(svd, periphs, notes_path, json_path):
+    notes = read_notes(notes_path)
+    used = set()
+
+    def owner_of(name):
+        p = svd[name]
+        return p.get("derivedFrom") or name
+
+    def block(owner, wide_timer):
+        p = svd[owner]
+        prefix = re.sub(r"\d+$", "", owner) + "_"
+        regs = []
+        extra = []
+        if owner == "SCB":      # CPACR is described on its own in the SVD
+            extra = [(r, 0x88) for r in svd["FPU_CPACR"].find("registers").findall("register")]
+        for rg, at in [(r, None) for r in p.find("registers").findall("register")] + extra:
+            rname = rg.findtext("name")
+            off = num(rg.findtext("addressOffset")) if at is None else at
+            racc = ACCESS.get(rg.findtext("access") or p.findtext("access") or "read-write", "rw")
+            fields = []
+            for f in (rg.find("fields").findall("field") if rg.find("fields") is not None else []):
+                fields.append([f.findtext("name"), num(f.findtext("bitOffset")), num(f.findtext("bitWidth")),
+                               ACCESS.get(f.findtext("access") or "", racc), clean(f.findtext("description")),
+                               f.find("enumeratedValues")])
+            names = {f[0] for f in fields}
+            # ST's SVD has the F1's BRR (mantissa and fraction) for the USARTs
+            if rname == "BRR" and "DIV_Mantissa" in names:
+                fields = [["BRR", 0, 16, racc, "USARTDIV", None]]
+            # TIM2 is the 32-bit one (TIM3 and TIM4 share its description)
+            if wide_timer and (rname in ("CNT", "ARR") or re.fullmatch(r"CCR[1-4]", rname)):
+                fields = [[rname, 0, 32, "rw", "", None]]
+            out_fields = []
+            for name, bit, width, acc, desc, ev in sorted(fields, key=lambda x: -x[1]):
+                fd = {"n": name, "b": bit, "w": width}
+                if acc != racc:
+                    fd["a"] = acc
+                if desc and desc.upper() != name.upper():
+                    fd["d"] = desc
+                values = None
+                if ev is not None:
+                    values = []
+                    for v in ev.findall("enumeratedValue"):
+                        val = num(v.findtext("value"))
+                        if val >= 1 << width:
+                            continue
+                        values.append([format(val, f"0{width}b"), clean(v.findtext("description")) or v.findtext("name")])
+                n = note_for(notes, owner, rname, name)
+                if n:
+                    used.add(id(n))
+                    if n["about"]:
+                        fd["about"] = n["about"]
+                    if n["show"]:
+                        fd["show"] = n["show"]
+                    if n["values"]:
+                        for k, _ in n["values"]:
+                            if len(k) != width:
+                                sys.exit(f"field-notes: {owner} {rname} {name}: value {k} is not {width} bits")
+                        values = n["values"]
+                    elif n["number"]:
+                        values = None
+                if values:
+                    fd["v"] = values
+                out_fields.append(fd)
+            shown = rname[len(prefix):] if rname.startswith(prefix) else rname
+            if shown == "CFSR_UFSR_BFSR_MMFSR":
+                shown = "CFSR"
+            reset = num(rg.findtext("resetValue") or "0") & 0xFFFFFFFF
+            if owner == "TIM2" and not wide_timer and (rname in ("CNT", "ARR") or re.fullmatch(r"CCR[1-4]", rname)):
+                reset &= 0xFFFF     # TIM3 and TIM4 count 16 bits
+            rd = {"n": shown, "o": off, "r": reset, "a": racc}
+            if clean(rg.findtext("description")):
+                rd["d"] = clean(rg.findtext("description"))
+            if out_fields:
+                rd["f"] = out_fields
+            regs.append(rd)
+        regs.sort(key=lambda r: r["o"])
+        return regs
+
+    out = {"peripherals": [], "blocks": {}}
+    entries = [(p["svd"], p["name"], p["base"], p["en"]) for p in periphs]
+    entries += [(s, shown, num(svd[s].findtext("baseAddress")), (-1, -1)) for s, shown in CORE]
+    ens = {shown: en for _, shown, _, en in entries}
+    for sname, shown, base, en in entries:
+        if shown == "FDCANRAM1":        # the message RAM is clocked with FDCAN1
+            en = ens.get("FDCAN1", en)
+        owner = owner_of(sname)
+        wide = shown == "TIM2"
+        key = owner + (" 32-bit" if wide else "")
+        if key not in out["blocks"]:
+            out["blocks"][key] = block(owner, wide)
+        p = svd[sname]
+        desc = clean(p.findtext("description")) or clean(svd[owner].findtext("description"))
+        e = {"name": shown, "base": base, "block": key}
+        if desc:
+            e["d"] = desc
+        if en[0] >= 0:
+            e["en"] = [en[0], en[1]]
+        if shown not in MODELLED:
+            e["stored"] = True
+        out["peripherals"].append(e)
+    unused = [f"{n['per']} {n['reg']} {','.join(n['fields'])}" for n in notes if id(n) not in used]
+    if unused:
+        sys.exit("field-notes: these match no field: " + "; ".join(unused))
+    with open(json_path, "w", encoding="utf-8") as f:
+        json.dump(out, f, ensure_ascii=False, separators=(",", ":"), sort_keys=False)
+        f.write("\n")
+    nregs = sum(len(b) for b in out["blocks"].values())
+    nfields = sum(len(r.get("f", [])) for b in out["blocks"].values() for r in b)
+    return nregs, nfields
 
 
 if __name__ == "__main__":

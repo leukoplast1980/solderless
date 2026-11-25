@@ -15,7 +15,14 @@
     <string name="switch_core_later">Later</string>
     <string name="tab_repl">Console</string>
     <string name="tab_editor">Editor</string>
-    <string name="tab_registers">Registers</string>
+    <string name="tab_chip">Chip</string>
+    <string name="chip_core">Core</string>
+    <string name="chip_registers">Registers</string>
+    <string name="registers_find_hint">Find: GPIOA, BRR, UE …</string>
+    <string name="registers_copy_forth">Copy as Forth</string>
+    <string name="registers_forth_copied">Forth copied</string>
+    <string name="registers_write">Write</string>
+    <string name="registers_write_failed">The write failed: a bus error</string>
     <string name="tab_board">Board</string>
     <string name="tab_scope">Scope</string>
     <string name="registers_copy">Copy</string>

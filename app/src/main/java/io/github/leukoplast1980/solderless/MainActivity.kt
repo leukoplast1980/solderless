@@ -1,6 +1,6 @@
 /*
- * Solderless - main screen. Phones: Console, Editor and Registers as tabs.
- * Wide screens: the editor on the left, Console and Registers as tabs on the right.
+ * Solderless - main screen. Phones: Console, Editor, Board, Scope and Chip as tabs.
+ * Wide screens: the editor on the left, the other tabs on the right.
  * Copyright (C) 2026 The Solderless authors. GPL-3.0-or-later.
  */
 package io.github.leukoplast1980.solderless
@@ -42,7 +42,7 @@ import io.github.leukoplast1980.solderless.ui.ConsoleController
 import io.github.leukoplast1980.solderless.ui.EditorController
 import io.github.leukoplast1980.solderless.ui.ExtraKeys
 import io.github.leukoplast1980.solderless.ui.InputTarget
-import io.github.leukoplast1980.solderless.ui.RegistersController
+import io.github.leukoplast1980.solderless.ui.ChipController
 import io.github.leukoplast1980.solderless.ui.SuggestionStrip
 import io.github.leukoplast1980.solderless.vm.Firmware
 import io.github.leukoplast1980.solderless.vm.FirmwareException
@@ -50,12 +50,12 @@ import io.github.leukoplast1980.solderless.vm.VmHost
 
 class MainActivity : AppCompatActivity() {
 
-    private enum class Screen { REPL, EDITOR, BOARD, SCOPE, REGISTERS }
+    private enum class Screen { REPL, EDITOR, BOARD, SCOPE, CHIP }
 
     private lateinit var vm: VmHost
     private lateinit var console: ConsoleController
     private lateinit var editor: EditorController
-    private lateinit var registers: RegistersController
+    private lateinit var chipCtl: ChipController
     private lateinit var boardCtl: BoardController
     private lateinit var boardPane: View
     private lateinit var scopeCtl: ScopeController
@@ -69,7 +69,7 @@ class MainActivity : AppCompatActivity() {
     private lateinit var editorPane: View
     private lateinit var rightPane: View
     private lateinit var replPane: View
-    private lateinit var registersPane: View
+    private lateinit var chipPane: View
     private lateinit var divider: View
     private lateinit var extraKeysScroll: View
     private lateinit var title: TextView
@@ -105,7 +105,7 @@ class MainActivity : AppCompatActivity() {
 
     private val registerRefresh = object : Runnable {
         override fun run() {
-            if (screen == Screen.REGISTERS) registers.refresh()
+            if (screen == Screen.CHIP) chipCtl.refresh()
             handler.postDelayed(this, REGISTERS_MS)
         }
     }
@@ -161,17 +161,17 @@ class MainActivity : AppCompatActivity() {
             onSent = { console.markDictionaryStale() },
             pickFolder = { pickFolder.launch(folder.treeUri) },
         )
-        registers = RegistersController(this, vm)
+        chipCtl = ChipController(this, vm)
         boardCtl = BoardController(this, vm) { file -> openInEditor(file) }
         scopeCtl = ScopeController(this, vm)
-        registers.onPausedChanged = { console.markDictionaryStale() }
+        chipCtl.onPausedChanged = { console.markDictionaryStale() }
         ExtraKeys(findViewById<LinearLayout>(R.id.extraKeys)) { activeInput() }
 
         tabs = findViewById(R.id.tabs)
         editorPane = findViewById(R.id.editorPane)
         rightPane = findViewById(R.id.rightPane)
         replPane = findViewById(R.id.replPane)
-        registersPane = findViewById(R.id.registersPane)
+        chipPane = findViewById(R.id.chipPane)
         boardPane = findViewById(R.id.boardPane)
         scopePane = findViewById(R.id.scopePane)
         divider = findViewById(R.id.paneDivider)
@@ -227,7 +227,8 @@ class MainActivity : AppCompatActivity() {
             savedInstanceState.getCharSequence(KEY_OUTPUT)?.let { console.appendText(it.toString()) }
         }
         if (session.rawMode) console.setRawMode(true)
-        screen = runCatching { Screen.valueOf(session.screen) }.getOrDefault(Screen.REPL)
+        // REGISTERS: the Chip tab before it had sections
+        screen = runCatching { Screen.valueOf(session.screen.replace("REGISTERS", "CHIP")) }.getOrDefault(Screen.REPL)
         editor.restore(session.files, session.activeFile, sessionStore.firstStart)
         console.scrollToEnd()
         if (vm.stellarisUpdateAvailable && savedInstanceState == null) askToUpdateStellaris()
@@ -237,21 +238,21 @@ class MainActivity : AppCompatActivity() {
 
     private fun isWide(): Boolean = resources.configuration.screenWidthDp >= WIDE_DP
 
-    /** Tabs: Console, Editor, Registers on phones; without Editor on wide screens. */
+    /** Tabs: Console, Editor, Board, Scope, Chip on phones; without Editor on wide screens. */
     private fun rebuildTabs(wide: Boolean) {
         if (tabsWide == wide) return
         tabsWide = wide
         rebuildingTabs = true
         tabs.removeAllTabs()
-        val order = if (wide) listOf(Screen.REPL, Screen.BOARD, Screen.SCOPE, Screen.REGISTERS)
-        else listOf(Screen.REPL, Screen.EDITOR, Screen.BOARD, Screen.SCOPE, Screen.REGISTERS)
+        val order = if (wide) listOf(Screen.REPL, Screen.BOARD, Screen.SCOPE, Screen.CHIP)
+        else listOf(Screen.REPL, Screen.EDITOR, Screen.BOARD, Screen.SCOPE, Screen.CHIP)
         for (s in order) {
             val label = when (s) {
                 Screen.REPL -> R.string.tab_repl
                 Screen.EDITOR -> R.string.tab_editor
                 Screen.BOARD -> R.string.tab_board
                 Screen.SCOPE -> R.string.tab_scope
-                Screen.REGISTERS -> R.string.tab_registers
+                Screen.CHIP -> R.string.tab_chip
             }
             tabs.addTab(tabs.newTab().setText(label).setTag(s), false)
         }
@@ -272,20 +273,20 @@ class MainActivity : AppCompatActivity() {
         editorPane.visibility = if (wide || screen == Screen.EDITOR) View.VISIBLE else View.GONE
         divider.visibility = if (wide) View.VISIBLE else View.GONE
         rightPane.visibility = if (wide || screen != Screen.EDITOR) View.VISIBLE else View.GONE
-        replPane.visibility = if (screen == Screen.REGISTERS || screen == Screen.BOARD || screen == Screen.SCOPE) View.GONE else View.VISIBLE
+        replPane.visibility = if (screen == Screen.CHIP || screen == Screen.BOARD || screen == Screen.SCOPE) View.GONE else View.VISIBLE
         scopePane.visibility = if (screen == Screen.SCOPE) View.VISIBLE else View.GONE
-        registersPane.visibility = if (screen == Screen.REGISTERS) View.VISIBLE else View.GONE
+        chipPane.visibility = if (screen == Screen.CHIP) View.VISIBLE else View.GONE
         boardPane.visibility = if (screen == Screen.BOARD) View.VISIBLE else View.GONE
 
         if (!wide) {
             when (screen) {
                 Screen.REPL -> console.focusInput()
                 Screen.EDITOR -> editor.editor.requestFocus()
-                Screen.REGISTERS, Screen.BOARD, Screen.SCOPE -> getSystemService(InputMethodManager::class.java)
+                Screen.CHIP, Screen.BOARD, Screen.SCOPE -> getSystemService(InputMethodManager::class.java)
                     ?.hideSoftInputFromWindow(rightPane.windowToken, 0)
             }
         }
-        if (screen == Screen.REGISTERS && started) registers.refresh()
+        if (screen == Screen.CHIP && started) chipCtl.refresh()
         updateStrip()
     }
 
@@ -295,11 +296,11 @@ class MainActivity : AppCompatActivity() {
             return when (screen) {
                 Screen.REPL -> console
                 Screen.EDITOR -> editor
-                Screen.REGISTERS, Screen.BOARD, Screen.SCOPE -> null
+                Screen.CHIP, Screen.BOARD, Screen.SCOPE -> null
             }
         }
         if (editor.editor.hasFocus()) return editor
-        if (screen == Screen.REGISTERS || screen == Screen.BOARD || screen == Screen.SCOPE) return editor
+        if (screen == Screen.CHIP || screen == Screen.BOARD || screen == Screen.SCOPE) return editor
         return lastInput ?: console
     }
 

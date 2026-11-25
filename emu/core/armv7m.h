@@ -205,4 +205,8 @@ size_t cm_peek(const struct cm_cpu *c, uint32_t addr, uint8_t *buf, size_t len);
 /* Debug read of a System Control Space register (0xE000_0000..). */
 int cm_scs_peek(struct cm_cpu *c, uint32_t addr, uint32_t *value);
 
+/* A word write as privileged code would make it, side effects included (a
+ * debugger's write). Returns nonzero on a bus error. */
+int cm_debug_write32(struct cm_cpu *c, uint32_t addr, uint32_t value);
+
 #endif

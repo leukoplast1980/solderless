@@ -36,6 +36,8 @@ object NativeVm {
     @JvmStatic external fun snapshot(handle: Long): IntArray
     @JvmStatic external fun readMemory(handle: Long, address: Int, length: Int): ByteArray?
     @JvmStatic external fun peekWords(handle: Long, addresses: IntArray): IntArray
+    /** A word write as the CPU would make it, side effects included; 0 if it went through. */
+    @JvmStatic external fun pokeWord(handle: Long, address: Int, value: Int): Int
 
     /** Messages from the chip model (one per line), or null. */
     @JvmStatic external fun readLog(handle: Long): String?

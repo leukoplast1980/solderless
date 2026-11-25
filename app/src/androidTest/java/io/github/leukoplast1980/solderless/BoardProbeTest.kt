@@ -480,7 +480,7 @@ class BoardProbeTest {
         assertTrue("dragged to about 25 %, got $v", v in 180..320)
         screenshot("pinned-pot-dragged.png")
 
-        for ((tab, shot) in listOf(R.string.tab_scope to "pinned-scope.png", R.string.tab_registers to "pinned-registers.png")) {
+        for ((tab, shot) in listOf(R.string.tab_scope to "pinned-scope.png", R.string.tab_chip to "pinned-chip.png")) {
             selectTab(scenario, tab)
             var shown = false
             scenario.onActivity { a -> shown = a.findViewById<View>(R.id.pinned).visibility == View.VISIBLE }

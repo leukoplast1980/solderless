@@ -1,7 +1,6 @@
 /*
- * Solderless - the Registers view: the Cortex-M4 core, Forth's stacks,
- * the clocks and the fault status, refreshed while visible, with Pause
- * and Step.
+ * Solderless - the Chip tab's Core section: the Cortex-M4 core, Forth's
+ * stacks, the clocks and the fault status, refreshed while visible.
  * Copyright (C) 2026 The Solderless authors. GPL-3.0-or-later.
  */
 package io.github.leukoplast1980.solderless.ui
@@ -13,7 +12,6 @@ import android.os.SystemClock
 import android.text.SpannableStringBuilder
 import android.text.Spanned
 import android.text.style.ForegroundColorSpan
-import android.widget.Button
 import android.widget.TextView
 import android.widget.Toast
 import io.github.leukoplast1980.solderless.R
@@ -22,12 +20,9 @@ import io.github.leukoplast1980.solderless.vm.VmHost
 import java.nio.ByteBuffer
 import java.nio.ByteOrder
 
-class RegistersController(private val activity: Activity, private val vm: VmHost) {
+class CoreSection(private val activity: Activity, private val vm: VmHost) {
 
     private val text: TextView = activity.findViewById(R.id.registers)
-    private val runState: TextView = activity.findViewById(R.id.runState)
-    private val pauseButton: Button = activity.findViewById(R.id.pause)
-    private val stepButton: Button = activity.findViewById(R.id.step)
 
     private val changedColor = activity.getColor(R.color.changed)
     private val labelColor = activity.getColor(R.color.label)
@@ -45,61 +40,28 @@ class RegistersController(private val activity: Activity, private val vm: VmHost
 
     private var now = 0L
 
-    /** Called after Pause or Step so the console can update its dictionary. */
-    var onPausedChanged: ((Boolean) -> Unit)? = null
+    /** Pause or Resume: highlights go back to "changed lately" */
+    fun pauseChanged() { stepBaseline = null }
 
-    init {
-        pauseButton.setOnClickListener {
-            val paused = !vm.isUserPaused
-            vm.setUserPaused(paused)
-            stepBaseline = null
-            if (paused) Thread { vm.refreshDictionary() }.start()
-            updateButtons()
-            onPausedChanged?.invoke(paused)
-        }
-        stepButton.setOnClickListener {
-            stepBaseline = HashMap(previous)
-            vm.step()
-            text.postDelayed({ refresh() }, 20)
-        }
-        // Not selectable text: a focused selectable TextView scrolls its
-        // cursor back into view on every refresh. A button copies instead (a
-        // long press fired while scrolling slowly).
-        activity.findViewById<Button>(R.id.registersCopy).setOnClickListener {
-            activity.getSystemService(ClipboardManager::class.java)
-                ?.setPrimaryClip(ClipData.newPlainText("Solderless registers", text.text.toString()))
-            Toast.makeText(activity, R.string.registers_copied, Toast.LENGTH_SHORT).show()
-        }
-        updateButtons()
+    /** Before a Step: what it changes stays highlighted until the next one */
+    fun stepping() { stepBaseline = HashMap(previous) }
+
+    /**
+     * Not selectable text: a focused selectable TextView scrolls its cursor
+     * back into view on every refresh. A button copies instead (a long press
+     * fired while scrolling slowly).
+     */
+    fun copy() {
+        activity.getSystemService(ClipboardManager::class.java)
+            ?.setPrimaryClip(ClipData.newPlainText("Solderless registers", text.text.toString()))
+        Toast.makeText(activity, R.string.registers_copied, Toast.LENGTH_SHORT).show()
     }
 
-    private fun updateButtons() {
-        val paused = vm.isUserPaused
-        pauseButton.setText(if (paused) R.string.resume else R.string.pause)
-        stepButton.isEnabled = paused
-    }
-
-    fun refresh() {
+    fun refresh(s: Snapshot) {
         now = SystemClock.uptimeMillis()
-        val s = vm.snapshot()
         val current = HashMap<String, Long>()
         val b = SpannableStringBuilder()
         val stellaris = vm.project.firmware.isStellaris
-
-        runState.text = buildString {
-            append(
-                when {
-                    s.lockup -> "locked up"
-                    s.paused -> "paused"
-                    s.waitingForKey -> "waiting for input"
-                    s.sleeping -> "sleeping"
-                    else -> "running"
-                }
-            )
-            append("  ·  %s MHz".format(java.util.Locale.ROOT, java.math.BigDecimal(s.sysclk / 1e6).setScale(3, java.math.RoundingMode.HALF_UP).stripTrailingZeros().toPlainString()))
-            append("  ·  %,d cycles  ·  %.3f s".format(java.util.Locale.ROOT, s.cycles, s.timeNs / 1e9))
-            if (!s.paused && s.speedPercent in 1..95) append("  ·  ${s.speedPercent} % speed")
-        }
 
         if (s.lockup || s.cfsr != 0 || s.hfsr != 0) faultSection(b, s)
 
@@ -136,7 +98,6 @@ class RegistersController(private val activity: Activity, private val vm: VmHost
 
         previous = current
         text.text = b
-        updateButtons()
     }
 
     private fun forthSection(b: SpannableStringBuilder, current: MutableMap<String, Long>, s: Snapshot) {
