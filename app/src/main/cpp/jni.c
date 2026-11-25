@@ -156,6 +156,33 @@ JNIEXPORT jintArray JNICALL FN(peekWords)(JNIEnv *env, jclass cls, jlong h, jint
     return out;
 }
 
+/* The access log since the last call: out[0] the entries dropped, then 12
+ * ints per entry (t_ns low, high, t_last_ns low, high, pc, addr, value,
+ * mask, before, after, changed, count). Returns the number of entries. */
+JNIEXPORT jint JNICALL FN(accessRead)(JNIEnv *env, jclass cls, jlong h, jintArray out)
+{
+    (void)cls;
+    jsize len = (*env)->GetArrayLength(env, out);
+    size_t max = len > 1 ? (size_t)(len - 1) / 12 : 0;
+    if (max > 1024) max = 1024;
+    static sl_access ev[1024];      /* called from the UI thread only */
+    uint32_t lost = 0;
+    size_t n = sl_access_read(VM(h), ev, max, &lost);
+    jint *o = (*env)->GetIntArrayElements(env, out, NULL);
+    if (!o) return 0;
+    o[0] = (jint)lost;
+    for (size_t i = 0; i < n; i++) {
+        jint *p = o + 1 + 12 * i;
+        const sl_access *e = &ev[i];
+        p[0] = (jint)(uint32_t)e->t_ns; p[1] = (jint)(uint32_t)(e->t_ns >> 32);
+        p[2] = (jint)(uint32_t)e->t_last_ns; p[3] = (jint)(uint32_t)(e->t_last_ns >> 32);
+        p[4] = (jint)e->pc; p[5] = (jint)e->addr; p[6] = (jint)e->value; p[7] = (jint)e->mask;
+        p[8] = (jint)e->before; p[9] = (jint)e->after; p[10] = (jint)e->changed; p[11] = (jint)e->count;
+    }
+    (*env)->ReleaseIntArrayElements(env, out, o, 0);
+    return (jint)n;
+}
+
 /* A word write as the CPU would make it; 0 if it went through */
 JNIEXPORT jint JNICALL FN(pokeWord)(JNIEnv *env, jclass cls, jlong h, jint addr, jint value)
 {

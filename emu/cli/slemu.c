@@ -115,6 +115,24 @@ static int directive(const char *line)
         fflush(stdout);
         return 0;
     }
+    if (!strcmp(cmd, "writes")) {
+        /* #!writes: the register writes since the last time (the Chip tab's Log) */
+        static sl_access ev[1024];
+        uint32_t lost;
+        size_t m = sl_access_read(vm, ev, 1024, &lost);
+        for (size_t i = 0; i < m; i++) {
+            const sl_access *e = &ev[i];
+            if (e->pc == SL_ACCESS_DEBUG) printf("debug   ");
+            else printf("%08X", e->pc);
+            printf(" %08X %08X -> %08X", e->addr, e->before, e->after);
+            if (e->count > 1) printf(" x%u changed %08X", e->count, e->changed);
+            if (e->before == e->after && e->count == 1) printf(" (wrote %08X)", e->value);
+            printf("\n");
+        }
+        if (lost) printf("%u lost\n", lost);
+        fflush(stdout);
+        return 0;
+    }
     if (!strcmp(cmd, "dpoke") && n >= 3) {
         /* #!dpoke ADDR VALUE: a write as the CPU would make it (the Registers view's Write) */
         if (sl_poke32(vm, (uint32_t)strtoul(a1, NULL, 16), (uint32_t)strtoul(a2, NULL, 16))) printf("dpoke: bus error\n");

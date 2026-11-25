@@ -23,6 +23,24 @@
     <string name="registers_forth_copied">Forth copied</string>
     <string name="registers_write">Write</string>
     <string name="registers_write_failed">The write failed: a bus error</string>
+    <string name="chip_log">Log</string>
+    <string name="log_all">All</string>
+    <string name="log_writes">Writes</string>
+    <string name="log_checks">Checks</string>
+    <string name="log_peripheral">Peripheral ▾</string>
+    <string name="log_clear">Clear</string>
+    <string name="log_no_writes">No writes yet</string>
+    <string name="log_reading">Reading the chip\'s registers …</string>
+    <string name="log_empty">Nothing yet: register writes and the chip\'s checks show here.</string>
+    <string name="log_console_hide">Hide the console\'s writes to USART2_TDR</string>
+    <plurals name="log_lost">
+        <item quantity="one">%d write came too fast to keep</item>
+        <item quantity="other">%d writes came too fast to keep</item>
+    </plurals>
+    <plurals name="log_console_hidden">
+        <item quantity="one">%d write to USART2_TDR (the console\'s characters) hidden: show</item>
+        <item quantity="other">%d writes to USART2_TDR (the console\'s characters) hidden: show</item>
+    </plurals>
     <string name="tab_board">Board</string>
     <string name="tab_scope">Scope</string>
     <string name="registers_copy">Copy</string>

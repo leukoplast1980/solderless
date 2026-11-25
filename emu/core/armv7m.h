@@ -66,6 +66,9 @@ struct cm_bus {
     /* Stores to a region that is not writable (flash programming).
      * Return 0 on success, nonzero for a bus error. */
     int (*rom_write)(void *ctx, uint32_t addr, int size, uint32_t value);
+    /* Told of every System Control Space write (SysTick, NVIC, SCB), with
+     * the register's value before and after (may be NULL). */
+    void (*scs_written)(void *ctx, uint32_t addr, uint32_t value, uint32_t mask, uint32_t before, uint32_t after);
 };
 
 struct cm_cpu {

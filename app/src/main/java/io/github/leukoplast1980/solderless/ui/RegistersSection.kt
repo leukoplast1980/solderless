@@ -74,6 +74,12 @@ class RegistersSection(private val activity: Activity, private val vm: VmHost) {
         })
     }
 
+    /** Shows what [text] finds (a register from the Log: "GPIOA_ODR") */
+    fun search(text: String) {
+        find.setText(text)
+        find.setSelection(text.length)
+    }
+
     fun pauseChanged() { stepBaseline = null }
     fun stepping() { stepBaseline = HashMap(values) }
 
@@ -237,6 +243,12 @@ class RegistersSection(private val activity: Activity, private val vm: VmHost) {
             val m = FieldText.meaning(p, f, fv, vm.chip)
             col.addView(text("Now  ${FieldText.value(f, fv)}${if (m.isNotEmpty()) "  $m" else ""}", 14f, R.color.accent, mono = true)
                 .apply { setPadding(0, dp(10), 0, 0) })
+        }
+
+        // The last write that changed it
+        vm.accessLog.lastWrite(addr, f.mask, !r.readable)?.let { w ->
+            col.addView(text("Last changed by ${LogSection.where(vm, w)} at %.3f s".format(Locale.ROOT, w.lastNs / 1e9) +
+                if (w.count > 1) " (×${w.count})" else "", 13f, R.color.label).apply { setPadding(0, dp(8), 0, 0) })
         }
 
         // Wired to (GPIO fields)

@@ -335,13 +335,15 @@ static int bus_write(struct cm_cpu *c, uint32_t a, int n, uint32_t v, int priv)
     if (is_ppb_internal(a)) {
         unsigned sh = (a & 3u) * 8u;
         uint32_t mask = (n == 4 ? 0xFFFFFFFFu : ((1u << (8 * n)) - 1u)) << sh;
-        if (!priv) {
-            /* Unprivileged software may use the STIR when CCR.USERSETMPEND is set */
-            if ((a & ~3u) == 0xE000EF00u && (c->ccr & CCR_USERSETMPEND))
-                return scs_write(c, 0xE000EF00u, v << sh, mask);
-            return 1;
-        }
-        return scs_write(c, a & ~3u, v << sh, mask);
+        if (!priv && !((a & ~3u) == 0xE000EF00u && (c->ccr & CCR_USERSETMPEND)))
+            return 1;   /* unprivileged software may only use the STIR, when CCR.USERSETMPEND is set */
+        if (!c->bus->scs_written) return scs_write(c, a & ~3u, v << sh, mask);
+        uint32_t before = 0, after = 0;
+        cm_scs_peek(c, a & ~3u, &before);
+        int err = scs_write(c, a & ~3u, v << sh, mask);
+        cm_scs_peek(c, a & ~3u, &after);
+        c->bus->scs_written(c->bus->ctx, a & ~3u, v << sh, mask, before, after);
+        return err;
     }
     if (is_bitband(a)) {
         uint32_t alias = a & 0xF2000000u;

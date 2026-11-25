@@ -126,6 +126,25 @@ struct sl_idle {
     int periph;
 };
 
+#ifndef SL_ACCESS_DEBUG
+#define SL_ACCESS_DEBUG 0xFFFFFFFFu     /* as in sl/solderless.h */
+#endif
+
+/* The access log: register writes, for the Chip tab's Log. A loop writing
+ * the same register from the same instruction makes one entry, counted. */
+#define SL_ALOG_SIZE 1024u
+struct sl_alog_entry {
+    uint64_t t_ns, t_last_ns;   /* first and last write */
+    uint32_t pc, addr;          /* pc: SL_ACCESS_DEBUG for writes made by sl_poke32 */
+    uint32_t value, mask;       /* what was written (last time), which bytes */
+    uint32_t before, after;     /* the register before the first write, after the last */
+    uint32_t changed, count;    /* bits any of the writes changed; how many writes */
+};
+struct sl_alog {
+    struct sl_alog_entry e[SL_ALOG_SIZE];
+    uint32_t head, n, lost;
+};
+
 struct sl_soc {
     struct cm_cpu cpu;
     struct cm_bus bus;
@@ -201,6 +220,9 @@ struct sl_soc {
     /* Reset flags for RCC_CSR */
     uint32_t reset_flags;
 
+    struct sl_alog alog;
+    int debug_write;            /* sl_poke32 is writing: the log says so instead of a PC */
+
     /* Host hooks (set by vm.c) */
     void *host;
     int (*term_rx_pop)(void *host, uint8_t *b);      /* next byte typed in the terminal */
@@ -209,6 +231,9 @@ struct sl_soc {
     void (*log)(void *host, int key, const char *msg);
     void (*sysreset)(void *host);                     /* SYSRESETREQ */
 };
+
+/* The access log (soc.c) */
+void soc_alog_add(struct sl_soc *s, uint32_t addr, uint32_t value, uint32_t mask, uint32_t before, uint32_t after);
 
 /* Setup and reset */
 void soc_init(struct sl_soc *s);

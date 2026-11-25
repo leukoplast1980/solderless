@@ -309,6 +309,40 @@
                                 android:layout_height="wrap_content" />
                         </ScrollView>
                     </LinearLayout>
+
+                    <!-- Log: register writes and the chip's checks -->
+                    <LinearLayout
+                        android:id="@+id/logSection"
+                        android:layout_width="match_parent"
+                        android:layout_height="match_parent"
+                        android:orientation="vertical"
+                        android:visibility="gone">
+
+                        <HorizontalScrollView
+                            android:layout_width="match_parent"
+                            android:layout_height="wrap_content"
+                            android:scrollbars="none">
+
+                            <com.google.android.material.chip.ChipGroup
+                                android:id="@+id/logFilters"
+                                android:layout_width="wrap_content"
+                                android:layout_height="wrap_content"
+                                android:paddingHorizontal="8dp"
+                                app:chipSpacingHorizontal="6dp"
+                                app:singleLine="true" />
+                        </HorizontalScrollView>
+
+                        <ScrollView
+                            android:layout_width="match_parent"
+                            android:layout_height="0dp"
+                            android:layout_weight="1">
+
+                            <io.github.leukoplast1980.solderless.ui.LogListView
+                                android:id="@+id/logList"
+                                android:layout_width="match_parent"
+                                android:layout_height="wrap_content" />
+                        </ScrollView>
+                    </LinearLayout>
                 </FrameLayout>
 
                 <!-- Run control, under every section -->
