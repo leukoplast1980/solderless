@@ -1,0 +1,19 @@
+\ A store into flash memory without FLASH_CR.PG sets PGSERR in FLASH_SR.  ok.
+\ Until the error flags are cleared, the controller refuses every program  ok.
+\ and erase.  ok.
+42 $1F800 !  ok.
+
+[chip] Flash: write to flash memory without FLASH_CR.PG set (flash is written through the controller: unlock, set PG, then write two words) (PC 0x00001824)
+$40022010 @ hex. 00000080  ok.
+\ Unlock, set PG, write a double word: refused.  ok.
+$45670123 $40022008 !  $CDEF89AB $40022008 !  1 $40022014 !  ok.
+$11111111 $1F800 !  $22222222 $1F804 !  ok.
+
+[chip] Flash: programming refused: FLASH_SR still has error flags 0080 from an earlier operation. Write them back to FLASH_SR to clear them before each program or erase (PC 0x00001824)
+[chip] Flash: programming refused: FLASH_SR still has error flags 0080 from an earlier operation. Write them back to FLASH_SR to clear them before each program or erase (PC 0x00001824)
+$1F800 @ hex. FFFFFFFF  ok.
+\ Writing the flags back clears them, and the same write works.  ok.
+$40022010 @ $40022010 !  $40022010 @ hex. 00000000  ok.
+$11111111 $1F800 !  $22222222 $1F804 !  ok.
+$1F800 @ hex.  $1F804 @ hex. 11111111 22222222  ok.
+0 $40022014 !  $80000000 $40022014 !  ok.

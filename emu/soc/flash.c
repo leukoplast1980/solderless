@@ -8,6 +8,7 @@
  */
 #include "soc.h"
 
+#include <stdio.h>
 #include <string.h>
 
 #define ACR     0x00u
@@ -23,7 +24,14 @@
 #define SR_PGAERR  (1u << 5)
 #define SR_SIZERR  (1u << 6)
 #define SR_PGSERR  (1u << 7)
+#define SR_MISERR  (1u << 8)
+#define SR_FASTERR (1u << 9)
 #define SR_BSY     (1u << 16)
+
+/* While one of these is set, the controller refuses the next program or
+ * erase and sets PGSERR: software has to clear them first (RM0440: "check
+ * and clear all error programming flags due to a previous programming"). */
+#define SR_PROG_ERRORS (SR_PROGERR | SR_WRPERR | SR_PGAERR | SR_SIZERR | SR_PGSERR | SR_MISERR | SR_FASTERR)
 
 #define CR_PG       (1u << 0)
 #define CR_PER      (1u << 1)
@@ -61,6 +69,18 @@ static void error(struct sl_soc *s, uint32_t flag, const char *why)
     if (fr(s)[CR / 4] & CR_ERRIE) fr(s)[SR / 4] |= SR_OPERR;
     soc_log(s, LOG_FLASH_SEQ, "Flash: %s (PC 0x%08X)", why, s->cpu.r[15]);
     update_irq(s);
+}
+
+/* Nonzero, and PGSERR set, when an earlier error flag blocks the operation. */
+static int refused(struct sl_soc *s, const char *op)
+{
+    uint32_t pending = fr(s)[SR / 4] & SR_PROG_ERRORS;
+    if (!pending) return 0;
+    char why[200];
+    snprintf(why, sizeof why, "%s refused: FLASH_SR still has error flags %04X from an earlier operation. "
+             "Write them back to FLASH_SR to clear them before each program or erase", op, pending);
+    error(s, SR_PGSERR, why);
+    return 1;
 }
 
 void flash_reset(struct sl_soc *s)
@@ -133,6 +153,7 @@ void flash_write(struct sl_soc *s, uint32_t off, uint32_t v, uint32_t mask)
         r[CR / 4] = nv;
         if (v & mask & CR_STRT) {
             if (r[SR / 4] & SR_BSY) return;
+            if ((nv & (CR_MER1 | CR_PER)) && refused(s, "erase")) return;
             if (nv & CR_MER1) {
                 start_op(s, OP_MASS_ERASE, 0, T_ERASE_PS);
             } else if (nv & CR_PER) {
@@ -177,6 +198,10 @@ int flash_mem_write(struct sl_soc *s, uint32_t addr, int size, uint32_t v)
     }
     if (r[SR / 4] & SR_BSY) {
         error(s, SR_PGSERR, "write to flash memory while a flash operation is still running (BSY)");
+        return 0;
+    }
+    if (refused(s, "programming")) {
+        s->flash_half = 0;
         return 0;
     }
     if (size != 4) {
