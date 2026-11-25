@@ -24,6 +24,7 @@ CODE_BASE, CODE_SIZE = 0x00000000, 0x10000
 DATA_BASE, DATA_SIZE = 0x20000000, 0x10000
 DATA_PTR = DATA_BASE + 0x8000      # base registers point here
 STACK = DATA_BASE + 0xF000
+CHUNK = 3000                         # cases assembled together, well inside CODE_SIZE
 
 LO = [f"r{i}" for i in range(8)]
 GP = [f"r{i}" for i in range(13)] + ["lr"]   # usable as general registers
@@ -560,14 +561,24 @@ def main():
 
     rng = random.Random(args.seed)
     cases = [make_case(rng) for _ in range(args.cases)]
-    with tempfile.TemporaryDirectory() as wd:
-        code, syms = assemble(cases, wd)
+    # Assembled in chunks: all of them at once would outgrow the 64 KB code region
+    # (more than about 5000 cases), and the rest would not be there to run
+    chunks = []
+    for c0 in range(0, len(cases), CHUNK):
+        with tempfile.TemporaryDirectory() as wd:
+            code, syms = assemble(cases[c0:c0 + CHUNK], wd)
+        if len(code) > CODE_SIZE:
+            sys.exit(f"cases {c0}..: {len(code)} bytes of code, more than the {CODE_SIZE} mapped")
+        chunks.append((c0, code, syms))
 
     mine = Mine(ctypes.CDLL(os.path.abspath(args.lib)))
     ref = Ref()
     failures = 0
     for i, (lines, bases) in enumerate(cases):
-        start, end = syms[f"case{i}"], syms[f"case{i}_end"]
+        c0, code, syms = chunks[i // CHUNK]
+        if i == c0 and i:
+            ref = Ref()      # a fresh Unicorn: it keeps translating the last chunk's code from its cache
+        start, end = syms[f"case{i - c0}"], syms[f"case{i - c0}_end"]
         regs = [rval(rng) for _ in range(13)] + [STACK, rval(rng) | 1, start]
         for b in bases:
             regs[13 if b == "sp" else (14 if b == "lr" else int(b[1:]))] = DATA_PTR + rng.randrange(-64, 64) * 4

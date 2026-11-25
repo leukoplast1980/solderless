@@ -1,7 +1,8 @@
 # Solderless: design
 
-Status: milestone 1 implemented, 19 November 2026. What the emulator
-models today is in [emulator.md](emulator.md).
+Status: milestones 1 to 3 implemented and released (0.4.1, 23 November
+2026); milestone 4 next. What the emulator models today is in
+[emulator.md](emulator.md).
 
 Solderless is an Android app for learning how the STM32G431 works. It
 emulates an STM32G431RB and the parts wired to it on a virtual breadboard. It
@@ -271,8 +272,8 @@ reported), SPI parts by their own chip-select pins.
 
 ### 4.6 On screen
 
-Settled with the mock-up (Solderless – Breadboard tab mock-up, 19 November
-2026):
+Settled with the net-label sketches (23 November 2026), which replaced the
+breadboard mock-up of 19 November:
 
 - **No chip drawn, no wires.** The Board tab shows the parts only, in two
   columns in the order they were added (a part too wide for a column spans
@@ -498,7 +499,8 @@ Each milestone ends with a release that is useful on its own.
 1. ~~**SVD and pin data licensing.**~~ Settled: ST's SVD is Apache-2.0 and
    the stm32-data chip file is MIT OR Apache-2.0; both are bundled in
    `data/` with their licences.
-2. ~~**Breadboard look.**~~ Settled with the mock-up (section 4.6).
+2. ~~**Breadboard look.**~~ Settled: no breadboard, parts with net labels
+   (section 4.6).
 3. ~~**Stellaris dictionary reader.**~~ Settled: read from memory (section 3.5).
 4. ~~**Idle detection limits.**~~ Settled in milestone 1: register poll
    loops and busy loops whose state repeats are skipped to the next event;
