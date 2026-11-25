@@ -106,6 +106,7 @@ class VmHost private constructor(context: Context) {
             assets.open("firmware/stellaris.json").use { JSONObject(it.reader().readText()) },
         )
         handle = NativeVm.create(false, 0, false)
+        NativeVm.setFaultBreak(handle, true)
         chip = ChipPins(assets.open("chip/g431rb-pins.json").use { it.reader().readText() })
 
         val name = projects.current ?: projects.list().firstOrNull()
@@ -241,10 +242,29 @@ class VmHost private constructor(context: Context) {
     @Synchronized
     fun setUserPaused(paused: Boolean) {
         userPaused = paused
+        faultPaused = false
         NativeVm.pause(handle, !foreground || userPaused)
     }
 
+    /** Paused because of a fault, not by Pause */
+    var faultPaused = false
+        @Synchronized get
+        private set
+
     val isUserPaused: Boolean @Synchronized get() = userPaused
+
+    /**
+     * True once after the chip stopped itself at a fault (as a debugger
+     * would, before Stellaris' handler prints and retries without end): it
+     * stays paused like after Pause, until Resume, Step or Reset.
+     */
+    @Synchronized
+    fun stoppedAtFault(): Boolean {
+        if (!NativeVm.faultStopped(handle)) return false
+        userPaused = true
+        faultPaused = true
+        return true
+    }
 
     // ------------------------------------------------------------------
     // The breadboard
@@ -387,8 +407,16 @@ class VmHost private constructor(context: Context) {
     fun readDevice(partId: Int, pixels: ByteArray): String? = NativeVm.deviceRead(handle, partId, pixels)
 
     fun step() = NativeVm.step(handle)
-    fun reset() = NativeVm.reset(handle)
-    fun powerCycle() = NativeVm.powerCycle(handle)
+    /** NRST; a chip stopped at a fault runs again */
+    fun reset() {
+        if (faultPaused) setUserPaused(false)
+        NativeVm.reset(handle)
+    }
+
+    fun powerCycle() {
+        if (faultPaused) setUserPaused(false)
+        NativeVm.powerCycle(handle)
+    }
 
     fun snapshot(): Snapshot = Snapshot(NativeVm.snapshot(handle))
     fun readMemory(address: Int, length: Int): ByteArray? = NativeVm.readMemory(handle, address, length)

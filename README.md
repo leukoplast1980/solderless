@@ -5,8 +5,9 @@ STM32G431RB, register for register, and runs the unmodified
 [Mecrisp-Stellaris](https://mecrisp.sourceforge.net/) Forth for the G431
 or firmware you build yourself, with a virtual breadboard of buttons,
 LEDs, potentiometers, sounders, displays, sensors, an SPI flash and a
-rotary encoder. Views for learning the registers, the clock tree and
-faults follow in the next milestones (see [docs/design.md](docs/design.md)).
+rotary encoder, and views for learning what the program did to the chip:
+its registers, writes, pins, clock tree and faults (see
+[docs/design.md](docs/design.md)).
 
 <p>
   <a href="https://github.com/user-attachments/assets/1a55c2fd-3d18-4490-b4b9-a4ee30c0245f"><img width="150" alt="Screenshot_20261120-164003" src="https://github.com/user-attachments/assets/1a55c2fd-3d18-4490-b4b9-a4ee30c0245f" /></a>
@@ -16,7 +17,23 @@ faults follow in the next milestones (see [docs/design.md](docs/design.md)).
   <a href="https://github.com/user-attachments/assets/7fd1d107-c9e8-4004-ad89-2df79d6b94e8"><img width="150" alt="Screenshot_20261120-164113" src="https://github.com/user-attachments/assets/7fd1d107-c9e8-4004-ad89-2df79d6b94e8" /></a>
 </p>
 
-**Status:** milestone 3, the bus parts:
+**Status:** milestone 4, the learning views, in the Chip tab:
+
+- Registers: every peripheral's registers from ST's SVD, fields decoded
+  and explained ("MODER5 01 output"), changes in amber; tap a field to see
+  what it does and what is wired to it, copy the Forth that sets it, or
+  write it
+- Log: which Forth word wrote which register, the fields it changed from
+  what to what, and the chip model's checks in between
+- Pins: the package with every pin coloured by its set-up, and a warning
+  where a pin is set up otherwise than its wiring needs
+- Clocks: the clock tree from the oscillators through the PLL to each
+  peripheral, with the flash wait states it needs
+- faults stop the chip and are explained: what happened, in which word,
+  the instruction, and why (a wrong address on the data stack, a divide by
+  0 …)
+
+Milestone 3, the bus parts:
 
 - on I2C: the SSD1306 OLED, the BMP280 pressure sensor (or the phone's
   barometer) and the SCD41 CO2 sensor; on SPI: the W25Q flash with a hex

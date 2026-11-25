@@ -569,11 +569,22 @@ static void usage_fault(struct cm_cpu *c, uint32_t bit) { fault(c, CM_EXC_USAGEF
 
 static void undefined(struct cm_cpu *c) { usage_fault(c, CM_UFSR_UNDEFINSTR); }
 
+static void record_fault(struct cm_cpu *c, int exc, uint32_t pc)
+{
+    c->fault_pc = pc;
+    memcpy(c->fault_r, c->r, sizeof c->fault_r);
+    c->fault_r[15] = pc;
+    c->fault_xpsr = cm_xpsr(c);
+    c->fault_exc = exc;
+    c->fault_count++;
+    c->stop_batch = 1;      /* so the host can stop the chip right here */
+}
+
 /* Takes the synchronous exception raised by the last instruction,
  * escalating to HardFault where B1.5.15 says so. */
 static void take_sync(struct cm_cpu *c)
 {
-    int exc = c->sync_exc;
+    int exc = c->sync_exc, orig = exc;
     uint32_t ret = c->sync_ret;
     c->sync_exc = 0;
     int cur = exec_priority(c);
@@ -581,7 +592,7 @@ static void take_sync(struct cm_cpu *c)
     if (exc == CM_EXC_MEMMANAGE || exc == CM_EXC_BUSFAULT || exc == CM_EXC_USAGEFAULT) {
         uint32_t ena = exc == CM_EXC_MEMMANAGE ? SHCSR_MEMFAULTENA
                      : exc == CM_EXC_BUSFAULT ? SHCSR_BUSFAULTENA : SHCSR_USGFAULTENA;
-        c->fault_pc = ret;
+        record_fault(c, exc, ret);
         if (!(c->shcsr_ena & ena) || group_prio(c, exc_prio(c, exc)) >= cur) {
             c->hfsr |= CM_HFSR_FORCED;
             exc = CM_EXC_HARDFAULT;
@@ -593,7 +604,7 @@ static void take_sync(struct cm_cpu *c)
         }
     }
     if (exc == CM_EXC_HARDFAULT) {
-        c->fault_pc = ret;
+        if (orig != CM_EXC_MEMMANAGE && orig != CM_EXC_BUSFAULT && orig != CM_EXC_USAGEFAULT) record_fault(c, orig, ret);
         if (cur <= -1) { lockup(c); return; }
     }
     take_exception(c, exc, ret);

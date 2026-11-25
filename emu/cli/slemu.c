@@ -28,6 +28,7 @@
 
 static sl_vm *vm;
 static volatile int done;
+static int timeout = 10000;     /* per line, ms (-t, #!timeout) */
 
 static void *vm_thread(void *arg) { (void)arg; sl_run(vm); return NULL; }
 
@@ -112,6 +113,20 @@ static int directive(const char *line)
         if (n >= 4) addrs[k++] = (uint32_t)strtoul(a3, NULL, 16);
         sl_peek_words(vm, addrs, out, (size_t)k);
         for (int i = 0; i < k; i++) printf("%08X: %08X\n", addrs[i], out[i]);
+        fflush(stdout);
+        return 0;
+    }
+    if (!strcmp(cmd, "timeout") && n >= 2) { timeout = atoi(a1); return 0; }   /* #!timeout MS: per line from here on */
+    if (!strcmp(cmd, "faultbreak") && n >= 2) { sl_set_fault_break(vm, atoi(a1)); return 0; }  /* #!faultbreak 1: stop at faults */
+    if (!strcmp(cmd, "resume")) { sl_pause(vm, 0); return 0; }
+    if (!strcmp(cmd, "fault")) {
+        /* #!fault: the last fault, as the fault explainer gets it */
+        sl_snapshot s;
+        sl_snapshot_get(vm, &s);
+        if (!s.fault_count) { printf("no fault\n"); fflush(stdout); return 0; }
+        printf("exception %d at %08X  CFSR %08X HFSR %08X BFAR %08X\n", s.fault_exc, s.fault_r[15], s.cfsr, s.hfsr, s.bfar);
+        for (int i = 0; i < 16; i++) printf("%s%-3s %08X", i % 4 ? "  " : "", (const char *[]){ "r0", "r1", "r2", "r3", "r4", "r5", "r6", "r7",
+                                       "r8", "r9", "r10", "r11", "r12", "sp", "lr", "pc" }[i], s.fault_r[i]), i % 4 == 3 ? printf("\n") : 0;
         fflush(stdout);
         return 0;
     }
@@ -449,7 +464,7 @@ int main(int argc, char **argv)
 {
     sl_config cfg = { 0 };
     const char *flash_file = NULL, *script = NULL, *lines[64];
-    int nlines = 0, keep_going = 0, timeout = 10000, quiet = 0, opt;
+    int nlines = 0, keep_going = 0, quiet = 0, opt;
     unsigned long dump_addr = 0, dump_len = 0;
     while ((opt = getopt(argc, argv, "df:s:e:kt:qx:")) != -1) {
         switch (opt) {

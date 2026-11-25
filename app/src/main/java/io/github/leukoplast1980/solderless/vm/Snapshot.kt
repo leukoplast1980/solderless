@@ -31,11 +31,18 @@ class Snapshot(raw: IntArray) {
     val waitingForKey = raw[38] != 0
     val paused = raw[39] != 0
     val speedPercent = raw[40]
+    /** The registers when the last fault happened (r15: the faulting instruction) */
+    val faultR = raw.copyOfRange(41, 57)
+    val faultXpsr = raw[57]
+    /** The exception the fault raised before any escalation: 3 HardFault, 4 MemManage, 5 BusFault, 6 UsageFault */
+    val faultException = raw[58]
+    /** Faults since power-on (0: none yet) */
+    val faultCount = raw[59].toLong() and 0xffffffffL
 
     /** Active exception number (0: Thread mode) */
     val ipsr get() = xpsr and 0x1ff
 
     companion object {
-        const val SIZE = 41
+        const val SIZE = 60
     }
 }

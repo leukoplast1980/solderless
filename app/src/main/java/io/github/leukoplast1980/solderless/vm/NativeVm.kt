@@ -38,6 +38,10 @@ object NativeVm {
     @JvmStatic external fun peekWords(handle: Long, addresses: IntArray): IntArray
     /** Register writes since the last call: out[0] entries dropped, then 12 ints each (see jni.c). Returns the count. */
     @JvmStatic external fun accessRead(handle: Long, out: IntArray): Int
+    /** Pause at every fault (the fault explainer shows it) */
+    @JvmStatic external fun setFaultBreak(handle: Long, on: Boolean)
+    /** True once after the chip paused itself at a fault */
+    @JvmStatic external fun faultStopped(handle: Long): Boolean
     /** A word write as the CPU would make it, side effects included; 0 if it went through. */
     @JvmStatic external fun pokeWord(handle: Long, address: Int, value: Int): Int
 
