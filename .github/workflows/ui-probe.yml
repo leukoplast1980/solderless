@@ -45,9 +45,9 @@ jobs:
             adb install -r app/build/outputs/apk/androidTest/debug/app-debug-androidTest.apk
             adb logcat -c
             adb logcat -v time '*:W' > probe/logcat-all.txt 2>&1 &
-            adb shell am instrument -w io.github.leukoplast1980.solderless.debug.test/androidx.test.runner.AndroidJUnitRunner | tee probe/instrument.txt
+            adb shell am instrument -w -e class io.github.leukoplast1980.solderless.PerfProbeTest io.github.leukoplast1980.solderless.debug.test/androidx.test.runner.AndroidJUnitRunner | tee probe/instrument.txt
             adb root; sleep 3; adb pull /sdcard/Android/data/io.github.leukoplast1980.solderless.debug/files/ probe/ || true
-            adb logcat -d -s UiProbe:I > probe/logcat.txt || true
+            adb logcat -d -s UiProbe:I PerfProbe:I > probe/logcat.txt || true
             adb shell getprop ro.build.version.release >> probe/logcat.txt
             grep -q "^OK (" probe/instrument.txt
 
