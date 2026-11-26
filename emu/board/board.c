@@ -230,9 +230,38 @@ size_t board_trace_read(struct sl_soc *s, sl_audio_event *out, size_t max)
     return n;
 }
 
+/* A pin nothing on the board is wired to (nor the scope, nor an outside
+ * driver), set up as a push-pull output without pull: the chip alone
+ * drives it, to ODR. What resolve() works out for it in general, without
+ * adding up conductances: the common case of a program toggling a pin. */
+static int resolve_lone_output(struct sl_soc *s, struct sl_pin_state *p, int slot, int edges)
+{
+    int port = slot_port(slot), bit = slot_bit(slot);
+    if (p->used || p->traced || ((s->pin_ext_drive[port] >> bit) & 1u)) return 0;
+    int pi = s->pi_gpio[port];
+    if (!s->clk_on[pi]) return 0;
+    const uint32_t *r = s->regs[pi];
+    if (((r[0] >> (2 * bit)) & 3u) != 1u || ((r[1] >> bit) & 1u) || ((r[3] >> (2 * bit)) & 3u)) return 0;
+    int lv = (int)((r[5] >> bit) & 1u);
+    int changed = lv != p->level || p->floating;
+    p->pwm = 0;
+    p->chip_drives = 1;
+    p->shorted = p->floating = p->undefined = 0;
+    p->mv = lv ? SL_VDD_MV : 0;
+    p->level = lv;
+    integrate(p, soc_now_ps(s));
+    p->duty_q16 = lv ? 0x10000u : 0;
+    if (edges && changed) {
+        exti_gpio(s, port, bit, lv);
+        bus_pin_changed(s, slot);
+    }
+    return 1;
+}
+
 static void resolve(struct sl_soc *s, int slot, int edges)
 {
     struct sl_pin_state *p = &B->pin[slot];
+    if (resolve_lone_output(s, p, slot, edges)) return;
     int port = slot_port(slot), bit = slot_bit(slot);
     struct drivers d = { 0 };
     chip_driver(s, slot, &d, p);
