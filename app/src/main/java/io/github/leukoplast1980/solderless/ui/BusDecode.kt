@@ -28,7 +28,7 @@ class BusEv(val t: Long, val dur: Long, val kind: Int, val flags: Int, val bits:
         const val SPI = 5; const val LOST = 6; const val CS = 7
         const val HW = 0x10; const val READ = 0x20; const val LSB = 0x40; const val DRIVEN = 0x80
         /** 6 ints per event, as NativeVm.busRead packs them */
-        const val INTS = 6
+        const val INTS = io.github.leukoplast1980.solderless.vm.ChipReader.BUS_INTS
 
         private fun sb(v: Int) = (v and 255).let { if (it == 255) -1 else it }
 
