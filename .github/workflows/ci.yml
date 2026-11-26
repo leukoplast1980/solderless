@@ -19,13 +19,16 @@ jobs:
           python-version: "3.12"
 
       - name: Install tools
-        # apt on the runners sometimes hangs (twice on 26 November 2026, for
-        # over 40 minutes): each try gets 5 minutes, the step 16
-        timeout-minutes: 16
+        # Without the recommended packages: gcc-arm-none-eabi recommends
+        # libstdc++-arm-none-eabi-newlib, 487 MB, and the ARM test code is
+        # built with -ffreestanding -nostdlib. The runners' mirror is
+        # sometimes slow (0.3 MB/s on 26 November 2026): each try gets
+        # 8 minutes, the step 26.
+        timeout-minutes: 26
         run: |
           for try in 1 2 3; do
-            timeout 300 sudo apt-get -o DPkg::Lock::Timeout=60 update &&
-              timeout 300 sudo apt-get -o DPkg::Lock::Timeout=60 install -y gcc-arm-none-eabi binutils-arm-none-eabi cmake ninja-build clang &&
+            timeout 480 sudo apt-get -o DPkg::Lock::Timeout=60 update &&
+              timeout 480 sudo apt-get -o DPkg::Lock::Timeout=60 install -y --no-install-recommends gcc-arm-none-eabi binutils-arm-none-eabi cmake ninja-build clang &&
               break
             [ $try = 3 ] && exit 1
             echo "apt failed or hung, trying again"; sleep 15
