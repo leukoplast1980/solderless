@@ -534,7 +534,17 @@ docs/
 - **Parts**: known drivers (Forth drivers from the Mecrisp community, and
   vendor C drivers where the license allows) run against the part models.
   Where real modules are at hand, the same scripts run against them.
-- **CI**: host tests and a debug APK on every push.
+- **CI**: host tests and a debug APK on every push. The UI probe (pushed
+  `ui/**` branches, or by hand) runs the instrumented tests in an Android
+  emulator.
+- **Speed**: the Perf probe (pushed `perf/**` branches, or by hand) runs
+  `PerfProbeTest` in the emulator: per tab, how fast the chip runs at
+  170 MHz and what the UI thread spends its time on, optionally with
+  simpleperf profiles. Run it on two branches to compare them; the
+  emulator on a shared runner is noisy, so compare a few runs. The
+  emulator alone is measured with callgrind on the host
+  (`valgrind --tool=callgrind build/host/slemu -d -s loop.fs …`), which
+  counts instructions and is exact.
 
 ## 12. Milestones
 
