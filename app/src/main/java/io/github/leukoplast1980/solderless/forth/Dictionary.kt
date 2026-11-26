@@ -43,6 +43,17 @@ class Dictionary(val words: List<Word>) {
     private val byCode = words.sortedBy { it.code.toUInt() }
     private val headers = words.map { it.header.toUInt() }.sorted()
 
+    /** The lowest header address above [x], or null */
+    private fun firstHeaderAfter(x: UInt): UInt? {
+        var lo = 0
+        var hi = headers.size
+        while (lo < hi) {
+            val mid = (lo + hi) ushr 1
+            if (headers[mid] > x) hi = mid else lo = mid + 1
+        }
+        return headers.getOrNull(lo)
+    }
+
     /** Returns the word whose code contains [address], or null. */
     fun wordAt(address: Int): Word? {
         val a = address.toUInt()
@@ -56,7 +67,7 @@ class Dictionary(val words: List<Word>) {
         if (best < 0) return null
         val word = byCode[best]
         // The next header after this word's code must lie beyond the address.
-        val next = headers.firstOrNull { it > word.code.toUInt() }
+        val next = firstHeaderAfter(word.code.toUInt())
         return if (next == null || next > a) word else null
     }
 

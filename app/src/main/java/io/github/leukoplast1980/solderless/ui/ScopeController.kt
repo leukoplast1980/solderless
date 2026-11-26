@@ -30,8 +30,6 @@ class ScopeController(private val activity: AppCompatActivity, private val vm: V
         R.id.scopeW10ms to 10_000_000L, R.id.scopeW1s to 1_000_000_000L)
 
     private val events = HashMap<Int, ArrayList<ScopeView.Ev>>()
-    private val raw = IntArray(2 + 5 * 4096)
-    private val busRaw = IntArray(BusEv.INTS * 2048)
     /** By bus (BusEv.key): what went over it */
     private val busEvents = HashMap<String, ArrayList<BusEv>>()
     private var now = 0L
@@ -138,26 +136,30 @@ class ScopeController(private val activity: AppCompatActivity, private val vm: V
                 NativeVm.tracePins(vm.handle, slots)
             }
         }
+        // The chip reader drains the trace on its own thread: while the Scope
+        // is shown every 50 ms, otherwise every 200 ms if pins are traced
+        vm.reader.scopeTracing = slots.isNotEmpty()
+        vm.reader.scopeVisible = visible
         if (slots.isEmpty() && !visible) return
-        while (true) {
-            val n = NativeVm.traceRead(vm.handle, raw)
-            now = (raw[1].toLong() shl 32) or (raw[0].toLong() and 0xFFFFFFFFL)
-            for (i in 0 until n) {
+        val tracedNow = slots.toHashSet()
+        for (tr in vm.reader.takeTraces()) {
+            val raw = tr.raw
+            for (i in 0 until tr.n) {
                 val o = 2 + 5 * i
                 val t = (raw[o + 1].toLong() shl 32) or (raw[o].toLong() and 0xFFFFFFFFL)
                 val kind = raw[o + 2]
-                events.getOrPut((kind shr 8) and 255) { ArrayList() }.add(
+                val slot = (kind shr 8) and 255
+                if (slot !in tracedNow) continue        // read before the traced pins changed
+                events.getOrPut(slot) { ArrayList() }.add(
                     ScopeView.Ev(t, kind and 255 == 1, raw[o + 3].toLong() and 0xFFFFFFFFL, raw[o + 4].toLong() and 0xFFFFFFFFL, kind and 0x10000 != 0))
             }
-            if (n < 4096) break
         }
-        while (true) {
-            val n = NativeVm.busRead(vm.handle, busRaw)
-            for (i in 0 until n) {
-                val e = BusEv.unpack(busRaw, i)
+        now = vm.reader.traceNowNs
+        for (chunk in vm.reader.takeBusEvents()) {
+            for (i in 0 until chunk.size / BusEv.INTS) {
+                val e = BusEv.unpack(chunk, i)
                 busEvents.getOrPut(e.key) { ArrayList() }.add(e)
             }
-            if (n < busRaw.size / BusEv.INTS) break
         }
         // Where the display is: held, or on the last trigger
         val trig = if (trigSlot >= 0 && !held) lastTrigger() else null
@@ -238,13 +240,13 @@ class ScopeController(private val activity: AppCompatActivity, private val vm: V
     private fun updateReadout() {
         val a = view.cursorA; val b = view.cursorB
         readout.visibility = if (a >= 0 || b >= 0) View.VISIBLE else View.GONE
-        readout.text = when {
+        readout.setTextIfChanged(when {
             a >= 0 && b >= 0 -> {
                 val dt = kotlin.math.abs(b - a)
                 "A–B  Δt " + ScopeView.span(dt) + if (dt > 0) "  ·  " + ScopeView.hz((1e12 / dt).toLong()) else ""
             }
             else -> activity.getString(R.string.scope_cursor_hint)
-        }
+        })
     }
 
     companion object {

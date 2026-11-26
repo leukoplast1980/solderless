@@ -100,14 +100,14 @@ class RegisterMap(json: String) {
     fun peripheral(name: String): Peripheral? = peripherals.firstOrNull { it.name == name }
 
     /** The peripheral and register at an address, if any. */
-    fun at(address: Long): Pair<Peripheral, Register>? {
-        for (p in peripherals) {
-            val off = address - p.base
-            if (off < 0 || off >= 0x1000) continue
-            val r = p.registers.firstOrNull { it.offset.toLong() == off } ?: continue
-            return p to r
+    fun at(address: Long): Pair<Peripheral, Register>? = byAddress[address]
+
+    /** Every register by address; where two peripherals overlap, the first one listed */
+    private val byAddress: Map<Long, Pair<Peripheral, Register>> by lazy {
+        HashMap<Long, Pair<Peripheral, Register>>().also { m ->
+            for (p in peripherals) for (r in p.registers)
+                if (r.offset in 0 until 0x1000) m.putIfAbsent(p.base + r.offset, p to r)
         }
-        return null
     }
 
     private fun register(o: JSONObject): Register {

@@ -275,47 +275,68 @@ void soc_apply_resets(struct sl_soc *s, uint32_t rcc_off, uint32_t bits)
 
 void soc_clock_gates_changed(struct sl_soc *s) { update_clock_gates(s); }
 
+/* Which model handles a peripheral. Worked out on its first access, so a
+ * driver polling a status register no longer searches the tables of every
+ * kind of peripheral at every read. */
+enum { PK_UNKNOWN, PK_PLAIN, PK_RCC, PK_PWR, PK_FLASH, PK_GPIO, PK_USART, PK_TIM, PK_ADC,
+       PK_DAC, PK_EXTI, PK_I2C, PK_SPI, PK_DBGMCU };
+
+static int periph_kind(struct sl_soc *s, int pi)
+{
+    if (s->pkind[pi]) return s->pkind[pi];
+    int k = PK_PLAIN, x;
+    if (pi == s->pi_rcc) k = PK_RCC;
+    else if (pi == s->pi_pwr) k = PK_PWR;
+    else if (pi == s->pi_flash) k = PK_FLASH;
+    else if ((x = gpio_port_of(s, pi)) >= 0) { k = PK_GPIO; s->pidx[pi] = (int8_t)x; }
+    else if ((x = usart_index_of_periph(s, pi)) >= 0) { k = PK_USART; s->pidx[pi] = (int8_t)x; }
+    else if ((x = tim_index_of_periph(s, pi)) >= 0) { k = PK_TIM; s->pidx[pi] = (int8_t)x; }
+    else if ((x = adc_index_of_periph(s, pi)) >= 0) { k = PK_ADC; s->pidx[pi] = (int8_t)x; }
+    else if (pi == s->pi_dac1) k = PK_DAC;
+    else if (pi == s->pi_exti) k = PK_EXTI;
+    else if ((x = i2c_index_of_periph(s, pi)) >= 0) { k = PK_I2C; s->pidx[pi] = (int8_t)x; }
+    else if ((x = spi_index_of_periph(s, pi)) >= 0) { k = PK_SPI; s->pidx[pi] = (int8_t)x; }
+    else if (pi == s->pi_dbgmcu) k = PK_DBGMCU;
+    s->pkind[pi] = (uint8_t)k;
+    return k;
+}
+
 static uint32_t periph_read(struct sl_soc *s, int pi, uint32_t off, int effects)
 {
-    if (pi == s->pi_rcc) return rcc_read(s, off);
-    if (pi == s->pi_flash) return flash_read(s, off);
-    int port = gpio_port_of(s, pi);
-    if (port >= 0) return gpio_read(s, port, off);
-    int u = usart_index_of_periph(s, pi);
-    if (u >= 0) return usart_read(s, u, off, effects);
-    int t = tim_index_of_periph(s, pi);
-    if (t >= 0) return tim_read(s, t, off, effects);
-    int a = adc_index_of_periph(s, pi);
-    if (a >= 0) return adc_read(s, a, off, effects);
-    if (pi == s->pi_dac1) return dac_read(s, off);
-    if (pi == s->pi_exti) return exti_read(s, off);
-    int c = i2c_index_of_periph(s, pi);
-    if (c >= 0) return i2c_read(s, c, off, effects);
-    int sp = spi_index_of_periph(s, pi);
-    if (sp >= 0) return spi_read(s, sp, off, effects);
-    if (pi == s->pi_dbgmcu && off == 0) return 0x20016468u;   /* IDCODE: G431/G441, rev Z */
+    switch (periph_kind(s, pi)) {
+    case PK_RCC: return rcc_read(s, off);
+    case PK_FLASH: return flash_read(s, off);
+    case PK_GPIO: return gpio_read(s, s->pidx[pi], off);
+    case PK_USART: return usart_read(s, s->pidx[pi], off, effects);
+    case PK_TIM: return tim_read(s, s->pidx[pi], off, effects);
+    case PK_ADC: return adc_read(s, s->pidx[pi], off, effects);
+    case PK_DAC: return dac_read(s, off);
+    case PK_EXTI: return exti_read(s, off);
+    case PK_I2C: return i2c_read(s, s->pidx[pi], off, effects);
+    case PK_SPI: return spi_read(s, s->pidx[pi], off, effects);
+    case PK_DBGMCU: if (off == 0) return 0x20016468u;   /* IDCODE: G431/G441, rev Z */
+        break;
+    default: break;
+    }
     return s->regs[pi][off / 4];
 }
 
 static void periph_write(struct sl_soc *s, int pi, uint32_t off, uint32_t v, uint32_t mask)
 {
-    if (pi == s->pi_rcc) { rcc_write(s, off, v, mask); return; }
-    if (pi == s->pi_pwr) { pwr_write(s, off, v, mask); return; }
-    if (pi == s->pi_flash) { flash_write(s, off, v, mask); return; }
-    int port = gpio_port_of(s, pi);
-    if (port >= 0) { gpio_write(s, port, off, v, mask); return; }
-    int u = usart_index_of_periph(s, pi);
-    if (u >= 0) { usart_write(s, u, off, v, mask); return; }
-    int t = tim_index_of_periph(s, pi);
-    if (t >= 0) { tim_write(s, t, off, v, mask); return; }
-    int a = adc_index_of_periph(s, pi);
-    if (a >= 0) { adc_write(s, a, off, v, mask); return; }
-    if (pi == s->pi_dac1) { dac_write(s, off, v, mask); return; }
-    if (pi == s->pi_exti) { exti_write(s, off, v, mask); return; }
-    int c = i2c_index_of_periph(s, pi);
-    if (c >= 0) { i2c_write(s, c, off, v, mask); return; }
-    int sp = spi_index_of_periph(s, pi);
-    if (sp >= 0) { spi_write(s, sp, off, v, mask); return; }
+    switch (periph_kind(s, pi)) {
+    case PK_RCC: rcc_write(s, off, v, mask); return;
+    case PK_PWR: pwr_write(s, off, v, mask); return;
+    case PK_FLASH: flash_write(s, off, v, mask); return;
+    case PK_GPIO: gpio_write(s, s->pidx[pi], off, v, mask); return;
+    case PK_USART: usart_write(s, s->pidx[pi], off, v, mask); return;
+    case PK_TIM: tim_write(s, s->pidx[pi], off, v, mask); return;
+    case PK_ADC: adc_write(s, s->pidx[pi], off, v, mask); return;
+    case PK_DAC: dac_write(s, off, v, mask); return;
+    case PK_EXTI: exti_write(s, off, v, mask); return;
+    case PK_I2C: i2c_write(s, s->pidx[pi], off, v, mask); return;
+    case PK_SPI: spi_write(s, s->pidx[pi], off, v, mask); return;
+    default: break;
+    }
     uint32_t wm = s->wmask[pi][off / 4] & mask;
     s->regs[pi][off / 4] = (s->regs[pi][off / 4] & ~wm) | (v & wm);
 }
@@ -394,6 +415,11 @@ static int mmio_read(void *ctx, uint32_t a, int n, uint32_t *v)
     return 0;
 }
 
+static struct sl_alog_entry *alog_recent(struct sl_soc *s, uint32_t addr, uint32_t *last_after);
+static void alog_fold(struct sl_soc *s, struct sl_alog_entry *e, uint32_t value, uint32_t mask,
+                      uint32_t before, uint32_t after);
+static void alog_new(struct sl_soc *s, uint32_t addr, uint32_t value, uint32_t mask, uint32_t before, uint32_t after);
+
 static int mmio_write(void *ctx, uint32_t a, int n, uint32_t v)
 {
     struct sl_soc *s = ctx;
@@ -414,9 +440,17 @@ static int mmio_write(void *ctx, uint32_t a, int n, uint32_t v)
     }
     unsigned sh = (off & 3u) * 8u;
     uint32_t mask = (n == 4 ? 0xFFFFFFFFu : ((1u << (8 * n)) - 1u)) << sh;
-    uint32_t before = periph_read(s, pi, off & ~3u, 0);
+    /* The access log. A loop writing a register again from the same
+     * instruction counts into that instruction's entry; the register then
+     * holds what the newest write to it left (the entry's "after"), so only
+     * the value after this write is read. */
+    uint32_t last_after;
+    struct sl_alog_entry *e = alog_recent(s, a & ~3u, &last_after);
+    uint32_t before = e ? last_after : periph_read(s, pi, off & ~3u, 0);
     periph_write(s, pi, off & ~3u, v << sh, mask);
-    soc_alog_add(s, a & ~3u, v << sh, mask, before, periph_read(s, pi, off & ~3u, 0));
+    uint32_t after = periph_read(s, pi, off & ~3u, 0);
+    if (e) alog_fold(s, e, v << sh, mask, before, after);
+    else alog_new(s, a & ~3u, v << sh, mask, before, after);
     return 0;
 }
 
@@ -425,28 +459,51 @@ static void scs_written(void *ctx, uint32_t a, uint32_t v, uint32_t mask, uint32
     soc_alog_add(ctx, a, v, mask, before, after);
 }
 
-void soc_alog_add(struct sl_soc *s, uint32_t addr, uint32_t value, uint32_t mask, uint32_t before, uint32_t after)
+static uint32_t alog_pc(const struct sl_soc *s) { return s->debug_write ? SL_ACCESS_DEBUG : s->cpu.r[15]; }
+
+/* A recent entry from this instruction for this register, or NULL; then
+ * *last_after is what the newest entry for the register left in it. */
+static struct sl_alog_entry *alog_recent(struct sl_soc *s, uint32_t addr, uint32_t *last_after)
 {
     struct sl_alog *l = &s->alog;
-    uint32_t pc = s->debug_write ? SL_ACCESS_DEBUG : s->cpu.r[15];
-    uint64_t t = soc_now_ps(s) / 1000u;
-    /* the same instruction writing the same register again (a loop): count it */
+    uint32_t pc = alog_pc(s);
+    int seen = 0;
     for (uint32_t k = 1; k <= 8 && k <= l->n; k++) {
         struct sl_alog_entry *e = &l->e[(l->head - k) % SL_ALOG_SIZE];
-        if (e->pc == pc && e->addr == addr) {
-            e->t_last_ns = t;
-            e->value = value;
-            e->mask |= mask;
-            e->changed |= before ^ after;
-            e->after = after;
-            e->count++;
-            return;
-        }
+        if (e->addr != addr) continue;
+        if (!seen) { *last_after = e->after; seen = 1; }
+        if (e->pc == pc) return e;
     }
-    l->e[l->head % SL_ALOG_SIZE] = (struct sl_alog_entry){ t, t, pc, addr, value, mask, before, after, before ^ after, 1 };
+    return NULL;
+}
+
+static void alog_fold(struct sl_soc *s, struct sl_alog_entry *e, uint32_t value, uint32_t mask,
+                      uint32_t before, uint32_t after)
+{
+    e->t_last_ps = soc_now_ps(s);
+    e->value = value;
+    e->mask |= mask;
+    e->changed |= before ^ after;
+    e->after = after;
+    e->count++;
+}
+
+static void alog_new(struct sl_soc *s, uint32_t addr, uint32_t value, uint32_t mask, uint32_t before, uint32_t after)
+{
+    struct sl_alog *l = &s->alog;
+    uint64_t t = soc_now_ps(s);
+    l->e[l->head % SL_ALOG_SIZE] = (struct sl_alog_entry){ t, t, alog_pc(s), addr, value, mask, before, after, before ^ after, 1 };
     l->head++;
     if (l->n < SL_ALOG_SIZE) l->n++;
     else l->lost++;
+}
+
+void soc_alog_add(struct sl_soc *s, uint32_t addr, uint32_t value, uint32_t mask, uint32_t before, uint32_t after)
+{
+    uint32_t last_after;
+    struct sl_alog_entry *e = alog_recent(s, addr, &last_after);
+    if (e) alog_fold(s, e, value, mask, before, after);
+    else alog_new(s, addr, value, mask, before, after);
 }
 
 static int mmio_peek(void *ctx, uint32_t a, uint32_t *v)
@@ -509,6 +566,7 @@ void soc_init(struct sl_soc *s)
     static const char *ports[SL_NUM_PORTS] = { "GPIOA", "GPIOB", "GPIOC", "GPIOD", "GPIOE", "GPIOF", "GPIOG" };
     for (int i = 0; i < SL_NUM_PORTS; i++) s->pi_gpio[i] = periph_index(ports[i]);
     memset(s->port_of, -1, sizeof s->port_of);
+    memset(s->pkind, 0, sizeof s->pkind);
     for (int i = 0; i < SL_NUM_PORTS; i++) if (s->pi_gpio[i] >= 0) s->port_of[s->pi_gpio[i]] = (int8_t)i;
     s->last_pi = 0;
     memset(s->af_index, -1, sizeof s->af_index);

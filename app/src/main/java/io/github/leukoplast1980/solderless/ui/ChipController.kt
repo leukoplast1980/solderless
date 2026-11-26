@@ -96,7 +96,7 @@ class ChipController(private val activity: Activity, private val vm: VmHost) {
 
     fun refresh() {
         val s = vm.snapshot()
-        runState.text = runText(s)
+        runState.setTextIfChanged(runText(s))
         when (section) {
             Section.CORE -> core.refresh(s)
             Section.REGISTERS -> registers.refresh()
@@ -109,7 +109,7 @@ class ChipController(private val activity: Activity, private val vm: VmHost) {
 
     private fun updateButtons() {
         val paused = vm.isUserPaused
-        pauseButton.setText(if (paused) R.string.resume else R.string.pause)
+        pauseButton.setTextIfChanged(activity.getString(if (paused) R.string.resume else R.string.pause))
         stepButton.isEnabled = paused
     }
 

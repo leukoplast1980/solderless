@@ -134,7 +134,7 @@ struct sl_idle {
  * the same register from the same instruction makes one entry, counted. */
 #define SL_ALOG_SIZE 1024u
 struct sl_alog_entry {
-    uint64_t t_ns, t_last_ns;   /* first and last write */
+    uint64_t t_ps, t_last_ps;   /* first and last write */
     uint32_t pc, addr;          /* pc: SL_ACCESS_DEBUG for writes made by sl_poke32 */
     uint32_t value, mask;       /* what was written (last time), which bytes */
     uint32_t before, after;     /* the register before the first write, after the last */
@@ -163,6 +163,8 @@ struct sl_soc {
     int pi_rcc, pi_pwr, pi_flash, pi_syscfg, pi_dbgmcu, pi_gpio[SL_NUM_PORTS];
     int pi_exti, pi_dac1, pi_adc_common;
     int8_t port_of[96];         /* GPIO port of a peripheral index, or -1 */
+    uint8_t pkind[96];          /* which model handles a peripheral index (soc.c), 0 until first used */
+    int8_t pidx[96];            /* and which instance of it: port, USART, timer ... */
     int last_pi;                /* the peripheral the last MMIO access went to */
     /* The alternate-function table (sl_g431_af) by port, pin and AF number; -1 for none */
     int16_t af_index[SL_NUM_PORTS][16][16];

@@ -76,14 +76,15 @@ class VmHost private constructor(context: Context) {
     @Volatile var registerMap: RegisterMap? = null
         private set
 
+    /** Reads the access log and the scope's trace off the UI thread */
+    val reader: ChipReader
+
     /** Register writes and chip messages, for the Chip tab's Log (UI thread only) */
     val accessLog = AccessLog()
-    private val accessBuf = IntArray(1 + 12 * 1024)
 
-    /** Takes the register writes since the last call into [accessLog] */
+    /** Takes the register writes [reader] got since the last call into [accessLog] */
     fun pollAccessLog() {
-        val n = NativeVm.accessRead(handle, accessBuf)
-        accessLog.addWrites(accessBuf, n)
+        for (w in reader.takeWrites()) accessLog.addWrites(w.raw, w.n)
     }
 
     /** Reads the register descriptions (half a megabyte of JSON): call off the UI thread */
@@ -107,6 +108,7 @@ class VmHost private constructor(context: Context) {
         )
         handle = NativeVm.create(false, 0, false)
         NativeVm.setFaultBreak(handle, true)
+        reader = ChipReader(handle)
         chip = ChipPins(assets.open("chip/g431rb-pins.json").use { it.reader().readText() })
 
         val name = projects.current ?: projects.list().firstOrNull()
@@ -226,6 +228,7 @@ class VmHost private constructor(context: Context) {
     fun setForeground(visible: Boolean) {
         foreground = visible
         NativeVm.pause(handle, !foreground || userPaused)
+        reader.setRunning(visible)
         updateAudio()
     }
 
