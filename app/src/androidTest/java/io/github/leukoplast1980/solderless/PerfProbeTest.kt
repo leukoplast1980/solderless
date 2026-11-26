@@ -209,6 +209,138 @@ class PerfProbeTest {
         scenario.close()
     }
 
+    /**
+     * How quickly the Chip tab follows a pot: Forth copies the pot's ADC
+     * reading into TIM2_CCR1 in a loop; the pot is turned the way its
+     * slider does it (vm.boardInput on the UI thread) and the probe times
+     * how long the UI thread waits for that, and how long until the
+     * Registers section, then the Log, shows the new value.
+     */
+    @Test
+    fun potLatency() {
+        val inst = InstrumentationRegistry.getInstrumentation()
+        val ctx = inst.targetContext
+        val scenario = ActivityScenario.launch(MainActivity::class.java)
+        Thread.sleep(2000)
+        val vm = VmHost.get(ctx)
+        vm.powerCycle()
+        Thread.sleep(3000)
+        val rec = vm.recommender()
+        var b = Board()
+        b = b.apply(rec.propose(b.parts, Part(b.nextId(), PartType.POT, emptyList()))!!)
+        val pot = b.parts.first { it.type == PartType.POT }
+        scenario.onActivity { vm.setBoard(b) }
+        Thread.sleep(500)
+        val sample = io.github.leukoplast1980.solderless.board.Samples.forPart(b, vm.chip, pot)
+        for (line in sample.lines().filter { it.isNotBlank() }) ok(vm, line)
+        ok(vm, ": pot-pwm pot-init 1 \$40021058 bis! begin pot@ \$40000034 ! key? until key drop ;")
+        vm.send("pot-pwm\n")
+        Thread.sleep(500)
+
+        fun tabChip() = scenario.onActivity { a ->
+            val tabs = a.findViewById<TabLayout>(R.id.tabs)
+            for (i in 0 until tabs.tabCount) if (tabs.getTabAt(i)!!.text.toString() == "Chip") tabs.getTabAt(i)!!.select()
+        }
+        fun section(label: String) = scenario.onActivity { a ->
+            val g = a.findViewById<ChipGroup>(R.id.chipSections)
+            for (k in 0 until g.childCount) (g.getChildAt(k) as Chip).let { if (it.text.toString() == label) it.performClick() }
+        }
+        tabChip()
+        section("Registers")
+        scenario.onActivity { a -> a.findViewById<android.widget.EditText>(R.id.registerFind).setText("TIM2_CCR1") }
+        Thread.sleep(1500)
+
+        // What each view shows for TIM2_CCR1 now
+        fun regValue(): String {
+            var v = ""
+            scenario.onActivity { a ->
+                val l = a.findViewById<io.github.leukoplast1980.solderless.ui.RegisterListView>(R.id.registerList)
+                v = l.rows.filterIsInstance<io.github.leukoplast1980.solderless.ui.RegisterListView.Row.Reg>()
+                    .firstOrNull { it.name == "CCR1" }?.value ?: "?"
+            }
+            return v
+        }
+        fun logValue(): String {
+            var v = ""
+            scenario.onActivity { a ->
+                val l = a.findViewById<io.github.leukoplast1980.solderless.ui.LogListView>(R.id.logList)
+                v = l.rows.filterIsInstance<io.github.leukoplast1980.solderless.ui.LogListView.Row.Write>()
+                    .firstOrNull { it.register == "TIM2_CCR1" }?.lines?.joinToString { it.first } ?: "?"
+            }
+            return v
+        }
+
+        fun measure(name: String, read: () -> String) {
+            val lat = ArrayList<Double>()
+            val block = ArrayList<Double>()
+            var missed = 0
+            for (step in 0 until 16) {
+                val v = if (step % 2 == 0) 250 + step * 10 else 750 - step * 10
+                val before = read()
+                val t0 = System.nanoTime()
+                scenario.onActivity {
+                    val t = System.nanoTime()
+                    vm.boardInput(pot.id, v)
+                    block += (System.nanoTime() - t) / 1e6
+                }
+                var seen = false
+                while (System.nanoTime() - t0 < 3_000_000_000L) {
+                    if (read() != before) { seen = true; break }
+                    Thread.sleep(3)
+                }
+                if (seen) lat += (System.nanoTime() - t0) / 1e6 else missed++
+                Thread.sleep(400)
+            }
+            fun stats(l: List<Double>) = if (l.isEmpty()) "-" else l.sorted().let {
+                "median ${"%.0f".format(it[it.size / 2])} max ${"%.0f".format(it.last())} ms" }
+            note("POT $name: shown after ${stats(lat)}${if (missed > 0) " ($missed not seen in 3 s)" else ""}; " +
+                "UI thread waited ${stats(block)} per pot change")
+        }
+
+        measure("registers", ::regValue)
+
+        // Dragging: 60 changes a second on the UI thread, as the slider sends them
+        val rec2 = Recorder()
+        val ht = HandlerThread("frames").apply { start() }
+        scenario.onActivity { a ->
+            Looper.getMainLooper().setMessageLogging(rec2.printer)
+            a.window.addOnFrameMetricsAvailableListener(rec2.frames, Handler(ht.looper))
+        }
+        rec2.start()
+        val main = Handler(Looper.getMainLooper())
+        var k = 0
+        val drag = object : Runnable {
+            override fun run() {
+                vm.boardInput(pot.id, 500 + (400 * Math.sin(k++ / 20.0)).toInt())
+                if (k < 300) main.postDelayed(this, 16)
+            }
+        }
+        main.post(drag)
+        Thread.sleep(5500)
+        rec2.stop()
+        note("POT drag-registers ${rec2.report()}")
+
+        section("Log")
+        Thread.sleep(1500)
+        measure("log", ::logValue)
+        k = 0
+        rec2.start()
+        main.post(drag)
+        Thread.sleep(5500)
+        rec2.stop()
+        note("POT drag-log ${rec2.report()}")
+
+        scenario.onActivity { Looper.getMainLooper().setMessageLogging(null) }
+        vm.send(" ")
+        Thread.sleep(500)
+        scenario.onActivity { a -> a.findViewById<android.widget.EditText>(R.id.registerFind).setText("") }
+        scenario.onActivity { vm.setBoard(Board()) }
+        vm.powerCycle()
+        File(ctx.getExternalFilesDir(null), "perf-pot.txt").writeText(out.toString())
+        ht.quitSafely()
+        scenario.close()
+    }
+
     companion object {
         private const val TAG = "PerfProbe"
     }

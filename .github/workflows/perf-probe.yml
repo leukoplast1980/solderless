@@ -53,11 +53,12 @@ jobs:
             adb install -r app/build/outputs/apk/androidTest/debug/app-debug-androidTest.apk
             bash .github/perf.sh
             adb root; sleep 3; adb pull /sdcard/Android/data/io.github.leukoplast1980.solderless.debug/files/perf.txt probe/ || true
+            adb pull /sdcard/Android/data/io.github.leukoplast1980.solderless.debug/files/perf-pot.txt probe/ || true
 
       - name: Summary
         if: always()
         run: |
-          { echo '```'; cat probe/perf.txt 2>/dev/null || echo "no perf.txt"; echo '```'; } >> "$GITHUB_STEP_SUMMARY"
+          { echo '```'; cat probe/perf.txt 2>/dev/null || echo "no perf.txt"; cat probe/perf-pot.txt 2>/dev/null; echo '```'; } >> "$GITHUB_STEP_SUMMARY"
 
       - uses: actions/upload-artifact@v5
         if: always()
