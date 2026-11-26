@@ -238,13 +238,13 @@ class ScopeController(private val activity: AppCompatActivity, private val vm: V
     private fun updateReadout() {
         val a = view.cursorA; val b = view.cursorB
         readout.visibility = if (a >= 0 || b >= 0) View.VISIBLE else View.GONE
-        readout.text = when {
+        readout.setTextIfChanged(when {
             a >= 0 && b >= 0 -> {
                 val dt = kotlin.math.abs(b - a)
                 "A–B  Δt " + ScopeView.span(dt) + if (dt > 0) "  ·  " + ScopeView.hz((1e12 / dt).toLong()) else ""
             }
             else -> activity.getString(R.string.scope_cursor_hint)
-        }
+        })
     }
 
     companion object {

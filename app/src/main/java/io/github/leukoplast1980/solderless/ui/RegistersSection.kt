@@ -54,6 +54,10 @@ class RegistersSection(private val activity: Activity, private val vm: VmHost) {
 
     /** Register values read last time, by address; only of the open peripherals */
     private var values = HashMap<Long, Long>()
+
+    /** The peripherals in name order ("TIM2" before "TIM15"), sorted once for [sortedFor] */
+    private var sorted = emptyList<Peripheral>()
+    private var sortedFor: RegisterMap? = null
     /** When each field last changed: key address * 64 + bit */
     private val changedAt = HashMap<Long, Long>()
     /** The values before the last Step: while paused, what it changed stays highlighted */
@@ -94,8 +98,12 @@ class RegistersSection(private val activity: Activity, private val vm: VmHost) {
         }
         now = SystemClock.uptimeMillis()
 
-        // What to show: everything, or what the search finds
-        val shown = map.peripherals.mapNotNull { p -> match(p) }
+        // What to show: everything, or what the search finds, by name
+        if (sortedFor !== map) {
+            sorted = map.peripherals.sortedWith(compareBy(NATURAL) { it.name })
+            sortedFor = map
+        }
+        val shown = sorted.mapNotNull { p -> match(p) }
 
         // One read for the clock enables and the open peripherals' registers
         val enOffsets = map.peripherals.filter { it.enOffset >= 0 }.map { it.enOffset }.distinct()
@@ -109,7 +117,7 @@ class RegistersSection(private val activity: Activity, private val vm: VmHost) {
         values = fresh
 
         fun clockOn(p: Peripheral) = p.enOffset < 0 || ((fresh[RegisterMap.RCC_BASE + p.enOffset] ?: 0L) shr p.enBit) and 1L == 1L
-        val (on, off) = shown.sortedWith(compareBy(NATURAL) { it.p.name }).partition { clockOn(it.p) }
+        val (on, off) = shown.partition { clockOn(it.p) }
 
         val rows = ArrayList<Row>()
         val acts = ArrayList<(() -> Unit)?>()
@@ -352,9 +360,10 @@ class RegistersSection(private val activity: Activity, private val vm: VmHost) {
         private const val HOLD_MS = 1500L
 
         /** GPIOA < GPIOB, TIM2 < TIM15 */
+        private val NAME_PARTS = Regex("(\\D*)(\\d*)(.*)")
         private val NATURAL = Comparator<String> { a, b ->
-            val ra = Regex("(\\D*)(\\d*)(.*)").matchEntire(a)!!.groupValues
-            val rb = Regex("(\\D*)(\\d*)(.*)").matchEntire(b)!!.groupValues
+            val ra = NAME_PARTS.matchEntire(a)!!.groupValues
+            val rb = NAME_PARTS.matchEntire(b)!!.groupValues
             compareValuesBy(ra, rb, { it[1] }, { it[2].toIntOrNull() ?: -1 }, { it[3] })
         }
     }

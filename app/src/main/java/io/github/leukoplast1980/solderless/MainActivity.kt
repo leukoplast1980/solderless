@@ -38,6 +38,7 @@ import io.github.leukoplast1980.solderless.settings.SettingsActivity
 import io.github.leukoplast1980.solderless.ui.Completion
 import io.github.leukoplast1980.solderless.ui.BoardController
 import io.github.leukoplast1980.solderless.ui.ScopeController
+import io.github.leukoplast1980.solderless.ui.setTextIfChanged
 import io.github.leukoplast1980.solderless.ui.ConsoleController
 import io.github.leukoplast1980.solderless.ui.EditorController
 import io.github.leukoplast1980.solderless.ui.ExtraKeys
@@ -363,7 +364,7 @@ class MainActivity : AppCompatActivity() {
 
     private fun updateTitle() {
         val name = getString(R.string.title_format, vm.project.name)
-        title.text = if (vm.isUserPaused) getString(R.string.paused_suffix, name) else name
+        title.setTextIfChanged(if (vm.isUserPaused) getString(R.string.paused_suffix, name) else name)
     }
 
     // ------------------------------------------------------------------

@@ -164,7 +164,7 @@ class BoardController(
             view.invalidate()
             val n = warnings()
             warn.visibility = if (n > 0) View.VISIBLE else View.GONE
-            warn.text = activity.getString(R.string.board_warnings, n)
+            warn.setTextIfChanged(activity.getString(R.string.board_warnings, n))
         } else updatePinned()
     }
 
@@ -1080,7 +1080,7 @@ class BoardController(
             name.setSpan(ForegroundColorSpan(color(R.color.label)), at, name.length, Spanned.SPAN_EXCLUSIVE_EXCLUSIVE)
             name.setSpan(TypefaceSpan("monospace"), at, name.length, Spanned.SPAN_EXCLUSIVE_EXCLUSIVE)
             if (potStripName.text.toString() != name.toString()) potStripName.text = name
-            potStripValue.text = volts(v) + " · " + (v + 5) / 10 + " %"
+            potStripValue.setTextIfChanged(volts(v) + " · " + (v + 5) / 10 + " %")
             if (potSlider.value.toInt() != v) potSlider.value = v.toFloat()
         }
         val vis = if (show) View.VISIBLE else View.GONE
@@ -1130,16 +1130,22 @@ class BoardController(
                         val c = if (p.type == PartType.RGB_LED) listOf(0xFF6B6B, 0x6FCF7F, 0x7FB8FF)[role] else (p.colour.argb.toInt() and 0xFFFFFF)
                         r += lit * ((c shr 16) and 255); g += lit * ((c shr 8) and 255); b += lit * (c and 255)
                     }
-                    val dot = GradientDrawable().apply {
-                        shape = GradientDrawable.OVAL; setSize(dp(12), dp(12))
-                        setColor((0xFF shl 24) or (minOf(255f, r).toInt() shl 16) or (minOf(255f, g).toInt() shl 8) or minOf(255f, b).toInt())
-                        setStroke(1, 0xFF3A4650.toInt())
+                    val argb = (0xFF shl 24) or (minOf(255f, r).toInt() shl 16) or (minOf(255f, g).toInt() shl 8) or minOf(255f, b).toInt()
+                    // a new drawable lays the window out again: only when the colour changed
+                    if (v.getTag(R.id.pinnedDot) != argb) {
+                        v.setTag(R.id.pinnedDot, argb)
+                        val dot = GradientDrawable().apply {
+                            shape = GradientDrawable.OVAL; setSize(dp(12), dp(12))
+                            setColor(argb)
+                            setStroke(1, 0xFF3A4650.toInt())
+                        }
+                        v.setCompoundDrawablesRelativeWithIntrinsicBounds(dot, null, null, null)
                     }
-                    v.setCompoundDrawablesRelativeWithIntrinsicBounds(dot, null, null, null)
                 }
                 PartType.PIEZO, PartType.SPEAKER -> {
                     val s = vm.chip.gpio(p.pins[0].pin)?.slot ?: continue
-                    v.text = if (state.pwm(s)) SpannableStringBuilder(nameAndPins(p)).append("  ${state.freqMilliHz(s) / 1000} Hz") else nameAndPins(p)
+                    val t = if (state.pwm(s)) SpannableStringBuilder(nameAndPins(p)).append("  ${state.freqMilliHz(s) / 1000} Hz") else nameAndPins(p)
+                    if (v.text.toString() != t.toString()) v.text = t
                 }
                 else -> {}
             }
