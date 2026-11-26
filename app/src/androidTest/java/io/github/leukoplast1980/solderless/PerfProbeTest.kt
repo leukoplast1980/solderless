@@ -148,6 +148,7 @@ class PerfProbeTest {
 
         fun measure(name: String) {
             Thread.sleep(2000)
+            Log.i(TAG, "START $name")
             rec2.start()
             val speeds = ArrayList<Int>()
             repeat(8) { Thread.sleep(1000); speeds += vm.snapshot().speedPercent }
