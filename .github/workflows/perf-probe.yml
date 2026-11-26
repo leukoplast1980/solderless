@@ -1,0 +1,66 @@
+name: Perf probe
+
+# Measures the app in an Android emulator (PerfProbeTest): for each tab, how
+# fast the emulated chip runs with Forth busy at 170 MHz, and what the UI
+# thread spends its time on. Push a perf/... branch or start it by hand, on
+# two branches to compare them; the numbers are in the perf artifact
+# (perf.txt) and the job summary. The emulator on a shared runner is noisy:
+# compare runs, not single phases.
+on:
+  push:
+    branches: ["perf/**"]
+  workflow_dispatch:
+    inputs:
+      profile:
+        description: "Also record simpleperf profiles (slows the app down)"
+        type: boolean
+        default: false
+
+jobs:
+  perf:
+    runs-on: ubuntu-latest
+    timeout-minutes: 40
+    steps:
+      - uses: actions/checkout@v5
+
+      - name: Enable KVM
+        run: |
+          echo 'KERNEL=="kvm", GROUP="kvm", MODE="0666", OPTIONS+="static_node=kvm"' | sudo tee /etc/udev/rules.d/99-kvm4all.rules
+          sudo udevadm control --reload-rules
+          sudo udevadm trigger --name-match=kvm
+
+      - uses: actions/setup-java@v5
+        with:
+          distribution: temurin
+          java-version: 17
+
+      - uses: gradle/actions/setup-gradle@v5
+
+      - name: Build the app and the probe
+        run: ./gradlew --no-daemon assembleDebug assembleDebugAndroidTest
+
+      - name: Run in the emulator
+        uses: reactivecircus/android-emulator-runner@v2
+        env:
+          PROFILE: ${{ inputs.profile && '1' || '0' }}
+        with:
+          api-level: 35
+          arch: x86_64
+          target: google_apis
+          disable-animations: true
+          script: |
+            adb install -r app/build/outputs/apk/debug/app-debug.apk
+            adb install -r app/build/outputs/apk/androidTest/debug/app-debug-androidTest.apk
+            bash .github/perf.sh
+            adb root; sleep 3; adb pull /sdcard/Android/data/io.github.leukoplast1980.solderless.debug/files/perf.txt probe/ || true
+
+      - name: Summary
+        if: always()
+        run: |
+          { echo '```'; cat probe/perf.txt 2>/dev/null || echo "no perf.txt"; echo '```'; } >> "$GITHUB_STEP_SUMMARY"
+
+      - uses: actions/upload-artifact@v5
+        if: always()
+        with:
+          name: perf
+          path: probe/
