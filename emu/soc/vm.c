@@ -362,7 +362,7 @@ static void access_fn(sl_vm *vm, void *arg)
     uint32_t first = l->head - l->n;
     while (io->got < io->max && l->n) {
         const struct sl_alog_entry *e = &l->e[first++ % SL_ALOG_SIZE];
-        io->out[io->got++] = (sl_access){ e->t_ns, e->t_last_ns, e->pc, e->addr, e->value, e->mask,
+        io->out[io->got++] = (sl_access){ e->t_ps / 1000u, e->t_last_ps / 1000u, e->pc, e->addr, e->value, e->mask,
                                           e->before, e->after, e->changed, e->count };
         l->n--;
     }
