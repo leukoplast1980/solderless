@@ -16,12 +16,12 @@ class RegisterListView(context: Context, attrs: AttributeSet? = null) : RowsView
 
     sealed class Row {
         /** CLOCK ON, CLOCK OFF */
-        class Group(val label: String) : Row()
-        class Periph(val name: String, val address: String, val expanded: Boolean, val on: Boolean, val tag: String) : Row()
-        class Reg(val name: String, val value: String, val note: String, val changed: Boolean, val dim: Boolean) : Row()
-        class Field(val name: String, val value: String, val meaning: String, val changed: Boolean, val dim: Boolean) : Row()
+        data class Group(val label: String) : Row()
+        data class Periph(val name: String, val address: String, val expanded: Boolean, val on: Boolean, val tag: String) : Row()
+        data class Reg(val name: String, val value: String, val note: String, val changed: Boolean, val dim: Boolean) : Row()
+        data class Field(val name: String, val value: String, val meaning: String, val changed: Boolean, val dim: Boolean) : Row()
         /** "13 more at reset" (indented, tappable), "Reading …" */
-        class Note(val text: String, val indent: Boolean) : Row()
+        data class Note(val text: String, val indent: Boolean) : Row()
     }
 
     private val text = color(R.color.console_text)
@@ -54,6 +54,7 @@ class RegisterListView(context: Context, attrs: AttributeSet? = null) : RowsView
     override fun rowHeight(i: Int, width: Int) = heightOf(rows[i])
 
     fun show(newRows: List<Row>) {
+        if (newRows == rows) return         // nothing to draw again
         val heights = newRows.size != rows.size || newRows.indices.any { heightOf(newRows[it]) != heightOf(rows[it]) }
         rows = newRows
         changed(heights)
